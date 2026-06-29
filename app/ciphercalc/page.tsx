@@ -145,9 +145,9 @@ export default function CipherCalcPage() {
   const isCorrect = status?.correct === true;
 
   const diffColors: Record<Difficulty, { color: string; bg: string; class: string }> = {
-    easy: { color: 'var(--cyan)', bg: 'rgba(0,212,255,0.05)', class: 'active-easy' },
-    medium: { color: 'var(--warning)', bg: 'rgba(255,170,0,0.05)', class: 'active-medium' },
-    hard: { color: 'var(--danger)', bg: 'rgba(255,51,102,0.05)', class: 'active-hard' },
+    easy: { color: '#00d4ff', bg: 'rgba(0,212,255,0.05)', class: 'active-easy' },
+    medium: { color: '#ffaa00', bg: 'rgba(255,170,0,0.05)', class: 'active-medium' },
+    hard: { color: '#ff3366', bg: 'rgba(255,51,102,0.05)', class: 'active-hard' },
   };
 
   const currentDiff = diffColors[difficulty];
@@ -223,7 +223,7 @@ export default function CipherCalcPage() {
         }}>
           <BackButton />
           <button
-            onClick={() => setShowRules(true)}
+            onClick={() => { playSound('/sounds/gameModeClick.mp3'); setShowRules(true); }}
             className="btn btn-ghost"
             style={{ fontSize: '0.55rem', padding: '6px 10px' }}
           >
@@ -234,14 +234,13 @@ export default function CipherCalcPage() {
         {/* Calculator panel */}
         <div
           key={shakeKey}
-          className={`panel panel-dotmatrix ${status && !isCorrect ? 'anim-shake' : ''}`}
+          className={`crt-frame panel-dotmatrix ${status && !isCorrect ? 'anim-shake' : ''}`}
           style={{
             padding: '24px 20px',
-            borderColor: isCorrect ? 'var(--success)' : currentDiff.color,
             boxShadow: isCorrect
-              ? 'var(--success-glow)'
-              : `0 0 12px ${currentDiff.color}55, 0 0 28px ${currentDiff.color}30, 0 0 60px ${currentDiff.color}14`,
-            transition: 'border-color 300ms ease, box-shadow 300ms ease',
+              ? `inset 0 0 30px rgba(0,0,0,0.5), var(--success-glow)`
+              : `inset 0 0 30px rgba(0,0,0,0.5), 0 0 12px ${currentDiff.color}55, 0 0 28px ${currentDiff.color}30, 0 0 60px ${currentDiff.color}14`,
+            transition: 'box-shadow 300ms ease',
           }}
         >
           {/* Difficulty selector + score */}

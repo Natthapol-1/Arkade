@@ -3,6 +3,14 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
+function playSound(path: string, volume = 0.45) {
+  if (typeof window !== 'undefined') {
+    const audio = new Audio(path);
+    audio.volume = volume;
+    audio.play().catch(() => { });
+  }
+}
+
 export default function Home() {
   const [booted, setBooted] = useState(false);
   const [showCards, setShowCards] = useState(false);
@@ -23,6 +31,7 @@ export default function Home() {
       desc: 'Decrypt the equation',
       icon: '█',
       iconAnim: 'cursorBlink',
+      iconScale: 1,
     },
     {
       name: 'Spectrum Snake',
@@ -30,6 +39,15 @@ export default function Home() {
       desc: 'Match colors by memory',
       icon: '◆',
       iconAnim: 'foodPulse',
+      iconScale: 1.7,
+    },
+    {
+      name: 'Outcast Gambit',
+      path: '/outcast-gambit',
+      desc: 'Hunt imposters on the board',
+      icon: '♟',
+      iconAnim: 'cursorBlink',
+      iconScale: 1.5,
     },
   ];
 
@@ -140,38 +158,39 @@ export default function Home() {
       {/* Game cards */}
       <div style={{
         display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
         gap: '16px',
         width: '100%',
-        maxWidth: '480px',
+        maxWidth: '420px',
         opacity: showCards ? 1 : 0,
         transform: showCards ? 'translateY(0)' : 'translateY(16px)',
         transition: 'all 600ms ease',
       }}>
         {games.map((game, index) => (
-          <Link href={game.path} key={game.name} style={{ textDecoration: 'none' }}>
+          <Link href={game.path} key={game.name} style={{ textDecoration: 'none' }} onClick={() => playSound('/sounds/gameModeClick.mp3')}>
             <div
               className="game-card"
               style={{
                 animationDelay: `${index * 150}ms`,
               }}
             >
-              <div className="game-card-icon" style={{
-                animation: `${game.iconAnim} 1.5s step-end infinite`,
+              <div style={{
+                width: '2.4rem',
+                height: '2.4rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}>
-                {game.icon}
+                <div className="game-card-icon" style={{
+                  fontSize: `${2 * game.iconScale}rem`,
+                  lineHeight: 1,
+                  animation: `${game.iconAnim} 1.5s step-end infinite`,
+                }}>
+                  {game.icon}
+                </div>
               </div>
               <div className="game-card-title">{game.name}</div>
               <div className="game-card-desc">{game.desc}</div>
-              <div style={{
-                marginTop: '8px',
-                fontSize: '0.5rem',
-                color: 'var(--text-muted)',
-                letterSpacing: '0.3em',
-                textTransform: 'uppercase',
-                fontWeight: 700,
-              }}>
-                {'>'} EXECUTE
-              </div>
             </div>
           </Link>
         ))}

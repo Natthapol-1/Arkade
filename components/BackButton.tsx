@@ -2,12 +2,20 @@
 
 import { useRouter } from 'next/navigation';
 
+function playClick() {
+  if (typeof window !== 'undefined') {
+    const audio = new Audio('/sounds/commandClick.mp3');
+    audio.volume = 0.45;
+    audio.play().catch(() => {});
+  }
+}
+
 export default function BackButton() {
   const router = useRouter();
 
   return (
     <button
-      onClick={() => router.push('/')}
+      onClick={() => { playClick(); router.push('/'); }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

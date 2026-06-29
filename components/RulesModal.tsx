@@ -2,6 +2,14 @@
 
 import React from 'react';
 
+function playClick() {
+  if (typeof window !== 'undefined') {
+    const audio = new Audio('/sounds/commandClick.mp3');
+    audio.volume = 0.45;
+    audio.play().catch(() => {});
+  }
+}
+
 interface RulesModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -12,13 +20,18 @@ interface RulesModalProps {
 export default function RulesModal({ isOpen, onClose, title, children }: RulesModalProps) {
   if (!isOpen) return null;
 
+  function handleClose() {
+    playClick();
+    onClose();
+  }
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{title}</h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               color: 'var(--text-dim)',
               fontSize: '0.8rem',
@@ -47,7 +60,7 @@ export default function RulesModal({ isOpen, onClose, title, children }: RulesMo
         </div>
         <div className="modal-footer">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="btn btn-primary"
             style={{ width: '100%' }}
           >

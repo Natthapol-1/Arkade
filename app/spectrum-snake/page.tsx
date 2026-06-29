@@ -37,6 +37,8 @@ export default function SpectrumSnakePage() {
   const [renderTick, setRenderTick] = useState(0);
   const [maxScore, setMaxScore] = useState(0);
   const [showRules, setShowRules] = useState(true);
+  const [showGameOver, setShowGameOver] = useState(false);
+  const [finalScore, setFinalScore] = useState(0);
 
   const touchStartRef = useRef<Coordinate | null>(null);
   const gameRef = useRef<GameState>(createInitialGameState());
@@ -220,11 +222,22 @@ export default function SpectrumSnakePage() {
     if (maxScore < gameRef.current.score) {
       setMaxScore(gameRef.current.score);
     }
+    setFinalScore(gameRef.current.score);
+    setShowGameOver(true);
     gameRef.current = createInitialGameState();
     playSound('/sounds/hitHurt.wav');
     setFoodList([]);
     return [...INITIAL_SNAKE];
   }, [maxScore, playSound]);
+
+  const handlePlayAgain = useCallback(() => {
+    setShowGameOver(false);
+    gameRef.current.isOver = false;
+    gameRef.current.isStarted = true;
+    gameRef.current.direction = { x: 0, y: -1 };
+    playSound('/sounds/snakeMovement.mp3');
+    setRenderTick((t) => t + 1);
+  }, [playSound]);
 
   // ─── Consume food ──────────────────────
   useEffect(() => {
@@ -264,6 +277,7 @@ export default function SpectrumSnakePage() {
     if (gameRef.current.direction.y === 0) {
       gameRef.current.isOver = false;
       gameRef.current.isStarted = true;
+      setShowGameOver(false);
       playSound('/sounds/snakeMovement.mp3');
       gameRef.current.direction = { x: 0, y: -1 };
     }
@@ -273,6 +287,7 @@ export default function SpectrumSnakePage() {
     if (gameRef.current.direction.y === 0) {
       gameRef.current.isOver = false;
       gameRef.current.isStarted = true;
+      setShowGameOver(false);
       playSound('/sounds/snakeMovement.mp3');
       gameRef.current.direction = { x: 0, y: 1 };
     }
@@ -282,6 +297,7 @@ export default function SpectrumSnakePage() {
     if (gameRef.current.direction.x === 0) {
       gameRef.current.isOver = false;
       gameRef.current.isStarted = true;
+      setShowGameOver(false);
       playSound('/sounds/snakeMovement.mp3');
       gameRef.current.direction = { x: -1, y: 0 };
     }
@@ -291,6 +307,7 @@ export default function SpectrumSnakePage() {
     if (gameRef.current.direction.x === 0) {
       gameRef.current.isOver = false;
       gameRef.current.isStarted = true;
+      setShowGameOver(false);
       playSound('/sounds/snakeMovement.mp3');
       gameRef.current.direction = { x: 1, y: 0 };
     }
@@ -642,7 +659,7 @@ export default function SpectrumSnakePage() {
         >
           <BackButton />
           <button
-            onClick={() => setShowRules(true)}
+            onClick={() => { playSound('/sounds/gameModeClick.mp3', 0.45); setShowRules(true); }}
             className="btn btn-ghost"
             style={{ fontSize: '0.55rem', padding: '6px 10px' }}
           >
@@ -899,16 +916,14 @@ export default function SpectrumSnakePage() {
                 ? '#4ade80'
                 : snakeColor;
 
-            // Which CSS body-effect class to attach
+            // Which CSS body-effect class to attach (shield is head-only — see below)
             const bodyEffectClass = isFrozen
               ? 'snake-frozen-body'
               : isGhost
                 ? 'snake-ghost-body'
                 : isGrowing
                   ? 'snake-growing-body'
-                  : g.hasShield
-                    ? 'snake-shielded-body'
-                    : '';
+                  : '';
 
             if (isHead) {
               bg = effectSnakeColor;
@@ -920,9 +935,9 @@ export default function SpectrumSnakePage() {
                 shadow = `0 0 6px ${snakeColor}, 0 0 14px ${snakeColor}`;
               }
               if (g.hasShield) {
-                shadow += `, 0 0 14px #ff3366cc, 0 0 30px #ff336666`;
+                shadow += `, 0 0 16px #ff3366ee, 0 0 34px #ff336699, 0 0 56px #ff336644`;
               }
-              cellClass = `snake-cell snake-head${bodyEffectClass ? ' ' + bodyEffectClass : ''}`;
+              cellClass = `snake-cell snake-head${bodyEffectClass ? ' ' + bodyEffectClass : ''}${g.hasShield ? ' snake-shielded-body' : ''}`;
             } else if (isSnakeBody) {
               bg = effectSnakeColor;
               if (isFrozen) {
@@ -930,9 +945,6 @@ export default function SpectrumSnakePage() {
                 opacity = isTail ? 0.65 : 0.90;
               } else if (isGrowing) {
                 shadow = `0 0 6px #4ade8099, 0 0 14px #4ade8055`;
-                opacity = isGhost ? 0.45 : isTail ? 0.4 : 0.7;
-              } else if (g.hasShield) {
-                shadow = `0 0 6px #ff336677`;
                 opacity = isGhost ? 0.45 : isTail ? 0.4 : 0.7;
               } else {
                 opacity = isGhost ? 0.45 : isTail ? 0.4 : 0.7;
@@ -969,43 +981,8 @@ export default function SpectrumSnakePage() {
             );
           })}
 
-          {/* Game Over overlay */}
-          {g.isOver && g.isStarted && (
-            <div className="game-over-overlay">
-              <div className="game-over-title">SIGNAL LOST</div>
-              <div
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.7rem',
-                  color: 'var(--text-dim)',
-                  textAlign: 'center'
-                }}
-              >
-                <div>
-                  SCORE: <span style={{ color: 'var(--cyan)' }}>{g.score}</span>
-                </div>
-                <div>
-                  BEST:{' '}
-                  <span style={{ color: 'var(--warning)' }}>{maxScore}</span>
-                </div>
-              </div>
-              <div
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.55rem',
-                  color: 'var(--text-muted)',
-                  letterSpacing: '0.2em',
-                  textTransform: 'uppercase',
-                  animation: 'pulseGlow 2s ease-in-out infinite'
-                }}
-              >
-                PRESS ANY DIRECTION TO REBOOT
-              </div>
-            </div>
-          )}
-
           {/* Initial start prompt */}
-          {g.isOver && !g.isStarted && (
+          {g.isOver && !g.isStarted && !showGameOver && (
             <div
               className="game-over-overlay"
               style={{ background: 'rgba(5,5,8,0.8)' }}
@@ -1035,6 +1012,19 @@ export default function SpectrumSnakePage() {
           )}
         </div>
       </div>
+
+      {showGameOver && (
+        <div className="game-over-overlay" style={{ position: 'fixed' }}>
+          <div className="game-over-title">SIGNAL LOST</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-dim)', textAlign: 'center' }}>
+            <div>SCORE: <span style={{ color: 'var(--cyan)' }}>{finalScore}</span></div>
+            <div>BEST: <span style={{ color: 'var(--warning)' }}>{Math.max(maxScore, finalScore)}</span></div>
+          </div>
+          <button onClick={handlePlayAgain} className="btn btn-primary">
+            PLAY AGAIN
+          </button>
+        </div>
+      )}
     </div>
   );
 }
