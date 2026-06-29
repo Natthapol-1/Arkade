@@ -25,6 +25,7 @@ export default function CipherCalcPage() {
   const [showAnswer, setShowAnswer] = useState(false);
   const [showRules, setShowRules] = useState(true);
   const [shakeKey, setShakeKey] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(60);
   const bgmRef = useRef<BGMControllerHandle>(null);
 
   // Initialize puzzle on mount
@@ -91,6 +92,7 @@ export default function CipherCalcPage() {
     setSelectedIdx(0);
     setStatus(null);
     setShowAnswer(false);
+    setTimeLeft(60);
   }, [playSound]);
 
   const handleGiveUp = useCallback(() => {
@@ -99,6 +101,21 @@ export default function CipherCalcPage() {
     setScore(0);
     setStatus({ message: 'DECRYPTION FAILED', correct: false });
   }, [playSound]);
+
+  // ─── Per-puzzle countdown timer ────────────
+  useEffect(() => {
+    if (showRules || showAnswer || status?.correct) return;
+    if (timeLeft <= 0) {
+      // Time's up — auto give-up
+      playSound('/sounds/hitHurt.wav');
+      setShowAnswer(true);
+      setScore(0);
+      setStatus({ message: 'TIME EXPIRED', correct: false });
+      return;
+    }
+    const id = setInterval(() => setTimeLeft(t => t - 1), 1000);
+    return () => clearInterval(id);
+  }, [timeLeft, showRules, showAnswer, status?.correct, playSound]);
 
   const selectBox = useCallback((idx: number) => {
     playSound('/sounds/numberClick.mp3');
@@ -200,6 +217,7 @@ export default function CipherCalcPage() {
             <li><span style={{ color: 'var(--text)' }}>No repeats:</span> Each digit can only be used once (all modes)</li>
             <li><span style={{ color: 'var(--text)' }}>Give up:</span> Reveals the answer but resets your score to 0</li>
             <li><span style={{ color: 'var(--text)' }}>Precedence:</span> × and ÷ are calculated before + and −</li>
+            <li><span style={{ color: 'var(--warning)' }}>∑ Timer:</span> Each question has 60 seconds.</li>
           </ul>
         </div>
       </RulesModal>
@@ -243,14 +261,14 @@ export default function CipherCalcPage() {
             transition: 'box-shadow 300ms ease',
           }}
         >
-          {/* Difficulty selector + score */}
+          {/* Difficulty selector + timer + score */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             marginBottom: '20px',
           }}>
-            <div style={{ display: 'flex', gap: '4px' }}>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               {(['easy', 'medium', 'hard'] as Difficulty[]).map(d => (
                 <button
                   key={d}
@@ -263,6 +281,35 @@ export default function CipherCalcPage() {
                   {d}
                 </button>
               ))}
+              {/* ∑ Summation timer — right next to hard button */}
+              <span
+                title={`${timeLeft}s remaining`}
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '1.5rem',
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  marginLeft: '4px',
+                  transform: 'translate(4px, -2px)',
+                  color: timeLeft > 15
+                    ? 'var(--cyan)'
+                    : timeLeft > 5
+                      ? 'var(--warning)'
+                      : 'var(--danger)',
+                  textShadow: timeLeft <= 5
+                    ? '0 0 8px var(--danger), 0 0 16px rgba(255,51,102,0.6)'
+                    : timeLeft <= 15
+                      ? '0 0 6px var(--warning)'
+                      : '0 0 6px rgba(0,212,255,0.4)',
+                  animation: timeLeft <= 5 ? 'sumPulse 0.5s ease-in-out infinite' : undefined,
+                  WebkitMaskImage: `linear-gradient(to bottom, transparent ${100 - (timeLeft / 60) * 100}%, black ${100 - (timeLeft / 60) * 100}%)`,
+                  maskImage: `linear-gradient(to bottom, transparent ${100 - (timeLeft / 60) * 100}%, black ${100 - (timeLeft / 60) * 100}%)`,
+                  WebkitMaskSize: '100% 100%',
+                  transition: 'color 500ms ease, text-shadow 500ms ease',
+                }}
+              >
+                ∑
+              </span>
             </div>
 
             <div className="led-display" style={{

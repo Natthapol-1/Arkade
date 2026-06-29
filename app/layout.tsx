@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ARKADE // Terminal Console",
-  description: "A retro-futuristic arcade terminal with fast-paced minigames. CipherCalc and Spectrum Snake await.",
+  description: "A retro-futuristic arcade terminal with fast-paced minigames. CipherCalc and Painting Python await.",
   keywords: ["arcade", "minigames", "retro", "terminal", "snake", "calculator", "puzzle"],
 };
 

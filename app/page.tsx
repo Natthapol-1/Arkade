@@ -26,28 +26,36 @@ export default function Home() {
 
   const games = [
     {
-      name: 'CipherCalc',
+      name: 'C#pherCalC',
       path: '/ciphercalc',
       desc: 'Decrypt the equation',
-      icon: '█',
+      icon: '∑',
       iconAnim: 'cursorBlink',
-      iconScale: 1,
+      iconScale: 1.4,
     },
     {
-      name: 'Spectrum Snake',
-      path: '/spectrum-snake',
-      desc: 'Match colors by memory',
+      name: 'Painting Python',
+      path: '/painting-python',
+      desc: 'Memorize the color layout and pair matching blocks. Mismatching colors will end the game!',
       icon: '◆',
       iconAnim: 'foodPulse',
       iconScale: 1.7,
     },
     {
-      name: 'Outcast Gambit',
-      path: '/outcast-gambit',
+      name: 'Outcast Assembly',
+      path: '/outcast-assembly',
       desc: 'Hunt imposters on the board',
       icon: '♟',
       iconAnim: 'cursorBlink',
       iconScale: 1.5,
+    },
+    {
+      name: 'Type:Script',
+      path: '/type-script',
+      desc: 'Type fast, defend the Core',
+      icon: '❯',
+      iconAnim: 'cursorBlink',
+      iconScale: 1.3,
     },
   ];
 
@@ -185,6 +193,7 @@ export default function Home() {
                   fontSize: `${2 * game.iconScale}rem`,
                   lineHeight: 1,
                   animation: `${game.iconAnim} 1.5s step-end infinite`,
+                  transform: 'translateY(-6px)',
                 }}>
                   {game.icon}
                 </div>

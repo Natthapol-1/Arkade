@@ -145,7 +145,7 @@ button {
   box-shadow: var(--cyan-glow);
 }
 
-/* Shared CRT-style frame — same treatment as the Snake/Outcast Gambit board border */
+/* Shared CRT-style frame — same treatment as the Painting Python/Outcast Assembly board border */
 .crt-frame {
   border: 2px solid var(--border);
   box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5), var(--cyan-glow);
@@ -1251,5 +1251,148 @@ button {
   .btn-numpad {
     min-height: 44px;
     font-size: 1rem;
+  }
+}
+
+/* ═══════════════════════════════════════════
+   TYPE:SCRIPT
+   ═══════════════════════════════════════════ */
+.type-script-page {
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 640px) {
+  /* On mobile the on-screen keyboard eats the bottom half of the viewport —
+     top-align instead of centering so the breach-field/input stay above the
+     keyboard instead of being centered into the space it covers. */
+  .type-script-page {
+    justify-content: flex-start;
+  }
+}
+
+.breach-field {
+  position: relative;
+  width: 100%;
+  height: min(58vh, calc(100dvh - 260px));
+  border: 2px solid var(--border);
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5), var(--cyan-glow);
+  background: var(--void);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.breach-word {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, 0);
+  transition: top 50ms linear, left 50ms linear;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  background: rgba(5, 5, 8, 0.75);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.breach-chain-link {
+  position: absolute;
+  z-index: 1;
+  height: 2px;
+  transform: translateY(-1px);
+  background: linear-gradient(90deg, #a78bfa, #a78bfa);
+  box-shadow: 0 0 6px #a78bfa, 0 0 14px rgba(167, 139, 250, 0.6);
+  transition: top 50ms linear, left 50ms linear, width 50ms linear;
+  animation: pulseGlow 1.2s ease-in-out infinite;
+}
+
+.breach-word-icon {
+  font-size: 0.7rem;
+}
+
+.breach-core-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--danger), 0 0 20px rgba(255, 51, 102, 0.6);
+  animation: pulseGlow 1.6s ease-in-out infinite;
+}
+
+.breach-input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  background: var(--void);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  text-align: center;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.5);
+  transition: border-color var(--transition-fast);
+}
+
+.breach-input:focus {
+  outline: none;
+  border-color: var(--cyan-dim);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.5), 0 0 10px rgba(0, 212, 255, 0.25);
+}
+
+.breach-input::placeholder {
+  color: var(--text-muted);
+  letter-spacing: 0.15em;
+}
+
+.battery {
+  position: relative;
+  width: 52px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: 1.5px solid var(--text-dim);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.4);
+  margin-right: 5px;
+}
+
+.battery-nub {
+  position: absolute;
+  top: 50%;
+  right: -4px;
+  width: 3px;
+  height: 7px;
+  transform: translateY(-50%);
+  background: var(--text-dim);
+  border-radius: 0 2px 2px 0;
+}
+
+.battery-fill {
+  height: 100%;
+  border-radius: 1px;
+  transition: width 200ms ease, background-color 200ms ease, box-shadow 200ms ease;
+}
+
+@media (min-width: 1024px) {
+  .breach-word {
+    font-size: 0.85rem;
   }
 }
