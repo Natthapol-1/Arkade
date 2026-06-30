@@ -84,6 +84,7 @@ export default function TypeScriptPage() {
   const [inputValue, setInputValue] = useState('');
   const [renderTick, setRenderTick] = useState(0);
   const [flash, setFlash] = useState<'hit' | 'miss' | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const gameRef = useRef<GameState | null>(null);
   const bgmRef = useRef<BGMControllerHandle>(null);
@@ -103,6 +104,26 @@ export default function TypeScriptPage() {
   useEffect(() => {
     if (!showRules) inputRef.current?.focus();
   }, [showRules]);
+
+  // Track Visual Viewport height so we can detect when the on-screen keyboard
+  // opens on mobile. When the keyboard appears, visualViewport.height shrinks;
+  // we compute the difference from the window height and store it as keyboardHeight
+  // so the breach-field can shrink accordingly, preventing dead space.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const kbH = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardHeight(kbH);
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    update();
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
 
   // The input must never lose focus while playing — clicking anything else
   // on the page (buttons, the field itself, etc.) steals focus first, then
@@ -304,7 +325,11 @@ export default function TypeScriptPage() {
               : flash === 'miss'
                 ? 'inset 0 0 30px rgba(0,0,0,0.5), 0 0 16px rgba(255,51,102,0.5), 0 0 40px rgba(255,51,102,0.25)'
                 : undefined,
-            transition: 'box-shadow 150ms ease',
+            transition: 'box-shadow 150ms ease, height 200ms ease',
+            ...(keyboardHeight > 0 ? {
+              height: `calc(100dvh - ${keyboardHeight}px - 200px)`,
+              minHeight: '120px',
+            } : {}),
           }}
         >
           {chainPairs(game?.words ?? []).map(([first, second]) => (

@@ -37,7 +37,7 @@ export default function CipherCalcPage() {
     if (typeof window !== 'undefined') {
       const audio = new Audio(path);
       audio.volume = 0.4;
-      audio.play().catch(() => {});
+      audio.play().catch(() => { });
     }
   }, []);
 
@@ -191,7 +191,7 @@ export default function CipherCalcPage() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <p style={{ fontSize: '0.72rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
-            Fill the boxes with digits to make the equation match the target result.
+            <span style={{ color: 'red' }}>Choose your difficulty at the top bar.</span> Fill the boxes with digits to make the equation match the target result.
             Press <span style={{ color: 'var(--cyan)' }}>CHECK</span> to see how close you are.
           </p>
 
