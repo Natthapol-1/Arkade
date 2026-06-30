@@ -102,8 +102,21 @@ export default function TypeScriptPage() {
   // the DOM until this state update commits, so a synchronous focus() there
   // is a no-op. This effect runs after the re-render, once disabled={false}.
   useEffect(() => {
-    if (!showRules) inputRef.current?.focus();
+    if (!showRules) inputRef.current?.focus({ preventScroll: true });
   }, [showRules]);
+
+  // Lock the entire page from scrolling while this game is mounted.
+  // Without this, the browser auto-scrolls to centre the focused input
+  // when the on-screen keyboard opens, which pushes the game field off-screen.
+  useEffect(() => {
+    const prev = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.documentElement.style.overflow = prev;
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   // Track Visual Viewport height so we can detect when the on-screen keyboard
   // opens on mobile. When the keyboard appears, visualViewport.height shrinks;
@@ -130,7 +143,7 @@ export default function TypeScriptPage() {
   // this immediately steals it back so typing always lands in the box.
   const handleInputBlur = useCallback(() => {
     if (showRules) return;
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, [showRules]);
 
   // Game loop — paused while the rules modal is open. Resuming compensates
@@ -212,7 +225,7 @@ export default function TypeScriptPage() {
     setInputValue('');
     setShowGameOver(false);
     setRenderTick(t => t + 1);
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, []);
 
   // godMode-only testing aid — jump several levels at once instead of grinding
@@ -267,8 +280,8 @@ export default function TypeScriptPage() {
         </div>
       </RulesModal>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center', width: '100%', maxWidth: '520px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '8px' }}>
+      <div className="ts-layout" style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center', width: '100%', maxWidth: '520px' }}>
+        <div className="ts-topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '8px' }}>
           <BackButton />
           <div style={{ display: 'flex', gap: '8px' }}>
             {game?.godMode && (
@@ -286,7 +299,7 @@ export default function TypeScriptPage() {
           </div>
         </div>
 
-        <div className="hud-bar" style={{ width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div className="hud-bar ts-hud" style={{ width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div className="hud-item">
             <span className="hud-label">Lives</span>
             {game?.godMode ? (
@@ -378,7 +391,7 @@ export default function TypeScriptPage() {
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
           onBlur={handleInputBlur}
-          className="breach-input"
+          className="breach-input ts-input"
           placeholder="TYPE THE WORD..."
           autoComplete="off"
           autoCapitalize="off"
@@ -387,7 +400,7 @@ export default function TypeScriptPage() {
           disabled={showRules}
         />
 
-        <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', letterSpacing: '0.05em', textAlign: 'center' }}>
+        <div className="ts-hint" style={{ fontSize: '0.55rem', color: 'var(--text-muted)', letterSpacing: '0.05em', textAlign: 'center' }}>
           {unlockedKinds.length < ALL_KINDS.length
             ? `NEXT UNLOCK: LV ${Math.min(...ALL_KINDS.filter(k => KIND_UNLOCK_LEVEL[k] > (game?.level ?? 1)).map(k => KIND_UNLOCK_LEVEL[k]))} — ${KIND_STYLE[ALL_KINDS.find(k => KIND_UNLOCK_LEVEL[k] === Math.min(...ALL_KINDS.filter(kk => KIND_UNLOCK_LEVEL[kk] > (game?.level ?? 1)).map(kk => KIND_UNLOCK_LEVEL[kk])))!].label.toUpperCase()}`
             : `FALL SPEED ${fallSpeedForLevel(game?.level ?? 1).toFixed(1)}%/s — ALL WORD TYPES ACTIVE`}

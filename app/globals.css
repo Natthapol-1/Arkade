@@ -1270,12 +1270,25 @@ button {
 }
 
 @media (max-width: 640px) {
-  /* On mobile the on-screen keyboard eats the bottom half of the viewport —
-     top-align instead of centering so the breach-field/input stay above the
-     keyboard instead of being centered into the space it covers. */
+  /* On mobile the on-screen keyboard eats the bottom half of the viewport.
+     Top-align the page so the breach-field is always visible at the top.
+     Then reorder flex children so the game field + input sit first,
+     and the HUD / top bar (exit, rules, score, lives, level) move below. */
   .type-script-page {
     justify-content: flex-start;
   }
+
+  /* Give the inner layout container explicit flex so order works */
+  .ts-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .breach-field  { order: 1; }
+  .ts-input      { order: 2; }
+  .ts-hint       { order: 3; }
+  .ts-hud        { order: 4; }
+  .ts-topbar     { order: 5; }
 }
 
 .breach-field {
