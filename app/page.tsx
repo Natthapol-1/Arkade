@@ -26,7 +26,7 @@ export default function Home() {
 
   const games = [
     {
-      name: 'C#pherCalC',
+      name: 'CipherCalc#',
       path: '/ciphercalc',
       desc: 'Decrypt the equation',
       icon: '∑',
