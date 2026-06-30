@@ -133,7 +133,7 @@ export const GHOST_SPRINT_DURATION_TICKS = 70;
 export const GHOST_SPRINT_COOLDOWN_TICKS = 200;
 
 // ─── Map/Game constants ───────────────────────────────────────────────────────
-export const TILE_SIZE  = 36;
+export const TILE_SIZE  = 28;
 export const MAP_COLS   = 41;
 export const MAP_ROWS   = 41;
 export const MAP_SEED   = 42;
