@@ -621,8 +621,21 @@ export default function SwiftSoundPage() {
         @media (min-width: 768px) {
           .mobile-dpad-container { display: none !important; }
         }
+        .rotate-overlay { display: none; }
+        @media (orientation: portrait) and (max-width: 768px) {
+          .rotate-overlay { display: flex !important; }
+        }
       `}</style>
       <BGMController ref={bgmRef} visible={false} src={["/sounds/swiftSoundBGM.mp3", "/sounds/horrorBGM1.mp3", "/sounds/horrorBGM2.mp3"]} volume={[0.2, 0.02, 0.15]} />
+
+      <div className="rotate-overlay" style={{
+        position: 'fixed', inset: 0, zIndex: 9999, background: 'var(--void)', color: 'white',
+        flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '20px'
+      }}>
+        <span style={{ fontSize: '4rem', marginBottom: '20px' }}>📱➔🔄</span>
+        <h2 style={{ fontFamily: 'var(--font-pixel)', fontSize: '1.2rem', marginBottom: '16px', lineHeight: 1.5 }}>PLEASE ROTATE<br/>YOUR DEVICE</h2>
+        <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)', fontSize: '0.9rem' }}>This game is designed to be played in landscape mode.</p>
+      </div>
 
       <RulesModal
         isOpen={showRules}
