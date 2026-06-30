@@ -506,6 +506,11 @@ export default function SwiftSoundPage() {
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return; // Only capture single touch
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    
+    // Attempt to enter fullscreen on first touch to hide URL bar
+    if (document.fullscreenElement === null && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
