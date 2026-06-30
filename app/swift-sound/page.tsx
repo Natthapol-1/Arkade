@@ -358,9 +358,8 @@ export default function SwiftSoundPage() {
   useEffect(() => {
     stateRef.current = createInitialState();
     
-    // Attempt to force landscape on mobile devices
-    if (typeof screen !== 'undefined' && screen.orientation && screen.orientation.lock) {
-      screen.orientation.lock('landscape').catch(() => {
+    if (typeof screen !== 'undefined' && screen.orientation && (screen.orientation as any).lock) {
+      (screen.orientation as any).lock('landscape').catch(() => {
         // Silently fail if not supported or requires user gesture first
       });
     }
