@@ -89,12 +89,27 @@ export default function TypeScriptPage() {
   const gameRef = useRef<GameState | null>(null);
   const bgmRef = useRef<BGMControllerHandle>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const breachFieldRef = useRef<HTMLDivElement>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const triggerFlash = useCallback((kind: 'hit' | 'miss') => {
     setFlash(kind);
     if (flashTimer.current) clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setFlash(null), 200);
+    if (kind === 'miss') {
+      breachFieldRef.current?.animate(
+        [
+          { transform: 'translateX(0)' },
+          { transform: 'translateX(-9px)' },
+          { transform: 'translateX(9px)' },
+          { transform: 'translateX(-6px)' },
+          { transform: 'translateX(6px)' },
+          { transform: 'translateX(-3px)' },
+          { transform: 'translateX(0)' },
+        ],
+        { duration: 300, easing: 'ease-out' },
+      );
+    }
   }, []);
 
   // Focus the input once it's actually enabled. Calling .focus() inside the
@@ -346,6 +361,7 @@ export default function TypeScriptPage() {
         </div>
 
         <div
+          ref={breachFieldRef}
           className="breach-field"
           onClick={() => inputRef.current?.focus()}
           style={{
@@ -425,7 +441,7 @@ export default function TypeScriptPage() {
 
       {showGameOver && (
         <div className="game-over-overlay" style={{ position: 'fixed' }}>
-          <div className="game-over-title">SYNTAX ERROR</div>
+          <div className="game-over-title">GAME OVER</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-dim)', textAlign: 'center' }}>
             <div>SCORE: <span style={{ color: 'var(--cyan)' }}>{game?.score ?? 0}</span></div>
             <div>LEVEL REACHED: <span style={{ color: 'var(--warning)' }}>{game?.level ?? 1}</span></div>

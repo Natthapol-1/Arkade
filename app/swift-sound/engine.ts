@@ -321,7 +321,7 @@ export function createInitialState(): GameState {
 
     vision: INITIAL_VISION,
     speed: INITIAL_SPEED,
-    lives: 3,
+    lives: 4,
     score: 0,
 
     noteInventory: { C: 0, D: 0, E: 0, F: 0, G: 0, A: 0, B: 0 },
@@ -448,6 +448,8 @@ export function tick(state: GameState): void {
     ? effectiveSpeed * 0.2
     : effectiveSpeed * 0.336; // +5% from 0.32
 
+  const playerIsInvisible = state.activeEffects.some(e => e.type === 'invisible');
+
   for (const ghost of state.ghosts) {
     // Decide hunt vs wander based on proximity to player
     ghost.pathUpdateTimer--;
@@ -456,7 +458,7 @@ export function tick(state: GameState): void {
       const ddx = ghost.tileX - state.playerTileX;
       const ddy = ghost.tileY - state.playerTileY;
       const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-      if (dist <= GHOST_SIGHT_TILES) {
+      if (!playerIsInvisible && dist <= GHOST_SIGHT_TILES) {
         if (!ghost.hunting) {
           playGhostHunt();
         }
@@ -699,7 +701,7 @@ export function handleNoteKey(state: GameState, note: NoteName): void {
         state.vision = clamp(state.vision + 0.25, MIN_VISION, MAX_VISION);
         state.speed = clamp(state.speed + 0.06, MIN_SPEED, MAX_SPEED);
         state.bonusSprintTicks = Math.min(state.bonusSprintTicks + 20, SPRINT_DURATION_TICKS);
-        playNote(note, 0.5, 2.5);
+        playNote(note, 0.5, 0.7);
         state.score += 10;
         collected = true;
         break; // only collect one per keypress
@@ -758,7 +760,7 @@ function applyChordEffect(
   state.activeEffects = state.activeEffects.filter(e => e.type !== effect);
 
   if (effect === 'heal') {
-    state.lives = Math.min(state.lives + 1, 3);
+    state.lives = Math.min(state.lives + 1, 4);
   }
 
   state.activeEffects.push({ type: effect, remainingTicks: duration, color, description });

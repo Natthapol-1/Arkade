@@ -1016,7 +1016,7 @@ export default function SpectrumSnakePage() {
 
       {showGameOver && (
         <div className="game-over-overlay" style={{ position: 'fixed' }}>
-          <div className="game-over-title">SIGNAL LOST</div>
+          <div className="game-over-title">GAME OVER</div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-dim)', textAlign: 'center' }}>
             <div>SCORE: <span style={{ color: 'var(--cyan)' }}>{finalScore}</span></div>
             <div>BEST: <span style={{ color: 'var(--warning)' }}>{Math.max(maxScore, finalScore)}</span></div>

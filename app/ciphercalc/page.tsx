@@ -110,7 +110,7 @@ export default function CipherCalcPage() {
       playSound('/sounds/hitHurt.wav');
       setShowAnswer(true);
       setScore(0);
-      setStatus({ message: 'TIME EXPIRED', correct: false });
+      setStatus({ message: "TIME'S UP", correct: false });
       return;
     }
     const id = setInterval(() => setTimeLeft(t => t - 1), 1000);
@@ -215,9 +215,8 @@ export default function CipherCalcPage() {
             <li><span style={{ color: 'var(--text)' }}>Zero guard:</span> Division by zero = 0</li>
             <li><span style={{ color: 'var(--text)' }}>Feedback:</span> Shows absolute difference between your result and target</li>
             <li><span style={{ color: 'var(--text)' }}>No repeats:</span> Each digit can only be used once (all modes)</li>
-            <li><span style={{ color: 'var(--text)' }}>Give up:</span> Reveals the answer but resets your score to 0</li>
             <li><span style={{ color: 'var(--text)' }}>Precedence:</span> × and ÷ are calculated before + and −</li>
-            <li><span style={{ color: 'var(--warning)' }}>∑ Timer:</span> Each question has 60 seconds.</li>
+            <li><span style={{ color: 'var(--warning)' }}>Timer:</span> Each question has 60 seconds.</li>
           </ul>
         </div>
       </RulesModal>

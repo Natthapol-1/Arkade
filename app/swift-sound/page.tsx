@@ -18,8 +18,8 @@ import { SPRINT_COOLDOWN_TICKS, SPRINT_DURATION_TICKS } from './constants';
 
 // ─── Canvas rendering ─────────────────────────────────────────────────────────
 
-const WALL_COLOR = '#0e0e1a';
-const WALL_BORDER = '#1a1a2e';
+const WALL_COLOR = '#1c1c3c';
+const WALL_BORDER = '#2e2e5e';
 const DOT_COLOR = '#5555aa';
 const PATH_COLOR = '#050510';
 
@@ -79,8 +79,8 @@ function drawGame(
         ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
         // Subtle border
         ctx.strokeStyle = WALL_BORDER;
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(screenX + 0.25, screenY + 0.25, TILE_SIZE - 0.5, TILE_SIZE - 0.5);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(screenX + 0.5, screenY + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
         continue;
       }
 
@@ -653,6 +653,12 @@ export default function SwiftSoundPage() {
         @media (orientation: portrait) and (max-width: 768px) {
           .rotate-overlay { display: flex !important; }
         }
+        @media (max-width: 767px) {
+          .ss-modal-popup {
+            transform: scale(0.85);
+            transform-origin: top center;
+          }
+        }
       `}</style>
       <BGMController ref={bgmRef} visible={false} src={["/sounds/swiftSoundBGM.mp3", "/sounds/horrorBGM1.mp3", "/sounds/horrorBGM2.mp3"]} volume={[0.2, 0.02, 0.15]} />
 
@@ -674,7 +680,7 @@ export default function SwiftSoundPage() {
           <p style={{ fontSize: '0.7rem', color: 'var(--text-dim)', lineHeight: 1.7 }}>
             Navigate the dark maze, collect musical notes, and complete{' '}
             <span style={{ color: 'var(--cyan)' }}>4 melodies</span> hidden across the map.
-            Avoid the ghosts — you have <span style={{ color: 'var(--danger)' }}>3 lives</span>.
+            Avoid the ghosts — you have <span style={{ color: 'var(--danger)' }}>4 lives</span>.
           </p>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
             <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>
@@ -682,7 +688,8 @@ export default function SwiftSoundPage() {
             </p>
             <p style={{ fontSize: '0.68rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
               Collect a <span style={{ color: 'var(--warning)' }}>coloured note tile</span> (C–B) by pressing the matching key{' '}
-              <span style={{ color: 'var(--cyan)' }}>1–7</span> or button at the bottom bar to collect it.
+              <span style={{ color: 'var(--cyan)' }}>1–7</span> or button at the bottom bar.
+              You can collect notes up to <span style={{ color: 'var(--cyan)' }}>2 blocks away</span> — no need to stand on the exact tile.
               Notes go into your inventory and are spent when playing melodies.
             </p>
           </div>
@@ -735,10 +742,10 @@ export default function SwiftSoundPage() {
             {state?.godMode ? (
               <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: 'var(--success)' }}>∞</span>
             ) : (() => {
-              const livesPct = Math.max(0, Math.min(100, ((state?.lives ?? 3) / 3) * 100));
+              const livesPct = Math.max(0, Math.min(100, ((state?.lives ?? 4) / 4) * 100));
               const batteryColor = livesPct > 60 ? 'var(--success)' : livesPct > 30 ? 'var(--warning)' : 'var(--danger)';
               return (
-                <div className="battery" title={`${state?.lives ?? 3}/3 lives`} style={{ width: 'var(--batt-w)', height: 'var(--batt-h)' }}>
+                <div className="battery" title={`${state?.lives ?? 4}/4 lives`} style={{ width: 'var(--batt-w)', height: 'var(--batt-h)' }}>
                   <div className="battery-fill" style={{ width: `${livesPct}%`, background: batteryColor, boxShadow: `0 0 8px ${batteryColor}` }} />
                   <div className="battery-nub" />
                 </div>
@@ -848,7 +855,7 @@ export default function SwiftSoundPage() {
               paddingTop: '16px',
               background: 'transparent',
             }}>
-              <div style={{
+              <div className="ss-modal-popup" style={{
                 background: 'var(--surface)',
                 border: `3px solid ${melody.color}`,
                 boxShadow: `0 0 32px ${melody.color}55, 0 0 80px ${melody.color}22`,
@@ -921,7 +928,7 @@ export default function SwiftSoundPage() {
               paddingTop: '16px',
               background: 'transparent',
             }}>
-              <div style={{
+              <div className="ss-modal-popup" style={{
                 background: 'var(--surface)',
                 border: `3px solid ${chord.color}`,
                 boxShadow: `0 0 32px ${chord.color}55, 0 0 80px ${chord.color}22`,

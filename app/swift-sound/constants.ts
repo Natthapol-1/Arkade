@@ -69,12 +69,12 @@ export interface ChordDef {
 }
 
 export const CHORDS: ChordDef[] = [
-  { notes: ['C','E','G'], name: 'C Major', effect: 'speed',        duration: 1200, description: '+50% Speed',    color: '#00ff88' },
-  { notes: ['D','F','A'], name: 'D Minor', effect: 'vision',       duration: 3600, description: 'Show Melodies', color: '#00d4ff' },
-  { notes: ['E','G','B'], name: 'E Minor', effect: 'immune',       duration: 1080, description: 'Ghost Immune',  color: '#ffaa00' },
-  { notes: ['A','C','E'], name: 'A Minor', effect: 'invisible',    duration: 1080, description: 'Invisible',     color: '#cc44ff' },
-  { notes: ['F','A','C'], name: 'F Major', effect: 'slow_ghosts',  duration: 1500, description: 'Slow Ghosts',   color: '#ff6699' },
-  { notes: ['G','B','D'], name: 'G Major', effect: 'reveal',       duration: 480,  description: 'Reveal Map',    color: '#ffdd44' },
+  { notes: ['C','E','G'], name: 'C Major', effect: 'speed',        duration: 2400, description: '+50% Speed',    color: '#00ff88' },
+  { notes: ['D','F','A'], name: 'D Minor', effect: 'vision',       duration: 5400, description: 'Show Melodies', color: '#00d4ff' },
+  { notes: ['E','G','B'], name: 'E Minor', effect: 'immune',       duration: 1440, description: 'Ghost Immune',  color: '#ffaa00' },
+  { notes: ['A','C','E'], name: 'A Minor', effect: 'invisible',    duration: 2160, description: 'Invisible',     color: '#cc44ff' },
+  { notes: ['F','A','C'], name: 'F Major', effect: 'slow_ghosts',  duration: 2700, description: 'Slow Ghosts',   color: '#ff6699' },
+  { notes: ['G','B','D'], name: 'G Major', effect: 'reveal',       duration: 900,  description: 'Reveal Map',    color: '#ffdd44' },
   { notes: ['B','D','F'], name: 'B Dim',   effect: 'heal',         duration: 120, description: '+1 Life',       color: '#ff4444' },
 ];
 
