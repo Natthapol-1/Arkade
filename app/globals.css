@@ -1261,6 +1261,8 @@ button {
 .type-script-page {
   height: 100dvh;
   overflow: hidden;
+  touch-action: none;        /* block touch-drag scroll */
+  overscroll-behavior: none; /* kill iOS rubber-band bounce */
   display: flex;
   flex-direction: column;
   align-items: center;

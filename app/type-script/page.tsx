@@ -108,13 +108,22 @@ export default function TypeScriptPage() {
   // Lock the entire page from scrolling while this game is mounted.
   // Without this, the browser auto-scrolls to centre the focused input
   // when the on-screen keyboard opens, which pushes the game field off-screen.
+  // iOS Safari ignores overflow:hidden on body — the touchmove listener is
+  // the only reliable fix there (must be { passive: false } to allow preventDefault).
   useEffect(() => {
     const prev = document.documentElement.style.overflow;
     document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.overscrollBehavior = 'none';
     document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+    const blockScroll = (e: TouchEvent) => e.preventDefault();
+    document.addEventListener('touchmove', blockScroll, { passive: false });
     return () => {
       document.documentElement.style.overflow = prev;
+      document.documentElement.style.overscrollBehavior = '';
       document.body.style.overflow = '';
+      document.body.style.overscrollBehavior = '';
+      document.removeEventListener('touchmove', blockScroll);
     };
   }, []);
 
