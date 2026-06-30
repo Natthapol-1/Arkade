@@ -74,12 +74,27 @@ A typing-defense game: words fall toward a "Core" at the bottom of the field; ty
   - **Pause gotcha:** the tick loop pauses while the rules modal is open (same `[showRules]`-gated `useEffect` pattern as other games), but resuming explicitly shifts every absolute timestamp in `GameState` (`now`, `lastSpawnAt`, each word's `spawnedAt`, each effect's `expiresAt`) forward by the paused duration *before* restarting the interval — otherwise the first tick after closing the modal sees a huge elapsed time and floods spawns / jumps positions / expires effects early.
 - **UI Details:** Falling words are positioned by percentage (`left`/`top`) inside `.breach-field`, with a pulsing `.breach-core-line` marking the breach line at the bottom — no grid, continuous coordinates (unlike Painting Python/Outcast Assembly's cell grids). Word boxes are centered on their lane via `translate(-50%)`, so lanes are kept within an `EDGE_MARGIN`-reserved band (not the full 0–100%) to stop wide words clipping against the field's `overflow: hidden` at the edges. Lives are shown as a `.battery`/`.battery-fill` bar (color-graded green/yellow/red by remaining fraction), not hearts.
 
+## Game 5: Swift & Sound (`/app/swift-sound`)
+A Pac-Man-style music maze game: navigate a large dark 41×41 maze, collect note pickups (C–B, keys 1–7), and complete 4 hidden melodies in the map's corners.
+- **Architecture:**
+  - `constants.ts`: Notes, 4 melodies (6–8 notes each), 6 chord power-ups, all tile type constants (`T_WALL=0` through `T_CHORD_5=22`), seeded DFS maze generator (seed 42) with 6-pass dead-end removal, `getPlayerStart`/`getGhostStarts`.
+  - `engine.ts`: `GameState` type, `tick()` (3-step tile-to-tile movement), `handleNoteKey()`, BFS ghost pathfinding, Web Audio synthesis (triangle oscillators, ADSR envelopes), placeholder SFX exports.
+  - `page.tsx`: Canvas rendering (camera follows player, fog-of-war dual-layer), blocky Pac-Man and ghost shapes (all `fillRect`, no curves), keyboard hold-to-move (keydown sets dir, keyup clears), D-pad mobile controls, battery HP bar, god mode toggle.
+- **Mechanics:**
+  - Fog of war: per-tile alpha + radial gradient overlay; vision decays over time, restored by eating dots/notes/melodies.
+  - Movement: discrete stop-on-release (player moves while key held, stops when released). Pac-Man auto-continue removed.
+  - Note collection: pressing 1–7 checks player tile + tiles up to 2 away (cardinal directions) for matching note.
+  - Melody spots (♪): stand on tile, play sequence via 1–7 keys. Ghosts freeze while in melody mode.
+  - Chord spots (♫): stand on tile, press all required notes to activate a power-up.
+  - God mode: toggle via GOD button, survives restart, shows ∞ battery.
+- **Gotchas:** `melodiesCompleted: Array(4)` and `tileMelodyId (idx < 4)` must stay in sync with `MELODIES.length`. `playerDirX/Y` = mouth angle only; `playerQueuedDirX/Y` = live held input. See `app/swift-sound/AGENT.md` for full details.
+
 ## Asset Management
-- **Audio (`/public/sounds/`):** Contains all required SFX and BGMs (coin, movement, hits, game-specific tracks). Each game's BGM file: `calculatorBGM.mp3` (CipherCalc), `snakeBGM.mp3` (Painting Python), `outcastChessBGM.mp3` (Outcast Assembly), `typingGameBGM.mp3` (Type:Script).
+- **Audio (`/public/sounds/`):** Contains all required SFX and BGMs (coin, movement, hits, game-specific tracks). Each game's BGM file: `calculatorBGM.mp3` (CipherCalc), `snakeBGM.mp3` (Painting Python), `outcastChessBGM.mp3` (Outcast Assembly), `typingGameBGM.mp3` (Type:Script), `swiftSoundBGM.mp3` (Swift & Sound).
 - **Fonts:** Managed via `next/font/google` in the root layout to avoid render-blocking delays.
 
 ## Per-game deep-dive docs
-Each game folder under `app/` now has its own `AGENT.md` (`app/ciphercalc/AGENT.md`, `app/painting-python/AGENT.md`, `app/outcast-assembly/AGENT.md`, `app/type-script/AGENT.md`) written for an AI agent picking up further work — file-by-file responsibilities, data flow, state shape, and the non-obvious gotchas that aren't visible from a quick read of the code. This `working.md` stays the high-level map; the per-game `AGENT.md` files are where to look before touching engine logic.
+Each game folder under `app/` now has its own `AGENT.md` written for an AI agent picking up further work — file-by-file responsibilities, data flow, state shape, and the non-obvious gotchas. This `working.md` stays the high-level map; the per-game `AGENT.md` files are where to look before touching engine logic. Games: `app/ciphercalc/AGENT.md`, `app/painting-python/AGENT.md`, `app/outcast-assembly/AGENT.md`, `app/type-script/AGENT.md`, `app/swift-sound/AGENT.md`.
 
 ---
 *This document serves as the active memory and architectural blueprint for the Arkade project.*

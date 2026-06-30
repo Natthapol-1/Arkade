@@ -417,9 +417,9 @@ button {
   z-index: 1;
   transition: color var(--transition-fast);
   align-self: stretch;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
 }
 
 .game-card:hover .game-card-desc {

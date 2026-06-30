@@ -16,19 +16,23 @@ export interface BGMControllerHandle {
 }
 
 interface BGMControllerProps {
-  src: string;
-  volume?: number;
+  src: string | string[];
+  volume?: number | number[];
+  visible?: boolean;
 }
 
 const BGMController = forwardRef<BGMControllerHandle, BGMControllerProps>(
-  ({ src, volume = 0.1 }, ref) => {
+  ({ src, volume = 0.1, visible = true }, ref) => {
     const [isPlaying, setIsPlaying] = useState(false);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const audioRefs = useRef<(HTMLAudioElement | null)[]>([]);
+
+    const srcs = Array.isArray(src) ? src : [src];
+    const vols = Array.isArray(volume) ? volume : srcs.map(() => volume);
 
     useEffect(() => {
-      if (audioRef.current) {
-        audioRef.current.volume = volume;
-      }
+      audioRefs.current.forEach((a, i) => {
+        if (a) a.volume = vols[i] ?? 0.1;
+      });
     }, [volume]);
 
     useImperativeHandle(ref, () => ({
@@ -39,28 +43,24 @@ const BGMController = forwardRef<BGMControllerHandle, BGMControllerProps>(
     }));
 
     const toggleMusic = () => {
-      if (audioRef.current) {
-        if (isPlaying) {
-          audioRef.current.pause();
-        } else {
-          audioRef.current.play().catch(() => {});
-        }
-        setIsPlaying(!isPlaying);
+      if (isPlaying) {
+        audioRefs.current.forEach(a => a?.pause());
+      } else {
+        audioRefs.current.forEach(a => a?.play().catch(() => {}));
       }
+      setIsPlaying(!isPlaying);
     };
 
     const playMusic = () => {
-      if (audioRef.current) {
-        audioRef.current.play().catch(() => {});
-        setIsPlaying(true);
-      }
+      audioRefs.current.forEach(a => {
+        a?.play().catch(() => {});
+      });
+      setIsPlaying(true);
     };
 
     const pauseMusic = () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-      }
+      audioRefs.current.forEach(a => a?.pause());
+      setIsPlaying(false);
     };
 
     return (
@@ -69,8 +69,11 @@ const BGMController = forwardRef<BGMControllerHandle, BGMControllerProps>(
         bottom: '16px',
         right: '16px',
         zIndex: 200,
+        display: visible ? 'block' : 'none',
       }}>
-        <audio ref={audioRef} loop src={src} />
+        {srcs.map((s, i) => (
+          <audio key={s} ref={el => { audioRefs.current[i] = el; }} loop src={s} />
+        ))}
         <button
           onClick={toggleMusic}
           style={{

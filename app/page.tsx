@@ -36,7 +36,7 @@ export default function Home() {
     {
       name: 'Painting Python',
       path: '/painting-python',
-      desc: 'Memorize the color layout and pair matching blocks. Mismatching colors will end the game!',
+      desc: 'Matching colors from memory',
       icon: '◆',
       iconAnim: 'foodPulse',
       iconScale: 1.7,
@@ -57,12 +57,21 @@ export default function Home() {
       iconAnim: 'cursorBlink',
       iconScale: 1.3,
     },
+    {
+      name: 'Swift & Sound',
+      path: '/swift-sound',
+      desc: 'Collect notes, create sound',
+      icon: '♪',
+      iconAnim: 'foodPulse',
+      iconScale: 1.6,
+    },
   ];
 
   return (
     <div style={{
-      height: '100dvh',
-      overflow: 'hidden',
+      minHeight: '100dvh',
+      overflowY: 'auto',
+      overflowX: 'hidden',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
@@ -118,6 +127,7 @@ export default function Home() {
       {/* Title block */}
       <div className={booted ? 'anim-boot' : ''} style={{
         textAlign: 'center',
+        marginTop: '8vh',
         marginBottom: '48px',
         opacity: booted ? undefined : 0,
       }}>
