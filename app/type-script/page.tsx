@@ -105,13 +105,20 @@ export default function TypeScriptPage() {
     if (!showRules) inputRef.current?.focus({ preventScroll: true });
   }, [showRules]);
 
-  // Lock the entire page from scrolling while this game is mounted.
-  // Without this, the browser auto-scrolls to centre the focused input
-  // when the on-screen keyboard opens, which pushes the game field off-screen.
+  // Lock the entire page from scrolling while the game is active.
+  // Released when the rules modal is open so the user can scroll the rule sheet.
   // iOS Safari ignores overflow:hidden on body — the touchmove listener is
   // the only reliable fix there (must be { passive: false } to allow preventDefault).
   useEffect(() => {
-    const prev = document.documentElement.style.overflow;
+    if (showRules) {
+      // Modal open — let the user scroll normally
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.overscrollBehavior = '';
+      document.body.style.overflow = '';
+      document.body.style.overscrollBehavior = '';
+      return;
+    }
+    // Game active — lock all scrolling
     document.documentElement.style.overflow = 'hidden';
     document.documentElement.style.overscrollBehavior = 'none';
     document.body.style.overflow = 'hidden';
@@ -119,13 +126,13 @@ export default function TypeScriptPage() {
     const blockScroll = (e: TouchEvent) => e.preventDefault();
     document.addEventListener('touchmove', blockScroll, { passive: false });
     return () => {
-      document.documentElement.style.overflow = prev;
+      document.documentElement.style.overflow = '';
       document.documentElement.style.overscrollBehavior = '';
       document.body.style.overflow = '';
       document.body.style.overscrollBehavior = '';
       document.removeEventListener('touchmove', blockScroll);
     };
-  }, []);
+  }, [showRules]);
 
   // Track Visual Viewport height so we can detect when the on-screen keyboard
   // opens on mobile. When the keyboard appears, visualViewport.height shrinks;
