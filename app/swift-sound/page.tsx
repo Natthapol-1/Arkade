@@ -500,40 +500,43 @@ export default function SwiftSoundPage() {
     };
   }, [showRules, rerender]);
 
-  // ── Touch D-pad ───────────────────────────────────────────────────────────
+  // ── Touch Virtual Joystick ────────────────────────────────────────────────
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return; // Only capture single touch
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
-  const handleTouchEnd = (e: React.TouchEvent) => {
+
+  const handleTouchMove = (e: React.TouchEvent) => {
     const state = stateRef.current;
     if (!state || !touchStartRef.current) return;
-    const dx = e.changedTouches[0].clientX - touchStartRef.current.x;
-    const dy = e.changedTouches[0].clientY - touchStartRef.current.y;
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = e.touches[0].clientY - touchStartRef.current.y;
+    const minDrag = 15; // Deadzone threshold
+
+    if (Math.abs(dx) > minDrag || Math.abs(dy) > minDrag) {
+      let newDirX = 0;
+      let newDirY = 0;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        newDirX = dx > 0 ? 1 : -1;
+      } else {
+        newDirY = dy > 0 ? 1 : -1;
+      }
+
+      if (state.playerQueuedDirX !== newDirX || state.playerQueuedDirY !== newDirY) {
+        state.playerQueuedDirX = newDirX;
+        state.playerQueuedDirY = newDirY;
+      }
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const state = stateRef.current;
     touchStartRef.current = null;
-    const minSwipe = 10;
-    if (Math.abs(dx) > Math.abs(dy)) {
-      if (Math.abs(dx) > minSwipe) {
-        state.playerQueuedDirX = dx > 0 ? 1 : -1;
-        state.playerQueuedDirY = 0;
-        try {
-          const a = new Audio('/sounds/numberClick.mp3');
-          a.volume = 0.23;
-          a.play().catch(() => { });
-        } catch { }
-      }
-    } else {
-      if (Math.abs(dy) > minSwipe) {
-        state.playerQueuedDirX = 0;
-        state.playerQueuedDirY = dy > 0 ? 1 : -1;
-        try {
-          const a = new Audio('/sounds/numberClick.mp3');
-          a.volume = 0.23;
-          a.play().catch(() => { });
-        } catch { }
-      }
-    };
+    if (!state) return;
+    state.playerQueuedDirX = 0;
+    state.playerQueuedDirY = 0;
   };
 
   const pressDir = (dx: number, dy: number) => {
@@ -779,7 +782,13 @@ export default function SwiftSoundPage() {
       {/* ── Canvas + side panel ───────────────────────────────────────────── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', gap: '0' }}>
         {/* Canvas */}
-        <div style={{ flex: 1, position: 'relative' }}>
+        <div 
+          style={{ flex: 1, position: 'relative' }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+        >
           <canvas
             ref={canvasRef}
             style={{ display: 'block', width: '100%', height: '100%' }}
@@ -956,49 +965,6 @@ export default function SwiftSoundPage() {
               <button onClick={handleRestart} className="btn btn-primary">PLAY AGAIN</button>
             </div>
           )}
-
-          {/* Mobile D-Pad Overlay */}
-          <div className="mobile-dpad-container" style={{
-            position: 'absolute',
-            bottom: '20px',
-            left: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '5px',
-            opacity: 0.6,
-          }}>
-            <button
-              style={{ width: 65, height: 65, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.4)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', cursor: 'pointer', touchAction: 'none' }}
-              onPointerDown={(e) => { e.preventDefault(); pressDir(0, -1); }}
-              onPointerUp={(e) => { e.preventDefault(); releaseDir(0, -1); }}
-              onPointerLeave={(e) => { e.preventDefault(); releaseDir(0, -1); }}
-              onContextMenu={(e) => e.preventDefault()}
-            >▲</button>
-            <div style={{ display: 'flex', gap: '65px' }}>
-              <button
-                style={{ width: 65, height: 65, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.4)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', cursor: 'pointer', touchAction: 'none' }}
-                onPointerDown={(e) => { e.preventDefault(); pressDir(-1, 0); }}
-                onPointerUp={(e) => { e.preventDefault(); releaseDir(-1, 0); }}
-                onPointerLeave={(e) => { e.preventDefault(); releaseDir(-1, 0); }}
-                onContextMenu={(e) => e.preventDefault()}
-              >◀</button>
-              <button
-                style={{ width: 65, height: 65, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.4)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', cursor: 'pointer', touchAction: 'none' }}
-                onPointerDown={(e) => { e.preventDefault(); pressDir(1, 0); }}
-                onPointerUp={(e) => { e.preventDefault(); releaseDir(1, 0); }}
-                onPointerLeave={(e) => { e.preventDefault(); releaseDir(1, 0); }}
-                onContextMenu={(e) => e.preventDefault()}
-              >▶</button>
-            </div>
-            <button
-              style={{ width: 65, height: 65, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', border: '2px solid rgba(255,255,255,0.4)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', cursor: 'pointer', touchAction: 'none' }}
-              onPointerDown={(e) => { e.preventDefault(); pressDir(0, 1); }}
-              onPointerUp={(e) => { e.preventDefault(); releaseDir(0, 1); }}
-              onPointerLeave={(e) => { e.preventDefault(); releaseDir(0, 1); }}
-              onContextMenu={(e) => e.preventDefault()}
-            >▼</button>
-          </div>
         </div>
       </div>
 
