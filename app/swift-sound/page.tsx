@@ -618,6 +618,34 @@ export default function SwiftSoundPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', position: 'fixed', inset: 0, background: 'var(--void)', overflow: 'hidden', touchAction: 'none' }}>
       <style>{`
+        :root {
+          --bar-pad: 8px 14px;
+          --font-stat: 0.8rem;
+          --font-score: 0.9rem;
+          --batt-w: 70px; --batt-h: 18px;
+          --mel-w: 30px; --mel-h: 16px;
+          --dash-w: 48px; --dash-h: 16px;
+          --bot-bar-h: 60px;
+          --font-note: 1.3rem;
+          --font-count: 0.7rem;
+          --font-dash-main: 1.1rem;
+          --font-dash-sub: 0.6rem;
+        }
+        @media (min-width: 1024px) {
+          :root {
+            --bar-pad: 14px 18px;
+            --font-stat: 1rem;
+            --font-score: 1.2rem;
+            --batt-w: 80px; --batt-h: 22px;
+            --mel-w: 36px; --mel-h: 20px;
+            --dash-w: 56px; --dash-h: 20px;
+            --bot-bar-h: 90px;
+            --font-note: 1.6rem;
+            --font-count: 0.9rem;
+            --font-dash-main: 1.4rem;
+            --font-dash-sub: 0.8rem;
+          }
+        }
         @media (min-width: 768px) {
           .mobile-dpad-container { display: none !important; }
         }
@@ -697,20 +725,20 @@ export default function SwiftSoundPage() {
       {/* ── Top bar ───────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '8px 14px', flexShrink: 0, gap: '10px'
+        padding: 'var(--bar-pad)', flexShrink: 0, gap: '10px'
       }}>
         <BackButton />
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
           {/* HP battery */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', letterSpacing: '0.12em', fontWeight: 700 }}>HP</span>
+            <span style={{ fontSize: 'var(--font-stat)', color: 'var(--text-dim)', letterSpacing: '0.12em', fontWeight: 700 }}>HP</span>
             {state?.godMode ? (
-              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.9rem', color: 'var(--success)' }}>∞</span>
+              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: 'var(--success)' }}>∞</span>
             ) : (() => {
               const livesPct = Math.max(0, Math.min(100, ((state?.lives ?? 3) / 3) * 100));
               const batteryColor = livesPct > 60 ? 'var(--success)' : livesPct > 30 ? 'var(--warning)' : 'var(--danger)';
               return (
-                <div className="battery" title={`${state?.lives ?? 3}/3 lives`} style={{ width: '70px', height: '18px' }}>
+                <div className="battery" title={`${state?.lives ?? 3}/3 lives`} style={{ width: 'var(--batt-w)', height: 'var(--batt-h)' }}>
                   <div className="battery-fill" style={{ width: `${livesPct}%`, background: batteryColor, boxShadow: `0 0 8px ${batteryColor}` }} />
                   <div className="battery-nub" />
                 </div>
@@ -719,11 +747,11 @@ export default function SwiftSoundPage() {
           </div>
           {/* Melody progress bar */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', letterSpacing: '0.12em', fontWeight: 700 }}>SONG</span>
+            <span style={{ fontSize: 'var(--font-stat)', color: 'var(--text-dim)', letterSpacing: '0.12em', fontWeight: 700 }}>SONG</span>
             <div style={{ display: 'flex', gap: '5px' }}>
               {MELODIES.map((mel, i) => (
                 <div key={i} style={{
-                  width: 30, height: 16, borderRadius: '3px',
+                  width: 'var(--mel-w)', height: 'var(--mel-h)', borderRadius: '3px',
                   background: state?.melodiesCompleted[i] ? mel.color : 'transparent',
                   border: state?.melodiesCompleted[i] ? `2px solid ${mel.color}` : '2px solid rgba(255, 255, 255, 0.5)',
                   boxShadow: state?.melodiesCompleted[i] ? `0 0 6px ${mel.color}` : 'none',
@@ -737,19 +765,19 @@ export default function SwiftSoundPage() {
           </div>
           {/* Sprint status */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', letterSpacing: '0.12em', fontWeight: 700 }}>DASH</span>
+            <span style={{ fontSize: 'var(--font-stat)', color: 'var(--text-dim)', letterSpacing: '0.12em', fontWeight: 700 }}>DASH</span>
             {state?.sprintActive ? (
-              <div style={{ width: 48, height: 16, borderRadius: '3px', background: 'var(--cyan)', border: '2px solid var(--cyan)', boxShadow: '0 0 8px var(--cyan)' }} />
+              <div style={{ width: 'var(--dash-w)', height: 'var(--dash-h)', borderRadius: '3px', background: 'var(--cyan)', border: '2px solid var(--cyan)', boxShadow: '0 0 8px var(--cyan)' }} />
             ) : state?.sprintCooldown ?? 0 > 0 ? (
-              <div style={{ width: 48, height: 16, borderRadius: '3px', background: 'transparent', border: '2px solid rgba(255, 255, 255, 0.5)', overflow: 'hidden' }}>
+              <div style={{ width: 'var(--dash-w)', height: 'var(--dash-h)', borderRadius: '3px', background: 'transparent', border: '2px solid rgba(255, 255, 255, 0.5)', overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${100 - ((state?.sprintCooldown ?? 0) / SPRINT_COOLDOWN_TICKS) * 100}%`, background: 'var(--text-dim)' }} />
               </div>
             ) : (
-              <div style={{ width: 48, height: 16, borderRadius: '3px', background: 'var(--success)', border: '2px solid var(--success)', boxShadow: '0 0 6px var(--success)' }} />
+              <div style={{ width: 'var(--dash-w)', height: 'var(--dash-h)', borderRadius: '3px', background: 'var(--success)', border: '2px solid var(--success)', boxShadow: '0 0 6px var(--success)' }} />
             )}
           </div>
           {/* Score */}
-          <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.9rem', color: 'var(--cyan)' }}>
+          <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: 'var(--cyan)' }}>
             {state?.score ?? 0}
           </span>
           {/* God mode toggle */}
@@ -992,7 +1020,7 @@ export default function SwiftSoundPage() {
         flexShrink: 0,
         borderTop: '2px solid var(--border)',
         background: 'rgba(5,5,16,0.97)',
-        height: '60px',
+        height: 'var(--bot-bar-h)',
       }}>
         {NOTES.map((note, i) => {
           const count = state?.noteInventory[note] ?? 0;
@@ -1021,14 +1049,14 @@ export default function SwiftSoundPage() {
             >
               <span style={{
                 fontFamily: 'var(--font-pixel)',
-                fontSize: '1.3rem',
+                fontSize: 'var(--font-note)',
                 color: active ? color : color + '99',
                 textShadow: active ? `0 0 14px ${color}, 0 0 28px ${color}88` : 'none',
                 lineHeight: 1,
               }}>{note}</span>
               <span style={{
                 fontFamily: 'var(--font-pixel)',
-                fontSize: '0.7rem',
+                fontSize: 'var(--font-count)',
                 color: active ? 'var(--text)' : 'var(--text-muted)',
                 lineHeight: 1,
               }}>×{count}</span>
@@ -1056,14 +1084,14 @@ export default function SwiftSoundPage() {
         >
           <span style={{
             fontFamily: 'var(--font-pixel)',
-            fontSize: '1.1rem',
+            fontSize: 'var(--font-dash-main)',
             color: state?.sprintActive ? 'var(--cyan)' : (state?.sprintCooldown ?? 0) > 0 ? 'var(--text-muted)' : 'var(--success)',
             textShadow: state?.sprintActive ? '0 0 14px var(--cyan), 0 0 28px var(--cyan)88' : (state?.sprintCooldown ?? 0) === 0 ? '0 0 14px var(--success), 0 0 28px var(--success)88' : 'none',
             lineHeight: 1,
           }}>DASH</span>
           <span style={{
             fontFamily: 'var(--font-pixel)',
-            fontSize: '0.6rem',
+            fontSize: 'var(--font-dash-sub)',
             color: state?.sprintActive ? 'var(--cyan)' : (state?.sprintCooldown ?? 0) > 0 ? 'var(--text-muted)' : 'var(--success)',
             lineHeight: 1,
           }}>{state?.sprintActive ? '>>' : (state?.sprintCooldown ?? 0) > 0 ? 'WAIT' : 'READY'}</span>
