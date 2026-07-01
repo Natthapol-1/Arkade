@@ -277,7 +277,7 @@ export const CHARGER_CHARGE_SPEED = 2.2; // px/tick during charge (very fast)
 export const CHARGER_SIGHT_RANGE  = 7;   // tiles — triggers charge when player in LoS
 export const CHARGER_STUN_TICKS   = 55;  // ticks stunned after hitting wall
 
-export const SHIELDER_SHIELD_RANGE = 3;  // tiles — shields allies within 3 tiles
+export const SHIELDER_SHIELD_RANGE = 8;  // tiles — shields allies within 8 tiles
 
 export const SNIPER_CHAIN_RANGE = 4;  // tiles — chain lightning radius on sniper kill
 export const SNIPER_CHAIN_DMG   = 8;  // damage per chain hit

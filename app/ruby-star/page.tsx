@@ -1344,6 +1344,34 @@ function drawGame(
       ctx.beginPath();
       ctx.arc(bx, by, ballRadius * 0.45, 0, 2 * Math.PI);
       ctx.fill();
+    } else if (e.type === 'normal' || e.type === 'mini_splitter') {
+      const alpha = e.shootTicks / 14;
+      const progress = 1 - alpha; // 0 to 1
+      const angle = Math.atan2(tgtY - eys, tgtX - exs);
+      const sweepRadius = TILE_SIZE * 0.4 + (TILE_SIZE * 0.8 * progress); // expands outward
+      const arcSpread = Math.PI * 0.6; // 108 degrees wide
+
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.shadowColor = ecol;
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = ecol;
+      ctx.lineWidth = Math.max(3, TILE_SIZE * 0.25 * alpha);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(exs, eys, sweepRadius, angle - arcSpread / 2, angle + arcSpread / 2);
+      ctx.stroke();
+
+      ctx.globalAlpha = alpha;
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(1, TILE_SIZE * 0.08 * alpha);
+      ctx.beginPath();
+      ctx.arc(exs, eys, sweepRadius, angle - arcSpread / 2, angle + arcSpread / 2);
+      ctx.stroke();
+      
+      // Fix: reset alpha and line cap
+      ctx.globalAlpha = 1;
+      ctx.lineCap = 'butt';
     } else {
       ctx.globalAlpha = alpha * 0.75;
       ctx.shadowColor = ecol;
