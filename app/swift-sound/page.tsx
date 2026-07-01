@@ -302,7 +302,7 @@ function drawGame(
         const screenY = ty * TILE_SIZE - camY;
         // only draw if on screen
         if (screenX < -TILE_SIZE || screenX > canvasW || screenY < -TILE_SIZE || screenY > canvasH) continue;
-        
+
         const tile = state.map[ty]?.[tx];
         const melId = tileMelodyId(tile);
         if (melId !== null) {
@@ -311,11 +311,11 @@ function drawGame(
           const completed = state.melodiesCompleted[melId];
           const pulse = 0.5 + 0.5 * Math.abs(Math.sin(tick * 0.05 + melId));
           const melColor = melody.color;
-          
+
           ctx.globalAlpha = completed ? 0.35 : (0.6 + 0.4 * pulse);
           ctx.fillStyle = completed ? melColor + '18' : melColor + '66';
           ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
-          
+
           const bw = 3;
           ctx.shadowColor = melColor;
           ctx.shadowBlur = completed ? 4 : 20 * pulse;
@@ -323,7 +323,7 @@ function drawGame(
           ctx.lineWidth = bw;
           ctx.strokeRect(screenX + bw / 2, screenY + bw / 2, TILE_SIZE - bw, TILE_SIZE - bw);
           ctx.shadowBlur = 0;
-          
+
           ctx.fillStyle = completed ? melColor : '#ffffff';
           ctx.font = `${Math.floor(TILE_SIZE * 0.6)}px 'Press Start 2P', monospace`;
           ctx.textAlign = 'center';
@@ -357,7 +357,7 @@ export default function SwiftSoundPage() {
   // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     stateRef.current = createInitialState();
-    
+
     if (typeof screen !== 'undefined' && screen.orientation && (screen.orientation as any).lock) {
       (screen.orientation as any).lock('landscape').catch(() => {
         // Silently fail if not supported or requires user gesture first
@@ -506,10 +506,10 @@ export default function SwiftSoundPage() {
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return; // Only capture single touch
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    
+
     // Attempt to enter fullscreen on first touch to hide URL bar
     if (document.fullscreenElement === null && document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {});
+      document.documentElement.requestFullscreen().catch(() => { });
     }
   };
 
@@ -660,14 +660,14 @@ export default function SwiftSoundPage() {
           }
         }
       `}</style>
-      <BGMController ref={bgmRef} visible={false} src={["/sounds/swiftSoundBGM.mp3", "/sounds/horrorBGM1.mp3", "/sounds/horrorBGM2.mp3"]} volume={[0.2, 0.02, 0.15]} />
+      <BGMController ref={bgmRef} visible={false} src={["/sounds/swiftSoundBGM.mp3", "/sounds/horrorBGM1.mp3", "/sounds/horrorBGM2.mp3"]} volume={[0.3, 0.03, 0.25]} />
 
       <div className="rotate-overlay" style={{
         position: 'fixed', inset: 0, zIndex: 9999, background: 'var(--void)', color: 'white',
         flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '20px'
       }}>
         <span style={{ fontSize: '4rem', marginBottom: '20px' }}>📱➔🔄</span>
-        <h2 style={{ fontFamily: 'var(--font-pixel)', fontSize: '1.2rem', marginBottom: '16px', lineHeight: 1.5 }}>PLEASE ROTATE<br/>YOUR DEVICE</h2>
+        <h2 style={{ fontFamily: 'var(--font-pixel)', fontSize: '1.2rem', marginBottom: '16px', lineHeight: 1.5 }}>PLEASE ROTATE<br />YOUR DEVICE</h2>
         <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)', fontSize: '0.9rem' }}>This game is designed to be played in landscape mode.</p>
       </div>
 
@@ -825,7 +825,7 @@ export default function SwiftSoundPage() {
       {state && state.activeEffects.length > 0 && (
         <div style={{ display: 'flex', gap: '4px', padding: '0 12px 4px', flexWrap: 'wrap', flexShrink: 0 }}>
           {state.activeEffects.map((e, i) => (
-            <span key={i} className="effect-badge" style={{ borderColor: e.color + '88', color: e.color, fontSize: '0.5rem' }}>
+            <span key={i} className="effect-badge" style={{ borderColor: e.color + '88', color: e.color }}>
               {e.description}
             </span>
           ))}
@@ -835,7 +835,7 @@ export default function SwiftSoundPage() {
       {/* ── Canvas + side panel ───────────────────────────────────────────── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', gap: '0' }}>
         {/* Canvas */}
-        <div 
+        <div
           style={{ flex: 1, position: 'relative' }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}

@@ -26,28 +26,12 @@ export default function Home() {
 
   const games = [
     {
-      name: 'CipherCalc#',
-      path: '/ciphercalc',
-      desc: 'Decrypt the equation',
-      icon: '∑',
-      iconAnim: 'cursorBlink',
-      iconScale: 1.4,
-    },
-    {
       name: 'Painting Python',
       path: '/painting-python',
       desc: 'Matching colors from memory',
-      icon: '◆',
+      icon: '🖌',
       iconAnim: 'foodPulse',
       iconScale: 1.7,
-    },
-    {
-      name: 'Outcast Assembly',
-      path: '/outcast-assembly',
-      desc: 'Hunt imposters on the board',
-      icon: '♟',
-      iconAnim: 'cursorBlink',
-      iconScale: 1.5,
     },
     {
       name: 'Type:Script',
@@ -58,12 +42,36 @@ export default function Home() {
       iconScale: 1.3,
     },
     {
+      name: 'Outcast Assembly',
+      path: '/outcast-assembly',
+      desc: 'Hunt imposters on the board',
+      icon: '♟',
+      iconAnim: 'cursorBlink',
+      iconScale: 1.5,
+    },
+    {
+      name: 'CipherCalc#',
+      path: '/ciphercalc',
+      desc: 'Decrypt the equation',
+      icon: '∑',
+      iconAnim: 'cursorBlink',
+      iconScale: 1.4,
+    },
+    {
       name: 'Swift & Sound',
       path: '/swift-sound',
       desc: 'Collect notes, create sound',
       icon: '♪',
       iconAnim: 'foodPulse',
       iconScale: 1.6,
+    },
+    {
+      name: 'Ruby Star',
+      path: '/ruby-star',
+      desc: 'Guard the core, survive the swarm',
+      icon: '◆',
+      iconAnim: 'foodPulse',
+      iconScale: 1.5,
     },
   ];
 

@@ -761,11 +761,11 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.55rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  padding: 3px 8px;
+  padding: 5px 12px;
   border-radius: var(--radius);
   border: 1px solid;
   animation: pulseGlow 1.5s ease-in-out infinite;

@@ -36,7 +36,7 @@ function activeSpeedMultiplier(effects: SpeedEffect[], now: number): number {
 
 const KIND_BASE_WEIGHT: Record<WordKind, number> = {
   normal: 6,
-  shielded: 2,
+  shielded: 1.2,
   erratic: 2,
   virus: 1.5,
   reversed: 2,

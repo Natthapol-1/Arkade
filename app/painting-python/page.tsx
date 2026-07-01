@@ -768,51 +768,6 @@ export default function SpectrumSnakePage() {
             </div>
           </div>
 
-          {/* Active effects */}
-          {g.hasShield && (
-            <span
-              className="effect-badge"
-              style={{
-                borderColor: COLOR_DEFS[FoodColor.Red].hex + '88',
-                color: COLOR_DEFS[FoodColor.Red].hex
-              }}
-            >
-              🛡
-            </span>
-          )}
-          {isGhost && (
-            <span
-              className="effect-badge"
-              style={{
-                borderColor: COLOR_DEFS[FoodColor.Gray].hex + '88',
-                color: COLOR_DEFS[FoodColor.Gray].hex
-              }}
-            >
-              👻
-            </span>
-          )}
-          {isReversed && (
-            <span
-              className="effect-badge"
-              style={{
-                borderColor: COLOR_DEFS[FoodColor.Purple].hex + '88',
-                color: COLOR_DEFS[FoodColor.Purple].hex
-              }}
-            >
-              ⟲
-            </span>
-          )}
-          {isFrozen && (
-            <span
-              className="effect-badge"
-              style={{
-                borderColor: COLOR_DEFS[FoodColor.Blue].hex + '88',
-                color: COLOR_DEFS[FoodColor.Blue].hex
-              }}
-            >
-              ❄
-            </span>
-          )}
         </div>
 
         {/* Grid */}

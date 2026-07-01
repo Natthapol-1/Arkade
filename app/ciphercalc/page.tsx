@@ -25,7 +25,7 @@ export default function CipherCalcPage() {
   const [showAnswer, setShowAnswer] = useState(false);
   const [showRules, setShowRules] = useState(true);
   const [shakeKey, setShakeKey] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(60);
+  const [timeLeft, setTimeLeft] = useState(120);
   const bgmRef = useRef<BGMControllerHandle>(null);
 
   // Initialize puzzle on mount
@@ -92,7 +92,7 @@ export default function CipherCalcPage() {
     setSelectedIdx(0);
     setStatus(null);
     setShowAnswer(false);
-    setTimeLeft(60);
+    setTimeLeft(120);
   }, [playSound]);
 
   const handleGiveUp = useCallback(() => {
@@ -216,7 +216,7 @@ export default function CipherCalcPage() {
             <li><span style={{ color: 'var(--text)' }}>Feedback:</span> Shows absolute difference between your result and target</li>
             <li><span style={{ color: 'var(--text)' }}>No repeats:</span> Each digit can only be used once (all modes)</li>
             <li><span style={{ color: 'var(--text)' }}>Precedence:</span> × and ÷ are calculated before + and −</li>
-            <li><span style={{ color: 'var(--warning)' }}>Timer:</span> Each question has 60 seconds.</li>
+            <li><span style={{ color: 'var(--warning)' }}>Timer:</span> Each question has 120 seconds.</li>
           </ul>
         </div>
       </RulesModal>
@@ -301,8 +301,8 @@ export default function CipherCalcPage() {
                       ? '0 0 6px var(--warning)'
                       : '0 0 6px rgba(0,212,255,0.4)',
                   animation: timeLeft <= 5 ? 'sumPulse 0.5s ease-in-out infinite' : undefined,
-                  WebkitMaskImage: `linear-gradient(to bottom, transparent ${100 - (timeLeft / 60) * 100}%, black ${100 - (timeLeft / 60) * 100}%)`,
-                  maskImage: `linear-gradient(to bottom, transparent ${100 - (timeLeft / 60) * 100}%, black ${100 - (timeLeft / 60) * 100}%)`,
+                  WebkitMaskImage: `linear-gradient(to bottom, transparent ${100 - (timeLeft / 120) * 100}%, black ${100 - (timeLeft / 120) * 100}%)`,
+                  maskImage: `linear-gradient(to bottom, transparent ${100 - (timeLeft / 120) * 100}%, black ${100 - (timeLeft / 120) * 100}%)`,
                   WebkitMaskSize: '100% 100%',
                   transition: 'color 500ms ease, text-shadow 500ms ease',
                 }}

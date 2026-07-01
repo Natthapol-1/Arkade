@@ -214,6 +214,14 @@ export function playSFX_win(): void {
   } catch { }
 }
 
+export function playSFX_deghostEffect(): void {
+  try {
+    const a = new Audio('/sounds/deghost.wav');
+    a.volume = 0.5;
+    a.play().catch(() => {});
+  } catch {}
+}
+
 export function playSFX_chordSuccess(notes: NoteName[]): void {
   try {
     const ctx = getCtx();
@@ -372,9 +380,9 @@ export function tick(state: GameState): void {
   state.speed = clamp(state.speed - 0.00004, MIN_SPEED, MAX_SPEED);
 
   // ── Tick active effects ────────────────────────────────────────────────────
-  state.activeEffects = state.activeEffects
-    .map(e => ({ ...e, remainingTicks: e.remainingTicks - 1 }))
-    .filter(e => e.remainingTicks > 0);
+  const ticked = state.activeEffects.map(e => ({ ...e, remainingTicks: e.remainingTicks - 1 }));
+  if (ticked.some(e => e.remainingTicks <= 0)) playSFX_deghostEffect();
+  state.activeEffects = ticked.filter(e => e.remainingTicks > 0);
 
   if (state.invincibleTicks > 0) state.invincibleTicks--;
 
