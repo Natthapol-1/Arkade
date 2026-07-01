@@ -1,7 +1,7 @@
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
   T_WALL, T_TELEPORT,
-  PLAYER_START, CHAMBER_SPAWN_TILES, CHAMBER_BOUNDS, CHAMBER_COLORS,
+  PLAYER_START, CHAMBER_SPAWN_TILES,
   chamberOfTile,
   PLAYER_MAX_HP, RUBY_MAX_HP, PLAYER_BASE_SPEED, PLAYER_CARRY_MULT, PLAYER_INVINCIBLE_TICKS,
   LASER_RANGE, LASER_RANGE_PWR, LASER_DMG, LASER_DMG_PWR, LASER_COOLDOWN,
@@ -11,10 +11,15 @@ import {
   SPEED_DURATION, SPEED_DURATION_PWR, SPEED_MULT, SPEED_COOLDOWN,
   BOMB_RADIUS, BOMB_RADIUS_PWR, BOMB_DMG, BOMB_DMG_PWR,
   BULLET_COOLDOWN, BULLET_DMG, BULLET_DMG_PWR, BULLET_SPEED,
-  STAR_ENERGY_MAX, STAR_ENERGY_PER_CRYSTAL, STAR_ENERGY_PER_KILL,
+  STAR_ENERGY_MAX, STAR_ENERGY_PER_KILL,
   RESOURCE_SPAWN_INTERVAL, RESOURCE_MAX_ON_MAP, HEAL_AMOUNT, ENERGY_AMOUNT,
   RUBY_HEAL_AMOUNT, RUBY_HEAL_COOLDOWN, RUBY_HEAL_RANGE, RUBY_HEAL_CLEAR_RANGE,
   METEORITE_CYCLE, METEORITE_WARNING, METEORITE_PLAYER_DMG, METEORITE_RUBY_DMG,
+  SNIPER_ATTACK_RANGE, SNIPER_WINDUP_TICKS, SNIPER_CHAIN_RANGE, SNIPER_CHAIN_DMG,
+  HEALER_HEAL_RADIUS, HEALER_HEAL_AMOUNT, HEALER_HEAL_INTERVAL,
+  CHARGER_CHARGE_SPEED, CHARGER_SIGHT_RANGE, CHARGER_STUN_TICKS,
+  SHIELDER_SHIELD_RANGE,
+  BOSS_SPAWN_INTERVAL, BOSS_WARNING_TICKS, BOSS_METEOR_DMG, BOSS_ATTACK_RANGE,
   DIFFICULTY_RAMP_TICKS, DIFFICULTY_TIERS,
   ENEMY_CONFIGS, EnemyType,
   generateMap,
@@ -47,6 +52,13 @@ export interface Enemy {
   // bomber specific
   exploding: boolean;
   explodeTick: number;
+  // sniper specific
+  windupTicks: number; // >0 = telegraphing before firing (charger: stun ticks)
+  // charger specific
+  chargeDirX: number; // locked charge direction; 0 = not charging
+  chargeDirY: number;
+  // shielder specific
+  shieldTargetId: number; // ID of ally being shielded; -1 = none
 }
 
 export interface Bomb {
@@ -67,6 +79,7 @@ export interface LaserBeam {
   endX: number; endY: number;
   ticks: number;
   powered?: boolean;
+  color?: string; // undefined = player cyan; set for enemy beams
 }
 
 export interface WaveEffect {
@@ -90,6 +103,12 @@ export interface LaserBullet {
   dx: number;
   dy: number;
   powered: boolean;
+  ticks: number;
+}
+
+export interface LightningArc {
+  fromX: number; fromY: number;
+  toX: number; toY: number;
   ticks: number;
 }
 
@@ -140,7 +159,6 @@ export interface GameState {
   // Star energy
   starEnergy: number;
   poweredTicks: number; // >0 when abilities are powered (e.g. 1.5s duration)
-  godMode?: boolean;
 
   // Enemies
   enemies: Enemy[];
@@ -162,6 +180,7 @@ export interface GameState {
   laserBullets: LaserBullet[];
   waveEffects: WaveEffect[];
   bombBlasts: BombBlast[];
+  lightningArcs: LightningArc[];
 
   // Teleport
   playerChamber: number;   // -1 if in hallway
@@ -177,6 +196,16 @@ export interface GameState {
 
   // God mode
   godMode: boolean;
+
+  // Sniper kill buff — electric chain on player attacks
+  electricBuffTicks: number;
+
+  // Boss spawn system
+  bossTimer: number;        // countdown to next boss spawn
+  bossWarningTicks: number; // >0 while boss is about to spawn (shows warning)
+  bossesKilled: number;     // tracks how many bosses have been killed (each +15 HP)
+
+  healJiggleTicks: number;  // >0 while player jiggle animation plays after heal
 }
 
 // ─── BFS ─────────────────────────────────────────────────────────────────────
@@ -229,7 +258,7 @@ function getAudioCtx(): AudioContext | null {
   return _actx;
 }
 
-function playTone(freq: number, dur: number, vol = 0.25, type: OscillatorType = 'square') {
+function playTone(freq: number, dur: number, vol = 0.16, type: OscillatorType = 'square') {
   try {
     const ctx = getAudioCtx(); if (!ctx) return;
     const t = ctx.currentTime;
@@ -245,50 +274,59 @@ function playTone(freq: number, dur: number, vol = 0.25, type: OscillatorType = 
 
 export function playSFX_laser() {
   try {
-    const a = new Audio('/sounds/laserBeam.mp3'); a.volume = 0.45; a.play().catch(() => {});
+    const a = new Audio('/sounds/laserBeam.mp3'); a.volume = 0.29; a.play().catch(() => {});
   } catch { }
 }
 
 export function playSFX_laserBullet() {
   try {
-    const a = new Audio('/sounds/laserBullet.mp3'); a.volume = 0.35; a.play().catch(() => {});
+    const a = new Audio('/sounds/laserBullet.mp3'); a.volume = 0.22; a.play().catch(() => {});
   } catch { }
 }
 
 export function playSFX_wave() {
   try {
-    const a = new Audio('/sounds/chargeWave.mp3'); a.volume = 1.0; a.play().catch(() => {});
-    const a2 = new Audio('/sounds/chargeWave.mp3'); a2.volume = 1.0; a2.play().catch(() => {});
+    const a = new Audio('/sounds/chargeWave.mp3'); a.volume = 0.64; a.play().catch(() => {});
+    const a2 = new Audio('/sounds/chargeWave.mp3'); a2.volume = 0.64; a2.play().catch(() => {});
   } catch { }
 }
 
 export function playSFX_alienHit() {
   try {
-    const a = new Audio('/sounds/alienGetDamaged.wav'); a.volume = 0.55; a.play().catch(() => {});
+    const a = new Audio('/sounds/alienGetDamaged.wav'); a.volume = 0.35; a.play().catch(() => {});
   } catch { }
 }
 
 function playSFX_alienDeath() {
   try {
-    const a = new Audio('/sounds/alienDeath.mp3'); a.volume = 0.2; a.play().catch(() => {});
+    const a = new Audio('/sounds/alienDeath.mp3'); a.volume = 0.13; a.play().catch(() => {});
   } catch { }
 }
 
 function playSFX_alienShoot() {
   try {
-    const a = new Audio('/sounds/alienShootLaser.wav'); a.volume = 0.45; a.play().catch(() => {});
+    const a = new Audio('/sounds/alienShootLaser.wav'); a.volume = 0.29; a.play().catch(() => {});
+  } catch { }
+}
+
+function playSFX_bossLaser() {
+  try {
+    for (let i = 0; i < 3; i++) {
+      const a = new Audio('/sounds/chargeWave.mp3'); a.volume = 0.95; a.play().catch(() => {});
+    }
+    const b = new Audio('/sounds/laserBeam.mp3'); b.volume = 0.5; b.play().catch(() => {});
   } catch { }
 }
 
 export function playSFX_bomb() {
   try {
-    const a = new Audio('/sounds/bombExplode.wav'); a.volume = 1.0; a.play().catch(() => {});
+    const a = new Audio('/sounds/bombExplode.wav'); a.volume = 0.64; a.play().catch(() => {});
   } catch { }
 }
 
 export function playSFX_hit() {
   try {
-    const a = new Audio('/sounds/hitHurt.wav'); a.volume = 0.35; a.play().catch(() => {});
+    const a = new Audio('/sounds/hitHurt.wav'); a.volume = 0.22; a.play().catch(() => {});
   } catch { }
 }
 
@@ -296,56 +334,62 @@ export function playSFX_pickup() {
   try {
     // Play multiple times simultaneously to stack volume beyond 1.0
     for (let i = 0; i < 4; i++) {
-      const a = new Audio('/sounds/gameModeClick.mp3'); a.volume = 1.0; a.play().catch(() => {});
+      const a = new Audio('/sounds/gameModeClick.mp3'); a.volume = 0.64; a.play().catch(() => {});
     }
   } catch { }
 }
 
 function playSFX_healPickup() {
   try {
-    const a = new Audio('/sounds/grow.wav'); a.volume = 0.5; a.play().catch(() => {});
+    const a = new Audio('/sounds/grow.wav'); a.volume = 0.32; a.play().catch(() => {});
   } catch { }
 }
 
 function playSFX_powerUp() {
   try {
-    const a = new Audio('/sounds/powerUpBoost.mp3'); a.volume = 0.6; a.play().catch(() => {});
+    const a = new Audio('/sounds/powerUpBoost.mp3'); a.volume = 0.38; a.play().catch(() => {});
   } catch { }
 }
 
 export function playSFX_speed() {
   try {
-    const a = new Audio('/sounds/speedBoost.mp3'); a.volume = 0.55; a.play().catch(() => {});
+    const a = new Audio('/sounds/speedBoost.mp3'); a.volume = 0.35; a.play().catch(() => {});
   } catch { }
 }
 
-export function playSFX_charge() { playTone(440 + 110 * Math.random(), 0.06, 0.18, 'square'); }
+export function playSFX_charge() { playTone(440 + 110 * Math.random(), 0.06, 0.115, 'square'); }
 
 function playSFX_enemyAttack() { playSFX_alienShoot(); }
 
 function playSFX_rubyHit() {
   try {
-    const a = new Audio('/sounds/shieldBreak.mp3'); a.volume = 0.65; a.play().catch(() => {});
+    const a = new Audio('/sounds/shieldBreak.mp3'); a.volume = 0.42; a.play().catch(() => {});
   } catch { }
 }
 
 export function playSFX_rubyToggle() {
   try {
-    const a = new Audio('/sounds/levelup.mp3'); a.volume = 0.6; a.play().catch(() => {});
+    const a = new Audio('/sounds/levelup.mp3'); a.volume = 0.38; a.play().catch(() => {});
   } catch { }
 }
 
 export function playSFX_teleport() {
   try {
-    playTone(330, 0.06, 0.2, 'sine');
-    setTimeout(() => playTone(495, 0.06, 0.2, 'sine'), 70);
-    setTimeout(() => playTone(660, 0.12, 0.2, 'sine'), 140);
+    playTone(330, 0.06, 0.13, 'sine');
+    setTimeout(() => playTone(495, 0.06, 0.13, 'sine'), 70);
+    setTimeout(() => playTone(660, 0.12, 0.13, 'sine'), 140);
   } catch { }
 }
 
 export function playSFX_meteorite() {
   try {
-    const a = new Audio('/sounds/meteorExplode.mp3'); a.volume = 0.6; a.play().catch(() => {});
+    const a = new Audio('/sounds/meteorExplode.mp3'); a.volume = 0.38; a.play().catch(() => {});
+  } catch { }
+}
+
+export function playSFX_meteorFalling() {
+  try {
+    const a = new Audio('/sounds/meteorFalling.mp3'); a.volume = 0.45; a.play().catch(() => {});
   } catch { }
 }
 
@@ -356,7 +400,7 @@ export function playSFX_gameOver() {
       const t = ctx.currentTime + i * 0.2;
       const o = ctx.createOscillator(); const g = ctx.createGain();
       o.type = 'sawtooth'; o.frequency.value = f;
-      g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      g.gain.setValueAtTime(0.19, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
       o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + 0.38);
     });
   } catch { }
@@ -425,6 +469,7 @@ export function createInitialState(): GameState {
     laserBullets: [],
     waveEffects: [],
     bombBlasts: [],
+    lightningArcs: [],
 
     playerChamber: 0,
     teleportDestOptions: [],
@@ -436,6 +481,13 @@ export function createInitialState(): GameState {
     rubyHealCooldown: 0,
 
     godMode: false,
+
+    electricBuffTicks: 0,
+
+    bossTimer: BOSS_SPAWN_INTERVAL,
+    bossWarningTicks: 0,
+    bossesKilled: 0,
+    healJiggleTicks: 0,
   };
 }
 
@@ -471,6 +523,27 @@ function damageRuby(state: GameState, amount: number) {
   if (state.rubyHP <= 0) endGame(state);
 }
 
+function damageEnemy(state: GameState, e: Enemy, amount: number) {
+  const shielded = state.enemies.some(s => s.type === 'shielder' && s.shieldTargetId === e.id);
+  const actual = shielded ? Math.max(1, Math.ceil(amount / 2)) : amount;
+  e.hp -= actual;
+  e.flashTicks = 10;
+}
+
+// Called after a player attack hits `hitEnemy` — if electric buff is active,
+// chain lightning to up to 2 nearby enemies.
+function chainElectric(state: GameState, hitEnemy: Enemy) {
+  if (state.electricBuffTicks <= 0) return;
+  const targets = state.enemies
+    .filter(a => a !== hitEnemy && tileEuclidDist(hitEnemy.tileX, hitEnemy.tileY, a.tileX, a.tileY) <= SNIPER_CHAIN_RANGE)
+    .sort((a, b) => tileEuclidDist(hitEnemy.tileX, hitEnemy.tileY, a.tileX, a.tileY) - tileEuclidDist(hitEnemy.tileX, hitEnemy.tileY, b.tileX, b.tileY))
+    .slice(0, 2);
+  for (const t of targets) {
+    state.lightningArcs.push({ fromX: hitEnemy.x, fromY: hitEnemy.y, toX: t.x, toY: t.y, ticks: 22 });
+    damageEnemy(state, t, SNIPER_CHAIN_DMG);
+  }
+}
+
 function endGame(state: GameState) {
   state.gamePhase = 'lost';
   playSFX_gameOver();
@@ -485,7 +558,7 @@ function spawnEnemy(state: GameState) {
   // Pick a chamber far from player or near ruby depending on tension
   const chambers = [0, 1, 2, 3];
   // Weight chambers: prefer ones with player or ruby
-  const playerCh = state.playerChamber;
+  const _playerCh = state.playerChamber; void _playerCh;
 
   const eligibleSpawns: [number, number][] = [];
   for (const ch of chambers) {
@@ -524,6 +597,9 @@ function spawnEnemy(state: GameState) {
       flashTicks: 0,
       shootTicks: 0,
       exploding: false, explodeTick: 0,
+      windupTicks: 0,
+      chargeDirX: 0, chargeDirY: 0,
+      shieldTargetId: -1,
     };
     state.enemies.push(enemy);
   }
@@ -550,6 +626,35 @@ function spawnResource(state: GameState) {
   state.resources.push({ tileX: tx, tileY: ty, type });
 }
 
+// ─── Line of sight (Bresenham) ───────────────────────────────────────────────
+
+function hasLineOfSight(map: number[][], x1: number, y1: number, x2: number, y2: number): boolean {
+  let dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+  const sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1;
+  let err = dx - dy, cx = x1, cy = y1;
+  while (true) {
+    if ((cx !== x1 || cy !== y1) && map[cy]?.[cx] === T_WALL) return false;
+    if (cx === x2 && cy === y2) return true;
+    const e2 = err * 2;
+    if (e2 > -dy) { err -= dy; cx += sx; }
+    if (e2 < dx)  { err += dx; cy += sy; }
+  }
+}
+
+function fireSniperLaser(state: GameState, e: Enemy) {
+  const tgtX = e.targeting === 'player' ? state.playerX : state.rubyTileX * TILE_SIZE + TILE_SIZE / 2;
+  const tgtY = e.targeting === 'player' ? state.playerY : state.rubyTileY * TILE_SIZE + TILE_SIZE / 2;
+  state.laserBeams.push({ fromX: e.x, fromY: e.y, dirX: 0, dirY: 0, endX: tgtX, endY: tgtY, ticks: 22, color: '#ff3300' });
+  if (e.targeting === 'player') {
+    damagePlayer(state, ENEMY_CONFIGS.sniper.damageToPlayer);
+  } else if (state.rubyTileX !== -1) {
+    damageRuby(state, ENEMY_CONFIGS.sniper.damageToRuby);
+  }
+  e.shootTicks = 22;
+  e.attackTimer = ENEMY_CONFIGS.sniper.attackCooldown;
+  playSFX_alienShoot();
+}
+
 // ─── Enemy update ────────────────────────────────────────────────────────────
 
 function updateEnemies(state: GameState) {
@@ -573,7 +678,7 @@ function updateEnemies(state: GameState) {
     // Push (knockback)
     if (e.pushTiles > 0) {
       const cfg = ENEMY_CONFIGS[e.type];
-      const step = Math.min(cfg.speed * 2, e.pushTiles * TILE_SIZE);
+      void Math.min(cfg.speed * 2, e.pushTiles * TILE_SIZE);
       const nx = e.tileX + e.pushDirX;
       const ny = e.tileY + e.pushDirY;
       if (isFloorTile(state.map, nx, ny)) {
@@ -582,6 +687,336 @@ function updateEnemies(state: GameState) {
         e.y = ny * TILE_SIZE + TILE_SIZE / 2;
       }
       e.pushTiles = Math.max(0, e.pushTiles - 1);
+      continue;
+    }
+
+    // ── Boss special logic ───────────────────────────────────────────────
+    if (e.type === 'boss') {
+      // Boss is immune to push
+      e.pushTiles = 0;
+      if (e.attackTimer > 0) e.attackTimer--;
+
+      // Boss always targets the player, no matter which chamber
+      const bTgtTX = state.playerTileX;
+      const bTgtTY = state.playerTileY;
+      const bDist  = tileEuclidDist(e.tileX, e.tileY, bTgtTX, bTgtTY);
+
+      // Attack if within range
+      if (e.attackTimer === 0 && bDist <= BOSS_ATTACK_RANGE) {
+        playSFX_bossLaser();
+        damagePlayer(state, ENEMY_CONFIGS.boss.damageToPlayer);
+        e.attackTimer = ENEMY_CONFIGS.boss.attackCooldown;
+        e.shootTicks = 22;
+        state.laserBeams.push({
+          fromX: e.x, fromY: e.y,
+          dirX: 0, dirY: 0,
+          endX: state.playerX, endY: state.playerY,
+          ticks: 22,
+          color: '#cc0022'
+        });
+      }
+
+      // BFS toward player — recalculate frequently so boss tracks across chambers
+      e.pathTimer--;
+      if (e.pathTimer <= 0) {
+        e.path = bfs(state.map, e.tileX, e.tileY, bTgtTX, bTgtTY);
+        e.pathTimer = 8;
+      }
+      const bCfg = ENEMY_CONFIGS.boss;
+      if (e.tileX === e.targetTileX && e.tileY === e.targetTileY && e.path.length > 0) {
+        const [ntx, nty] = e.path.shift()!;
+        if (isFloorTile(state.map, ntx, nty)) { e.targetTileX = ntx; e.targetTileY = nty; e.stepProgress = 0; }
+      } else if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
+        e.stepProgress += bCfg.speed;
+        const bdx = e.targetTileX - e.tileX, bdy = e.targetTileY - e.tileY;
+        e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + bdx * Math.min(e.stepProgress, TILE_SIZE);
+        e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + bdy * Math.min(e.stepProgress, TILE_SIZE);
+        if (e.stepProgress >= TILE_SIZE) {
+          e.tileX = e.targetTileX; e.tileY = e.targetTileY;
+          e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2;
+          e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2;
+          e.stepProgress = 0;
+        }
+      }
+      continue;
+    }
+
+    // ── Sniper special logic ─────────────────────────────────────────────
+    if (e.type === 'sniper') {
+      const hasPlacedRubyS = state.rubyTileX !== -1;
+      if (playerCarrying || !hasPlacedRubyS) {
+        e.targeting = 'player';
+      } else {
+        const dP = tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY);
+        const dR = tileEuclidDist(e.tileX, e.tileY, state.rubyTileX, state.rubyTileY);
+        e.targeting = dP <= dR + 2 ? 'player' : 'ruby';
+      }
+      const sTgtTX = e.targeting === 'player' ? state.playerTileX : state.rubyTileX;
+      const sTgtTY = e.targeting === 'player' ? state.playerTileY : state.rubyTileY;
+      const sDist  = tileEuclidDist(e.tileX, e.tileY, sTgtTX, sTgtTY);
+      const sLos   = hasLineOfSight(state.map, e.tileX, e.tileY, sTgtTX, sTgtTY);
+
+      if (e.windupTicks > 0) {
+        // Cancel windup if LoS lost
+        if (!sLos || sDist > SNIPER_ATTACK_RANGE) { e.windupTicks = 0; }
+        else {
+          e.windupTicks--;
+          if (e.windupTicks === 0) fireSniperLaser(state, e);
+        }
+        continue;
+      }
+
+      if (e.attackTimer > 0) { e.attackTimer--; }
+
+      if (e.attackTimer === 0 && sDist <= SNIPER_ATTACK_RANGE && sLos) {
+        e.windupTicks = SNIPER_WINDUP_TICKS;
+        continue;
+      }
+
+      // Move toward target only when out of attack range
+      if (sDist > SNIPER_ATTACK_RANGE) {
+        e.pathTimer--;
+        if (e.pathTimer <= 0) {
+          e.path = bfs(state.map, e.tileX, e.tileY, sTgtTX, sTgtTY);
+          e.pathTimer = 25 + Math.floor(Math.random() * 15);
+        }
+        const sCfg = ENEMY_CONFIGS.sniper;
+        if (e.tileX === e.targetTileX && e.tileY === e.targetTileY && e.path.length > 0) {
+          const [ntx, nty] = e.path.shift()!;
+          if (isFloorTile(state.map, ntx, nty)) { e.targetTileX = ntx; e.targetTileY = nty; e.stepProgress = 0; }
+        } else if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
+          e.stepProgress += sCfg.speed;
+          const sdx = e.targetTileX - e.tileX, sdy = e.targetTileY - e.tileY;
+          e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + sdx * Math.min(e.stepProgress, TILE_SIZE);
+          e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + sdy * Math.min(e.stepProgress, TILE_SIZE);
+          if (e.stepProgress >= TILE_SIZE) {
+            e.tileX = e.targetTileX; e.tileY = e.targetTileY;
+            e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2;
+            e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2;
+            e.stepProgress = 0;
+          }
+        }
+      }
+      continue;
+    }
+
+    // ── Healer special logic ─────────────────────────────────────────────
+    if (e.type === 'healer') {
+      // Tick heal cooldown
+      if (e.attackTimer > 0) e.attackTimer--;
+
+      // Heal pulse: restore HP for all allies within radius (including from range)
+      if (e.attackTimer === 0) {
+        for (const ally of state.enemies) {
+          if (ally === e) continue;
+          const dist = tileEuclidDist(e.tileX, e.tileY, ally.tileX, ally.tileY);
+          if (dist <= HEALER_HEAL_RADIUS && ally.hp < ally.maxHp) {
+            ally.hp = Math.min(ally.maxHp, ally.hp + HEALER_HEAL_AMOUNT);
+            ally.flashTicks = 6; // brief pink flash to show heal
+          }
+        }
+        e.attackTimer = HEALER_HEAL_INTERVAL;
+      }
+
+      // Find most injured ally (lowest HP ratio) to move toward
+      let healTargetTX = state.playerTileX; // fallback: drift toward player
+      let healTargetTY = state.playerTileY;
+      let lowestRatio = 1.0;
+      for (const ally of state.enemies) {
+        if (ally === e) continue;
+        const ratio = ally.hp / ally.maxHp;
+        if (ratio < lowestRatio) {
+          lowestRatio = ratio;
+          healTargetTX = ally.tileX;
+          healTargetTY = ally.tileY;
+        }
+      }
+
+      // Only move if not already within heal radius of target
+      const distToHealTarget = tileEuclidDist(e.tileX, e.tileY, healTargetTX, healTargetTY);
+      if (distToHealTarget > HEALER_HEAL_RADIUS) {
+        e.pathTimer--;
+        if (e.pathTimer <= 0) {
+          e.path = bfs(state.map, e.tileX, e.tileY, healTargetTX, healTargetTY);
+          e.pathTimer = 25 + Math.floor(Math.random() * 15);
+        }
+        const hCfg = ENEMY_CONFIGS.healer;
+        if (e.tileX === e.targetTileX && e.tileY === e.targetTileY && e.path.length > 0) {
+          const [ntx, nty] = e.path.shift()!;
+          if (isFloorTile(state.map, ntx, nty)) { e.targetTileX = ntx; e.targetTileY = nty; e.stepProgress = 0; }
+        } else if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
+          e.stepProgress += hCfg.speed;
+          const hdx = e.targetTileX - e.tileX, hdy = e.targetTileY - e.tileY;
+          e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + hdx * Math.min(e.stepProgress, TILE_SIZE);
+          e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + hdy * Math.min(e.stepProgress, TILE_SIZE);
+          if (e.stepProgress >= TILE_SIZE) {
+            e.tileX = e.targetTileX; e.tileY = e.targetTileY;
+            e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2;
+            e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2;
+            e.stepProgress = 0;
+          }
+        }
+      }
+      continue;
+    }
+
+    // ── Charger special logic ─────────────────────────────────────────────
+    if (e.type === 'charger') {
+      const cCfg = ENEMY_CONFIGS.charger;
+      // Stunned after hitting wall or player
+      if (e.windupTicks > 0) { e.windupTicks--; continue; }
+
+      // Currently charging
+      if (e.chargeDirX !== 0 || e.chargeDirY !== 0) {
+        if (e.tileX === e.targetTileX && e.tileY === e.targetTileY) {
+          const nx = e.tileX + e.chargeDirX;
+          const ny = e.tileY + e.chargeDirY;
+          const hitWall   = !isFloorTile(state.map, nx, ny);
+          const hitPlayer = nx === state.playerTileX && ny === state.playerTileY;
+          const hasRubyC  = state.rubyTileX !== -1;
+          const hitRuby   = hasRubyC && nx === state.rubyTileX && ny === state.rubyTileY;
+          if (hitWall || hitPlayer || hitRuby) {
+            if (hitPlayer) { playSFX_enemyAttack(); damagePlayer(state, cCfg.damageToPlayer); e.attackTimer = cCfg.attackCooldown; }
+            if (hitRuby && !hitPlayer) { playSFX_enemyAttack(); damageRuby(state, cCfg.damageToRuby); e.attackTimer = cCfg.attackCooldown; }
+            e.chargeDirX = 0; e.chargeDirY = 0;
+            e.windupTicks = hitWall ? CHARGER_STUN_TICKS : Math.floor(CHARGER_STUN_TICKS / 2);
+          } else {
+            e.targetTileX = nx; e.targetTileY = ny; e.stepProgress = 0;
+          }
+        } else {
+          e.stepProgress += CHARGER_CHARGE_SPEED;
+          const cdx = e.targetTileX - e.tileX, cdy = e.targetTileY - e.tileY;
+          e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + cdx * Math.min(e.stepProgress, TILE_SIZE);
+          e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + cdy * Math.min(e.stepProgress, TILE_SIZE);
+          if (e.stepProgress >= TILE_SIZE) {
+            e.tileX = e.targetTileX; e.tileY = e.targetTileY;
+            e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2;
+            e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2;
+            e.stepProgress = 0;
+          }
+        }
+        continue;
+      }
+
+      // Idle — watch for player LoS and charge
+      if (e.attackTimer > 0) e.attackTimer--;
+      const cDist = tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY);
+      const cLoS  = hasLineOfSight(state.map, e.tileX, e.tileY, state.playerTileX, state.playerTileY);
+      if (e.attackTimer === 0 && cDist <= CHARGER_SIGHT_RANGE && cLoS) {
+        const ddx = state.playerTileX - e.tileX, ddy = state.playerTileY - e.tileY;
+        if (Math.abs(ddx) >= Math.abs(ddy)) { e.chargeDirX = ddx > 0 ? 1 : -1; e.chargeDirY = 0; }
+        else { e.chargeDirX = 0; e.chargeDirY = ddy > 0 ? 1 : -1; }
+      } else {
+        e.pathTimer--;
+        if (e.pathTimer <= 0) { e.path = bfs(state.map, e.tileX, e.tileY, state.playerTileX, state.playerTileY); e.pathTimer = 35 + Math.floor(Math.random() * 20); }
+        if (e.tileX === e.targetTileX && e.tileY === e.targetTileY && e.path.length > 0) {
+          const [ntx, nty] = e.path.shift()!;
+          if (isFloorTile(state.map, ntx, nty)) { e.targetTileX = ntx; e.targetTileY = nty; e.stepProgress = 0; }
+        } else if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
+          e.stepProgress += cCfg.speed;
+          const cdx = e.targetTileX - e.tileX, cdy = e.targetTileY - e.tileY;
+          e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + cdx * Math.min(e.stepProgress, TILE_SIZE);
+          e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + cdy * Math.min(e.stepProgress, TILE_SIZE);
+          if (e.stepProgress >= TILE_SIZE) { e.tileX = e.targetTileX; e.tileY = e.targetTileY; e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2; e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2; e.stepProgress = 0; }
+        }
+      }
+      continue;
+    }
+
+    // ── Ghost special logic ───────────────────────────────────────────────
+    if (e.type === 'ghost') {
+      const gCfg = ENEMY_CONFIGS.ghost;
+      const gHasRuby = state.rubyTileX !== -1;
+      const dGP = tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY);
+      const dGR = gHasRuby ? tileEuclidDist(e.tileX, e.tileY, state.rubyTileX, state.rubyTileY) : Infinity;
+      const gTargetRuby = !playerCarrying && gHasRuby && dGR < dGP - 2;
+      const gTX = gTargetRuby ? state.rubyTileX : state.playerTileX;
+      const gTY = gTargetRuby ? state.rubyTileY : state.playerTileY;
+
+      if (e.tileX === e.targetTileX && e.tileY === e.targetTileY) {
+        const adjPlayer = tileDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= gCfg.attackRange;
+        const adjRuby   = gHasRuby && tileDist(e.tileX, e.tileY, state.rubyTileX, state.rubyTileY) <= gCfg.attackRange;
+        if (e.attackTimer > 0) {
+          e.attackTimer--;
+        } else if (adjPlayer && !gTargetRuby) {
+          playSFX_enemyAttack(); damagePlayer(state, gCfg.damageToPlayer);
+          e.attackTimer = gCfg.attackCooldown; e.shootTicks = 14;
+        } else if (adjRuby && gTargetRuby) {
+          playSFX_enemyAttack(); damageRuby(state, gCfg.damageToRuby);
+          e.attackTimer = gCfg.attackCooldown; e.shootTicks = 14;
+        } else if (e.tileX !== gTX || e.tileY !== gTY) {
+          // Ghost moves through walls — greedy direction
+          const ddx = gTX - e.tileX, ddy = gTY - e.tileY;
+          let nx = e.tileX, ny = e.tileY;
+          if (Math.abs(ddx) >= Math.abs(ddy)) nx = e.tileX + (ddx > 0 ? 1 : -1);
+          else ny = e.tileY + (ddy > 0 ? 1 : -1);
+          nx = Math.max(0, Math.min(MAP_COLS - 1, nx));
+          ny = Math.max(0, Math.min(MAP_ROWS - 1, ny));
+          e.targetTileX = nx; e.targetTileY = ny; e.stepProgress = 0;
+        }
+      } else {
+        e.stepProgress += gCfg.speed;
+        const gdx = e.targetTileX - e.tileX, gdy = e.targetTileY - e.tileY;
+        e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + gdx * Math.min(e.stepProgress, TILE_SIZE);
+        e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + gdy * Math.min(e.stepProgress, TILE_SIZE);
+        if (e.stepProgress >= TILE_SIZE) {
+          e.tileX = e.targetTileX; e.tileY = e.targetTileY;
+          e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2;
+          e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2;
+          e.stepProgress = 0;
+        }
+      }
+      continue;
+    }
+
+    // ── Shielder special logic ────────────────────────────────────────────
+    if (e.type === 'shielder') {
+      const sCfg = ENEMY_CONFIGS.shielder;
+      if (e.attackTimer > 0) e.attackTimer--;
+
+      // Find most injured non-shielder ally
+      let shieldTarget: Enemy | null = null;
+      let lowestRatio = 1.0;
+      for (const ally of state.enemies) {
+        if (ally === e || ally.type === 'shielder') continue;
+        const ratio = ally.hp / ally.maxHp;
+        if (ratio < lowestRatio) { lowestRatio = ratio; shieldTarget = ally; }
+      }
+
+      if (shieldTarget) {
+        e.shieldTargetId = shieldTarget.id;
+        const distToTarget = tileEuclidDist(e.tileX, e.tileY, shieldTarget.tileX, shieldTarget.tileY);
+        if (distToTarget > SHIELDER_SHIELD_RANGE) {
+          e.pathTimer--;
+          if (e.pathTimer <= 0) { e.path = bfs(state.map, e.tileX, e.tileY, shieldTarget.tileX, shieldTarget.tileY); e.pathTimer = 20 + Math.floor(Math.random() * 15); }
+          if (e.tileX === e.targetTileX && e.tileY === e.targetTileY && e.path.length > 0) {
+            const [ntx, nty] = e.path.shift()!;
+            if (isFloorTile(state.map, ntx, nty)) { e.targetTileX = ntx; e.targetTileY = nty; e.stepProgress = 0; }
+          } else if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
+            e.stepProgress += sCfg.speed;
+            const sdx = e.targetTileX - e.tileX, sdy = e.targetTileY - e.tileY;
+            e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + sdx * Math.min(e.stepProgress, TILE_SIZE);
+            e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + sdy * Math.min(e.stepProgress, TILE_SIZE);
+            if (e.stepProgress >= TILE_SIZE) { e.tileX = e.targetTileX; e.tileY = e.targetTileY; e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2; e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2; e.stepProgress = 0; }
+          }
+        }
+        // Shielder never attacks
+      } else {
+        // No injured ally — drift toward player
+        e.shieldTargetId = -1;
+        e.pathTimer--;
+        if (e.pathTimer <= 0) { e.path = bfs(state.map, e.tileX, e.tileY, state.playerTileX, state.playerTileY); e.pathTimer = 30 + Math.floor(Math.random() * 20); }
+        if (e.tileX === e.targetTileX && e.tileY === e.targetTileY && e.path.length > 0) {
+          const [ntx, nty] = e.path.shift()!;
+          if (isFloorTile(state.map, ntx, nty)) { e.targetTileX = ntx; e.targetTileY = nty; e.stepProgress = 0; }
+        } else if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
+          e.stepProgress += sCfg.speed;
+          const sdx = e.targetTileX - e.tileX, sdy = e.targetTileY - e.tileY;
+          e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + sdx * Math.min(e.stepProgress, TILE_SIZE);
+          e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + sdy * Math.min(e.stepProgress, TILE_SIZE);
+          if (e.stepProgress >= TILE_SIZE) { e.tileX = e.targetTileX; e.tileY = e.targetTileY; e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2; e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2; e.stepProgress = 0; }
+        }
+      }
       continue;
     }
 
@@ -612,8 +1047,8 @@ function updateEnemies(state: GameState) {
 
     if (e.tileX === e.targetTileX && e.tileY === e.targetTileY) {
       // Check attack adjacency
-      const adjPlayer = tileDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= 1;
-      const adjRuby = hasPlacedRuby && tileDist(e.tileX, e.tileY, state.rubyTileX, state.rubyTileY) <= 1;
+      const adjPlayer = tileDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= cfg.attackRange;
+      const adjRuby = hasPlacedRuby && tileDist(e.tileX, e.tileY, state.rubyTileX, state.rubyTileY) <= cfg.attackRange;
 
       if (e.attackTimer > 0) {
         e.attackTimer--;
@@ -660,8 +1095,8 @@ function updateEnemies(state: GameState) {
 
     // Bomber check: if adjacent to target, start exploding
     if (e.type === 'bomber' && !e.exploding) {
-      const adjPlayer = tileDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= 1;
-      const adjRuby = hasPlacedRuby && tileDist(e.tileX, e.tileY, state.rubyTileX, state.rubyTileY) <= 1;
+      const adjPlayer = tileDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= cfg.attackRange;
+      const adjRuby = hasPlacedRuby && tileDist(e.tileX, e.tileY, state.rubyTileX, state.rubyTileY) <= cfg.attackRange;
       if ((e.targeting === 'player' && adjPlayer) || (e.targeting === 'ruby' && adjRuby)) {
         e.exploding = true; e.explodeTick = 60;
       }
@@ -686,20 +1121,83 @@ function triggerBomberExplosion(state: GameState, e: Enemy) {
     const other = state.enemies[j];
     if (other === e) continue;
     if (tileEuclidDist(e.tileX, e.tileY, other.tileX, other.tileY) <= RANGE * 0.6) {
-      other.hp -= 2;
+      damageEnemy(state, other, 2);
       if (other.hp <= 0) { killEnemy(state, j); }
     }
   }
 }
 
-function killEnemy(state: GameState, idx: number) {
+function killEnemy(state: GameState, idx: number, fromMeteor = false) {
   const e = state.enemies[idx];
   state.killScore += ENEMY_CONFIGS[e.type].scoreValue;
-  const wasMax = state.starEnergy >= STAR_ENERGY_MAX;
-  state.starEnergy = Math.min(STAR_ENERGY_MAX, state.starEnergy + STAR_ENERGY_PER_KILL);
-  if (!wasMax && state.starEnergy >= STAR_ENERGY_MAX) {
+  if (!fromMeteor) {
+    const wasMax = state.starEnergy >= STAR_ENERGY_MAX;
+    const energyGain = STAR_ENERGY_PER_KILL + (e.type === 'armored' ? 8 : 0);
+    state.starEnergy = Math.min(STAR_ENERGY_MAX, state.starEnergy + energyGain);
+    if (!wasMax && state.starEnergy >= STAR_ENERGY_MAX) playSFX_powerUp();
+  }
+
+  // ── Kill effects by type ─────────────────────────────────────────────
+  if (e.type === 'bomber') {
+    // Explode on death — damages nearby allies
+    const RANGE = ENEMY_CONFIGS.bomber.bombExplodeRange;
+    playSFX_bomb();
+    state.bombBlasts.push({ cx: e.x, cy: e.y, radius: 0, maxRadius: RANGE * TILE_SIZE, ticks: 25 });
+    if (tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= RANGE) damagePlayer(state, 25);
+    if (state.rubyTileX !== -1 && tileEuclidDist(e.tileX, e.tileY, state.rubyTileX, state.rubyTileY) <= RANGE) damageRuby(state, 30);
+    for (const ally of state.enemies) {
+      if (ally === e) continue;
+      if (tileEuclidDist(e.tileX, e.tileY, ally.tileX, ally.tileY) <= RANGE * 0.75) damageEnemy(state, ally, 20);
+    }
+  } else if (e.type === 'healer') {
+    state.playerHP = Math.min(PLAYER_MAX_HP, state.playerHP + 20);
+    try { const a = new Audio('/sounds/grow.wav'); a.volume = 0.38; a.play().catch(() => {}); } catch {}
+  } else if (e.type === 'charger') {
+    state.speedActiveTicks = Math.max(state.speedActiveTicks, 120);
+    state.speedFlashTicks = 15;
+    playSFX_speed();
+  } else if (e.type === 'ghost') {
+    if (state.rubyTileX !== -1) state.rubyHP = Math.min(RUBY_MAX_HP, state.rubyHP + 15);
+    playSFX_teleport();
+  } else if (e.type === 'shielder') {
+    state.playerInvincibleTicks = Math.max(state.playerInvincibleTicks, 150); // ~2.5s shield
+    playSFX_rubyToggle();
+  } else if (e.type === 'sniper') {
+    // Grant player electric chain buff for ~5s (300 ticks)
+    state.electricBuffTicks = Math.max(state.electricBuffTicks, 300);
+    playSFX_laser();
+  } else if (e.type === 'splitter') {
+    // Spawn 2 mini_splitters
+    const miniCfg = ENEMY_CONFIGS.mini_splitter;
+    const offsets: [number,number][] = [[-1,0],[1,0],[0,-1],[0,1],[0,0]];
+    const spawnPositions: [number,number][] = [];
+    for (const [ox, oy] of offsets) {
+      const tx = e.tileX + ox, ty = e.tileY + oy;
+      if (isFloorTile(state.map, tx, ty)) { spawnPositions.push([tx, ty]); if (spawnPositions.length >= 2) break; }
+    }
+    while (spawnPositions.length < 2) spawnPositions.push([e.tileX, e.tileY]);
+    for (const [tx, ty] of spawnPositions) {
+      state.enemies.push({
+        id: state.nextEnemyId++, type: 'mini_splitter',
+        x: tx * TILE_SIZE + TILE_SIZE / 2, y: ty * TILE_SIZE + TILE_SIZE / 2,
+        tileX: tx, tileY: ty, targetTileX: tx, targetTileY: ty, stepProgress: 0,
+        hp: miniCfg.maxHp, maxHp: miniCfg.maxHp,
+        path: [], pathTimer: 0, attackTimer: 0, targeting: 'player',
+        pushDirX: 0, pushDirY: 0, pushTiles: 0,
+        flashTicks: 0, shootTicks: 0, exploding: false, explodeTick: 0,
+        windupTicks: 0, chargeDirX: 0, chargeDirY: 0, shieldTargetId: -1,
+      });
+    }
+  }
+
+  if (e.type === 'boss') {
+    state.bossesKilled++;
+    state.playerHP = PLAYER_MAX_HP;
+    state.rubyHP   = RUBY_MAX_HP;
+    state.starEnergy = STAR_ENERGY_MAX;
     playSFX_powerUp();
   }
+
   state.enemies.splice(idx, 1);
   playSFX_alienDeath();
 }
@@ -771,15 +1269,23 @@ function updatePlayer(state: GameState) {
 function updateMeteorite(state: GameState) {
   if (state.meteoriteWarning >= 0) {
     state.meteoriteStrikeIn--;
+    if (state.meteoriteStrikeIn === 150) {
+      playSFX_meteorFalling();
+    }
     if (state.meteoriteStrikeIn <= 0) {
       // STRIKE
       const ch = state.meteoriteWarning;
       playSFX_meteorite();
-      // Kill all enemies in that chamber
+      // Kill all enemies in that chamber (boss only takes heavy damage)
       for (let i = state.enemies.length - 1; i >= 0; i--) {
         const e = state.enemies[i];
         if (chamberOfTile(e.tileX, e.tileY) === ch) {
-          killEnemy(state, i);
+          if (e.type === 'boss') {
+            damageEnemy(state, e, BOSS_METEOR_DMG);
+            if (e.hp <= 0) killEnemy(state, i, true);
+          } else {
+            killEnemy(state, i, true);
+          }
         }
       }
       // Damage player if in struck chamber
@@ -834,7 +1340,8 @@ export function useLaser(state: GameState) {
       for (let i = state.enemies.length - 1; i >= 0; i--) {
         const e = state.enemies[i];
         if (e.tileX === tx && e.tileY === ty) {
-          e.hp -= dmg; e.flashTicks = 8; laserHit = true;
+          damageEnemy(state, e, dmg); laserHit = true;
+          chainElectric(state, e);
           if (e.hp <= 0) killEnemy(state, i);
         }
       }
@@ -886,7 +1393,8 @@ function fireWave(state: GameState) {
     const e = state.enemies[i];
     const dist = tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY);
     if (dist <= radius) {
-      e.hp -= dmg; e.flashTicks = 12; waveHit = true;
+      damageEnemy(state, e, dmg); waveHit = true;
+      chainElectric(state, e);
       const edx = e.tileX - state.playerTileX;
       const edy = e.tileY - state.playerTileY;
       const len = Math.sqrt(edx * edx + edy * edy) || 1;
@@ -937,7 +1445,8 @@ export function useBomb(state: GameState) {
     for (let i = state.enemies.length - 1; i >= 0; i--) {
       const e = state.enemies[i];
       if (tileEuclidDist(e.tileX, e.tileY, bx, by) <= radius) {
-        e.hp -= dmg; e.flashTicks = 10; bombHit = true;
+        damageEnemy(state, e, dmg); bombHit = true;
+        chainElectric(state, e);
         if (e.hp <= 0) killEnemy(state, i);
       }
     }
@@ -998,17 +1507,7 @@ export function tryActivateTeleport(state: GameState): boolean {
   if (state.gamePhase !== 'playing') return false;
   if (state.teleportCooldown > 0) return false;
   
-  let foundTeleport = false;
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      if (state.map[state.playerTileY + dy]?.[state.playerTileX + dx] === T_TELEPORT) {
-        foundTeleport = true;
-        break;
-      }
-    }
-    if (foundTeleport) break;
-  }
-  if (!foundTeleport) return false;
+  if (state.map[state.playerTileY]?.[state.playerTileX] !== T_TELEPORT) return false;
   const chamberIdx = state.playerChamber;
   const destinations = [0, 1, 2, 3].filter(c => c !== chamberIdx);
   state.teleportDestOptions = destinations;
@@ -1020,7 +1519,7 @@ export function tryActivateTeleport(state: GameState): boolean {
 export function canHealRuby(state: GameState): boolean {
   if (state.gamePhase !== 'playing') return false;
   if (state.playerCarryingRuby || state.rubyTileX === -1) return false;
-  if (state.rubyHP >= RUBY_MAX_HP) return false;
+  if (state.rubyHP >= RUBY_MAX_HP && state.playerHP >= PLAYER_MAX_HP) return false;
   const dist = Math.max(
     Math.abs(state.playerTileX - state.rubyTileX),
     Math.abs(state.playerTileY - state.rubyTileY),
@@ -1035,9 +1534,11 @@ export function canHealRuby(state: GameState): boolean {
 export function healRuby(state: GameState): boolean {
   if (!canHealRuby(state)) return false;
   if (state.rubyHealCooldown > 0) return false;
-  state.rubyHP = Math.min(RUBY_MAX_HP, state.rubyHP + RUBY_HEAL_AMOUNT);
+  if (state.rubyHP < RUBY_MAX_HP) state.rubyHP = Math.min(RUBY_MAX_HP, state.rubyHP + RUBY_HEAL_AMOUNT);
+  state.playerHP = Math.min(PLAYER_MAX_HP, state.playerHP + 2);
   state.rubyHealCooldown = RUBY_HEAL_COOLDOWN;
-  try { const a = new Audio('/sounds/deghost.wav'); a.volume = 0.5; a.play().catch(() => {}); } catch {}
+  state.healJiggleTicks = 18;
+  try { const a = new Audio('/sounds/deghost.wav'); a.volume = 0.32; a.play().catch(() => {}); } catch {}
   return true;
 }
 
@@ -1078,6 +1579,52 @@ export function tick(state: GameState) {
   if (state.poweredTicks > 0) state.poweredTicks--;
   if (state.screenShakeTicks > 0) state.screenShakeTicks--;
   if (state.rubyHealCooldown > 0) state.rubyHealCooldown--;
+  if (state.electricBuffTicks > 0) state.electricBuffTicks--;
+  if (state.healJiggleTicks > 0) state.healJiggleTicks--;
+
+  // Boss spawn countdown (only after difficulty level 4+)
+  if (state.difficultyLevel >= 1) {
+    if (state.bossWarningTicks > 0) {
+      state.bossWarningTicks--;
+      if (state.bossWarningTicks === 0) {
+        // Spawn boss at a random spawn tile far from player
+        const hasBoss = state.enemies.some(e => e.type === 'boss');
+        if (!hasBoss) {
+          const allSpawns: [number, number][] = [];
+          for (let ch = 0; ch < 4; ch++) {
+            for (const [tx, ty] of CHAMBER_SPAWN_TILES[ch]) {
+              if (Math.abs(tx - state.playerTileX) + Math.abs(ty - state.playerTileY) > 10) {
+                allSpawns.push([tx, ty]);
+              }
+            }
+          }
+          if (allSpawns.length > 0) {
+            const [tx, ty] = allSpawns[Math.floor(Math.random() * allSpawns.length)];
+            const cfg = ENEMY_CONFIGS.boss;
+            const bossHp = cfg.maxHp + state.bossesKilled * 15;
+            state.enemies.push({
+              id: state.nextEnemyId++, type: 'boss',
+              x: tx * TILE_SIZE + TILE_SIZE / 2, y: ty * TILE_SIZE + TILE_SIZE / 2,
+              tileX: tx, tileY: ty, targetTileX: tx, targetTileY: ty,
+              stepProgress: 0, hp: bossHp, maxHp: bossHp,
+              path: [], pathTimer: 0, attackTimer: 0, targeting: 'player',
+              pushDirX: 0, pushDirY: 0, pushTiles: 0, flashTicks: 0,
+              shootTicks: 0, exploding: false, explodeTick: 0,
+              windupTicks: 0, chargeDirX: 0, chargeDirY: 0, shieldTargetId: -1,
+            });
+          }
+        }
+        state.bossTimer = BOSS_SPAWN_INTERVAL;
+      }
+    } else {
+      state.bossTimer--;
+      if (state.bossTimer <= 0) {
+        const hasBoss = state.enemies.some(e => e.type === 'boss');
+        if (!hasBoss) state.bossWarningTicks = BOSS_WARNING_TICKS;
+        else state.bossTimer = BOSS_SPAWN_INTERVAL; // already has a boss, delay
+      }
+    }
+  }
 
   // Charge decay
   if (state.chargeCount > 0) {
@@ -1128,8 +1675,8 @@ export function tick(state: GameState) {
     for (let j = state.enemies.length - 1; j >= 0; j--) {
       const e = state.enemies[j];
       if (Math.abs(e.tileX + 0.5 - b.x) < 0.6 && Math.abs(e.tileY + 0.5 - b.y) < 0.6) {
-        e.hp -= dmg;
-        e.flashTicks = 8;
+        damageEnemy(state, e, dmg);
+        chainElectric(state, e);
         hit = true;
         if (e.hp <= 0) killEnemy(state, j);
         break; // no piercing
@@ -1145,6 +1692,11 @@ export function tick(state: GameState) {
   state.laserBeams = state.laserBeams.filter(b => { b.ticks--; return b.ticks > 0; });
   state.waveEffects = state.waveEffects.filter(w => { w.ticks--; w.radius = w.maxRadius * (1 - w.ticks / 30); return w.ticks > 0; });
   state.bombBlasts = state.bombBlasts.filter(b => { b.ticks--; b.radius = b.maxRadius * (1 - b.ticks / 28); return b.ticks > 0; });
+  state.lightningArcs = state.lightningArcs.filter(a => { a.ticks--; return a.ticks > 0; });
+  // Clean up chain-lightning casualties
+  for (let i = state.enemies.length - 1; i >= 0; i--) {
+    if (state.enemies[i].hp <= 0) killEnemy(state, i);
+  }
 }
 
 export function useBullet(state: GameState) {
@@ -1181,8 +1733,8 @@ export function useBullet(state: GameState) {
   }
 
   state.laserBullets.push({
-    x: state.playerTileX + 0.5,
-    y: state.playerTileY + 0.5,
+    x: state.playerX / TILE_SIZE,
+    y: state.playerY / TILE_SIZE,
     dx, dy, powered, ticks: 0
   });
   state.bulletCooldown = BULLET_COOLDOWN;

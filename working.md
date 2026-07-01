@@ -110,17 +110,22 @@ A timeline-shifting flappy-bird: three parallel timelines (GONE=past, WENT=prese
 ## Game 7: Ruby Star (`/app/ruby-star`)
 A space-station defense game: 4 interconnected chambers (ALPHA/BETA/GAMMA/DELTA) in a 2×2 grid linked by hallways. Guard the Ruby Core — if either you or the ruby hits 0 HP it's game over.
 - **Architecture:**
-  - `constants.ts`: Tile types, 51×51 map generator, chamber bounds, per-chamber spawn points, enemy configs (normal/armored/fast/bomber), all ability & difficulty tuning constants.
-  - `engine.ts`: Full `GameState` type, `tick()`, BFS enemy pathfinding, `useLaser` / `pressCharge` / `useSpeedBoost` / `useBomb` / `toggleCarryRuby` / `doTeleport` / `cancelTeleport` exports, meteorite system, resource spawning.
-  - `page.tsx`: Canvas rendering with camera-follow + pixel-art drawPlayer/drawEnemy/drawRubyGem helpers, minimap (top-right, 2px/tile), teleport overlay modal, meteorite warning banner, bottom HUD ability bar.
+  - `constants.ts`: Tile types, 51×51 map generator, chamber bounds, per-chamber spawn points, 12 enemy configs with `attackRange` field, all ability & difficulty tuning constants.
+  - `engine.ts`: Full `GameState` type, `tick()`, BFS enemy pathfinding, `useLaser` / `activateWave` / `useBullet` / `useSpeedBoost` / `useBomb` / `toggleCarryRuby` / `doTeleport` / `cancelTeleport` exports, meteorite system, boss spawn system, resource spawning, electric chain buff.
+  - `page.tsx`: Canvas rendering with camera-follow + pixel-art drawPlayer/drawEnemy/drawRubyGem helpers, minimap (top-right, 4px/tile, S=4), teleport overlay modal, meteorite warning banner, boss warning banner, bottom HUD ability bar with key hints.
+- **Controls (current):** Left-click = LASER, Hold-click = WAVE, Shift = SPEED, Q = BOMB, Right-click = BULLET, E/F = Ruby carry/place, SPACE = Heal or Teleport, WASD/Arrows = Move.
 - **Mechanics:**
   - Ruby carry vs place: carry slows movement (0.62×) but enemies only target player; placing lets enemies split attention.
-  - 4 abilities: LASER (J) — 4-dir beam, WAVE (K, instant shockwave + pushback; or hold left-click ~1s to auto-fire), SPEED (L) — 2.2× sprint, BOMB (B) — place/detonate.
-  - Star energy gauge fills from kills + crystal pickups; when full next ability fires powered-up (more range/damage/duration).
-  - Teleport pads (✦) at center of each chamber — step on to pause and jump to any other chamber.
-  - Every ~30 s a random chamber is targeted (5 s warning on minimap + main canvas); meteorite wipes all enemies there but kills player/harms ruby if caught.
-  - Difficulty ramps every 10 s: faster spawns, more enemies, more types (bomber appears at tier 5).
-- **Gotchas:** `chamberOfTile` returns -1 for hallway tiles — enemy targeting logic handles -1 gracefully. Wave `ticks` denominator hardcoded to 30 (matches `waveEffects` init). Bomb blast denominator hardcoded to 28 (matches `bombBlasts` init). `doTeleport` teleport destinations are hardcoded `[[10,10],[39,10],[10,39],[39,39]]` — must match `TELEPORT_PADS` in constants.ts if ever changed.
+  - 5 abilities: LASER (click) — 4-dir beam pierces enemies; WAVE (hold-click ~1s auto-fire) — ring shockwave + pushback; SPEED (Shift) — 2.2× sprint; BOMB (Q) — place/detonate; BULLET (right-click) — fast burst.
+  - Star energy gauge fills from kills only (not meteor kills) + crystal pickups; when full next ability fires powered-up (more range/damage/duration).
+  - Teleport pads (✦) at center of each chamber — step on, press SPACE to jump to any of the 4 chambers instantly.
+  - Healing: stand near ruby with no enemies close, press SPACE — heals ruby + player +2 HP. Works even when ruby is full HP (still heals player).
+  - Every ~30 s a random chamber is targeted (5 s warning on minimap + banner); meteorite wipes all enemies there. Boss takes 75 dmg instead of dying outright.
+  - Boss spawns via `bossTimer` / `bossWarningTicks` (~5s after tier 1); crimson body (1.55× tile), gold crown, 4 red eyes, jagged mouth. Kill = full HP + ruby HP + energy restore.
+  - Difficulty ramps every 10 s: faster spawns, more enemies, more types. 8 tiers (maxEnemies: 7→9→11→16→18→21→25→31).
+- **Enemy types (12):** normal, armored (+energy on kill), fast, bomber (death explosion), sniper (LoS, 10-tile range, kill = 5s electric chain buff), healer (heals allies, kill = +20 HP), charger (charges on sight, kill = +2s speed), ghost (phase through walls, kill = +15 ruby HP), splitter (splits into 2 mini_splitters), mini_splitter, shielder (halves ally damage, kill = 2.5s invincibility), boss.
+- **Key engine patterns:** `damageEnemy(state, e, amount)` — halves if shielder shields target. `killEnemy(state, idx, fromMeteor=false)` — fromMeteor skips energy award. `chainElectric(state, hitEnemy)` — chains to 2 nearby enemies when `electricBuffTicks > 0`. Boss uses BFS + push-immune.
+- **Gotchas:** `chamberOfTile` returns -1 for hallways. Wave ticks denominator hardcoded to 30; bomb blast to 28. `doTeleport` destinations hardcoded `[[10,10],[39,10],[10,39],[39,39]]` — must match `TELEPORT_PADS`. `mini_splitter` and `boss` are NOT in difficulty tiers (boss uses own timer). BGM: `rubyStarBGM.mp3`.
 
 ## Asset Management
 - **Audio (`/public/sounds/`):** Contains all required SFX and BGMs (coin, movement, hits, game-specific tracks). Each game's BGM file: `calculatorBGM.mp3` (CipherCalc), `snakeBGM.mp3` (Painting Python), `outcastChessBGM.mp3` (Outcast Assembly), `typingGameBGM.mp3` (Type:Script), `swiftSoundBGM.mp3` (Swift & Sound), `goWentGoneBGM.mp3` (Go, Went, Gone).

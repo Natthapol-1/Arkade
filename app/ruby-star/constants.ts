@@ -182,7 +182,7 @@ export function chamberOfTile(tileX: number, tileY: number): number {
 
 // ─── Enemy types ─────────────────────────────────────────────────────────────
 
-export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper';
+export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'boss';
 
 export interface EnemyConfig {
   maxHp: number;
@@ -193,40 +193,94 @@ export interface EnemyConfig {
   scoreValue: number;
   damageToPlayer: number;
   damageToRuby: number;
-  attackCooldown: number; // ticks between attacks when adjacent
-  bombExplodeRange: number; // only for bomber
+  attackCooldown: number;
+  attackRange: number;     // tile distance at which this enemy can attack
+  bombExplodeRange: number;
 }
 
 export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
   normal: {
-    maxHp: 3, speed: 0.65, color: '#44ee44', shieldColor: '#44ee44',
-    bodyFraction: 0.7, scoreValue: 10, damageToPlayer: 8, damageToRuby: 5,
-    attackCooldown: 55, bombExplodeRange: 0,
+    maxHp: 5, speed: 0.68, color: '#44ee44', shieldColor: '#44ee44',
+    bodyFraction: 0.7, scoreValue: 10, damageToPlayer: 10, damageToRuby: 6,
+    attackCooldown: 55, attackRange: 1, bombExplodeRange: 0,
   },
   armored: {
-    maxHp: 6, speed: 0.45, color: '#4488ff', shieldColor: '#88bbff',
-    bodyFraction: 0.82, scoreValue: 25, damageToPlayer: 12, damageToRuby: 8,
-    attackCooldown: 70, bombExplodeRange: 0,
+    maxHp: 22, speed: 0.47, color: '#4488ff', shieldColor: '#88bbff',
+    bodyFraction: 0.82, scoreValue: 25, damageToPlayer: 15, damageToRuby: 10,
+    attackCooldown: 70, attackRange: 2, bombExplodeRange: 0,
   },
   fast: {
-    maxHp: 2, speed: 0.95, color: '#ff8844', shieldColor: '#ff8844',
-    bodyFraction: 0.6, scoreValue: 15, damageToPlayer: 6, damageToRuby: 4,
-    attackCooldown: 40, bombExplodeRange: 0,
+    maxHp: 4, speed: 1.78, color: '#ff8844', shieldColor: '#ff8844',
+    bodyFraction: 0.6, scoreValue: 15, damageToPlayer: 8, damageToRuby: 5,
+    attackCooldown: 40, attackRange: 2, bombExplodeRange: 0,
   },
   bomber: {
-    maxHp: 4, speed: 0.50, color: '#cc44ff', shieldColor: '#cc44ff',
+    maxHp: 6, speed: 0.53, color: '#cc44ff', shieldColor: '#cc44ff',
     bodyFraction: 0.78, scoreValue: 30, damageToPlayer: 0, damageToRuby: 0,
-    attackCooldown: 999, bombExplodeRange: 4,
+    attackCooldown: 999, attackRange: 1, bombExplodeRange: 4,
   },
   sniper: {
-    maxHp: 3, speed: 0.32, color: '#ffee00', shieldColor: '#ffee00',
-    bodyFraction: 0.64, scoreValue: 20, damageToPlayer: 18, damageToRuby: 14,
-    attackCooldown: 130, bombExplodeRange: 0,
+    maxHp: 5, speed: 0.34, color: '#ffee00', shieldColor: '#ffee00',
+    bodyFraction: 0.64, scoreValue: 20, damageToPlayer: 17, damageToRuby: 17,
+    attackCooldown: 130, attackRange: 1, bombExplodeRange: 0,
+  },
+  healer: {
+    maxHp: 11, speed: 0.42, color: '#ff55cc', shieldColor: '#ff55cc',
+    bodyFraction: 0.72, scoreValue: 12, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  charger: {
+    maxHp: 17, speed: 0.68, color: '#ff4400', shieldColor: '#ff4400',
+    bodyFraction: 0.76, scoreValue: 22, damageToPlayer: 17, damageToRuby: 12,
+    attackCooldown: 90, attackRange: 1, bombExplodeRange: 0,
+  },
+  ghost: {
+    maxHp: 4, speed: 0.89, color: '#8855ff', shieldColor: '#8855ff',
+    bodyFraction: 0.60, scoreValue: 18, damageToPlayer: 12, damageToRuby: 9,
+    attackCooldown: 50, attackRange: 3, bombExplodeRange: 0,
+  },
+  splitter: {
+    maxHp: 17, speed: 0.82, color: '#66ff33', shieldColor: '#66ff33',
+    bodyFraction: 0.80, scoreValue: 28, damageToPlayer: 11, damageToRuby: 8,
+    attackCooldown: 60, attackRange: 2, bombExplodeRange: 0,
+  },
+  mini_splitter: {
+    maxHp: 4, speed: 0.95, color: '#88ff55', shieldColor: '#88ff55',
+    bodyFraction: 0.52, scoreValue: 5, damageToPlayer: 6, damageToRuby: 4,
+    attackCooldown: 35, attackRange: 1, bombExplodeRange: 0,
+  },
+  shielder: {
+    maxHp: 10, speed: 0.44, color: '#00ddcc', shieldColor: '#00ddcc',
+    bodyFraction: 0.74, scoreValue: 20, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 999, attackRange: 0, bombExplodeRange: 0,
+  },
+  boss: {
+    maxHp: 121, speed: 0.22, color: '#cc0022', shieldColor: '#ff4444',
+    bodyFraction: 1.55, scoreValue: 500, damageToPlayer: 40, damageToRuby: 35,
+    attackCooldown: 45, attackRange: 2, bombExplodeRange: 0,
   },
 };
 
-export const SNIPER_ATTACK_RANGE  = 8;  // tiles — fires from this distance
+export const BOSS_SPAWN_INTERVAL  = 300;  // ticks (~5s) between boss spawns
+export const BOSS_WARNING_TICKS   = 210;  // ticks of warning before boss appears (~3.5s)
+export const BOSS_METEOR_DMG      = 75;   // meteor deals 75% of boss max HP
+export const BOSS_ATTACK_RANGE    = 3;    // boss can attack from 3 tiles away
+
+export const HEALER_HEAL_RADIUS   = 3;  // tiles — heals allies within this range
+export const HEALER_HEAL_AMOUNT   = 2;  // HP restored per interval
+export const HEALER_HEAL_INTERVAL = 60; // ticks between heals (~1s)
+
+export const SNIPER_ATTACK_RANGE  = 10; // tiles — fires from this distance
 export const SNIPER_WINDUP_TICKS  = 50; // telegraph before firing (~0.83s)
+
+export const CHARGER_CHARGE_SPEED = 2.2; // px/tick during charge (very fast)
+export const CHARGER_SIGHT_RANGE  = 7;   // tiles — triggers charge when player in LoS
+export const CHARGER_STUN_TICKS   = 55;  // ticks stunned after hitting wall
+
+export const SHIELDER_SHIELD_RANGE = 3;  // tiles — shields allies within 3 tiles
+
+export const SNIPER_CHAIN_RANGE = 4;  // tiles — chain lightning radius on sniper kill
+export const SNIPER_CHAIN_DMG   = 8;  // damage per chain hit
 
 // ─── Difficulty tiers ────────────────────────────────────────────────────────
 
@@ -239,14 +293,14 @@ export interface DifficultyTier {
 }
 
 export const DIFFICULTY_TIERS: DifficultyTier[] = [
-  { spawnInterval: 180, maxEnemies: 5,  spawnTypes: ['normal'],                          hpMult: 1.0, spawnCount: 1 }, // 0  0-10s
-  { spawnInterval: 150, maxEnemies: 7,  spawnTypes: ['normal'],                          hpMult: 1.0, spawnCount: 1 }, // 1  10-20s
-  { spawnInterval: 120, maxEnemies: 9,  spawnTypes: ['normal', 'armored'],               hpMult: 1.0, spawnCount: 1 }, // 2  20-30s
-  { spawnInterval: 100, maxEnemies: 12, spawnTypes: ['normal', 'armored', 'fast'],       hpMult: 1.2, spawnCount: 1 }, // 3  30-40s
-  { spawnInterval: 80,  maxEnemies: 14, spawnTypes: ['normal', 'armored', 'fast', 'sniper'],              hpMult: 1.3, spawnCount: 2 }, // 4  40-50s
-  { spawnInterval: 65,  maxEnemies: 17, spawnTypes: ['normal','armored','fast','bomber','sniper'],         hpMult: 1.5, spawnCount: 2 }, // 5  50-60s
-  { spawnInterval: 50,  maxEnemies: 20, spawnTypes: ['normal','armored','fast','bomber','sniper'],         hpMult: 1.7, spawnCount: 2 }, // 6  60-70s
-  { spawnInterval: 38,  maxEnemies: 25, spawnTypes: ['normal','armored','fast','bomber','sniper'],         hpMult: 2.0, spawnCount: 3 }, // 7  70s+
+  { spawnInterval: 180, maxEnemies: 7,  spawnTypes: ['normal'],                                                                                          hpMult: 1.0, spawnCount: 1 }, // 0  0-10s
+  { spawnInterval: 150, maxEnemies: 9,  spawnTypes: ['normal'],                                                                                          hpMult: 1.0, spawnCount: 1 }, // 1  10-20s
+  { spawnInterval: 120, maxEnemies: 11, spawnTypes: ['normal','normal','armored','healer'],                                                              hpMult: 1.0, spawnCount: 1 }, // 2  20-30s
+  { spawnInterval: 100, maxEnemies: 16, spawnTypes: ['normal','normal','armored','fast','healer','charger'],                                             hpMult: 1.2, spawnCount: 1 }, // 3  30-40s
+  { spawnInterval: 80,  maxEnemies: 18, spawnTypes: ['normal','normal','armored','fast','sniper','healer','charger','ghost','shielder'],                  hpMult: 1.3, spawnCount: 2 }, // 4  40-50s
+  { spawnInterval: 65,  maxEnemies: 21, spawnTypes: ['normal','normal','armored','fast','bomber','sniper','healer','charger','ghost','shielder','splitter'], hpMult: 1.5, spawnCount: 2 }, // 5  50-60s
+  { spawnInterval: 50,  maxEnemies: 25, spawnTypes: ['normal','normal','armored','fast','bomber','sniper','healer','charger','ghost','shielder','splitter'], hpMult: 1.7, spawnCount: 2 }, // 6  60-70s
+  { spawnInterval: 38,  maxEnemies: 31, spawnTypes: ['normal','normal','armored','fast','bomber','sniper','healer','charger','ghost','shielder','splitter'], hpMult: 2.0, spawnCount: 3 }, // 7  70s+
 ];
 
 export const DIFFICULTY_RAMP_TICKS = 600; // increment difficulty level every 10 seconds
@@ -264,22 +318,22 @@ export const PLAYER_INVINCIBLE_TICKS = 90;
 // 1. Laser beam (key J)
 export const LASER_RANGE     = 8;   // tiles
 export const LASER_RANGE_PWR = 14;
-export const LASER_DMG       = 2;
-export const LASER_DMG_PWR   = 6;
+export const LASER_DMG       = 2.1;
+export const LASER_DMG_PWR   = 6.3;
 export const LASER_COOLDOWN  = 40;  // ticks (~0.67s) — frequent clicks, low damage
 
 export const BULLET_COOLDOWN = 8;
-export const BULLET_DMG      = 0.5;
-export const BULLET_DMG_PWR  = 1.5;
+export const BULLET_DMG      = 0.35;
+export const BULLET_DMG_PWR  = 1.05;
 export const BULLET_SPEED    = 0.45;
 
 // 2. Charge wave (key K, tap 4×)
 export const CHARGE_NEEDED       = 4;
 export const CHARGE_DECAY_TICKS  = 110; // reset charges if gap > 110 ticks
-export const WAVE_RADIUS         = 5;   // tiles
-export const WAVE_RADIUS_PWR     = 9;
-export const WAVE_DMG            = 5;
-export const WAVE_DMG_PWR        = 12;
+export const WAVE_RADIUS         = 6;   // tiles
+export const WAVE_RADIUS_PWR     = 10;
+export const WAVE_DMG            = 7;
+export const WAVE_DMG_PWR        = 14;
 export const WAVE_PUSH_TILES     = 3;
 export const WAVE_PUSH_TILES_PWR = 6;
 export const WAVE_COOLDOWN       = 240;

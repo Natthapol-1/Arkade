@@ -595,7 +595,6 @@ function handleTileInteraction(state: GameState): void {
     state.score += 1;
     state.vision = clamp(state.vision + 0.05, MIN_VISION, MAX_VISION);
     state.speed = clamp(state.speed + 0.018, MIN_SPEED, MAX_SPEED);
-    playRandomDotNote();
     return;
   }
 

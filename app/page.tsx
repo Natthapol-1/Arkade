@@ -42,20 +42,20 @@ export default function Home() {
       iconScale: 1.3,
     },
     {
+      name: 'Ruby Star',
+      path: '/ruby-star',
+      desc: 'Guard the core, survive the swarm',
+      icon: '◆',
+      iconAnim: 'foodPulse',
+      iconScale: 1.5,
+    },
+    {
       name: 'Outcast Assembly',
       path: '/outcast-assembly',
       desc: 'Hunt imposters on the board',
       icon: '♟',
       iconAnim: 'cursorBlink',
       iconScale: 1.5,
-    },
-    {
-      name: 'CipherCalc#',
-      path: '/ciphercalc',
-      desc: 'Decrypt the equation',
-      icon: '∑',
-      iconAnim: 'cursorBlink',
-      iconScale: 1.4,
     },
     {
       name: 'Swift & Sound',
@@ -66,12 +66,12 @@ export default function Home() {
       iconScale: 1.6,
     },
     {
-      name: 'Ruby Star',
-      path: '/ruby-star',
-      desc: 'Guard the core, survive the swarm',
-      icon: '◆',
-      iconAnim: 'foodPulse',
-      iconScale: 1.5,
+      name: 'CipherCalc#',
+      path: '/ciphercalc',
+      desc: 'Decrypt the equation',
+      icon: '∑',
+      iconAnim: 'cursorBlink',
+      iconScale: 1.4,
     },
   ];
 

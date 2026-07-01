@@ -8,13 +8,13 @@ import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
   T_WALL, T_TELEPORT,
   CHAMBER_BOUNDS, CHAMBER_LABELS, CHAMBER_COLORS,
-  TELEPORT_PADS, chamberOfTile,
+  chamberOfTile,
   ENEMY_CONFIGS,
   PLAYER_MAX_HP, RUBY_MAX_HP,
-  LASER_COOLDOWN, WAVE_COOLDOWN, SPEED_COOLDOWN,
+  LASER_COOLDOWN,
   STAR_ENERGY_MAX,
-  SPEED_DURATION, SPEED_DURATION_PWR,
-  METEORITE_WARNING, BOMB_RADIUS, BOMB_RADIUS_PWR, BULLET_COOLDOWN,
+  METEORITE_WARNING, BOMB_RADIUS, BOMB_RADIUS_PWR, BULLET_COOLDOWN, BULLET_SPEED,
+  HEALER_HEAL_INTERVAL,
 } from './constants';
 import {
   GameState, createInitialState, tick,
@@ -24,10 +24,9 @@ import {
 } from './engine';
 
 // ─── Canvas colors ────────────────────────────────────────────────────────────
-const BG_COLOR     = '#000010';
-const PLAYER_COLOR = '#e8e850';
-const RUBY_COLOR   = '#ff1155';
-const BOMB_COLOR   = '#ff6600';
+const BG_COLOR = '#000010';
+const RUBY_COLOR = '#ff1155';
+const BOMB_COLOR = '#ff6600';
 
 // ─── Drawing ──────────────────────────────────────────────────────────────────
 
@@ -35,10 +34,9 @@ function drawMinimap(
   ctx: CanvasRenderingContext2D,
   state: GameState,
   canvasW: number,
-  canvasH: number,
   tickN: number,
 ) {
-  const S = 2; // px per tile
+  const S = 4; // px per tile
   const MW = MAP_COLS * S;
   const MH = MAP_ROWS * S;
   const PAD = 8;
@@ -117,11 +115,22 @@ function drawMinimap(
     }
   }
 
+  // Boss on minimap — large pulsing red dot
+  for (const e of state.enemies) {
+    if (e.type === 'boss') {
+      const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.08));
+      ctx.shadowColor = '#ff0033'; ctx.shadowBlur = Math.floor(8 * pulse);
+      ctx.fillStyle = `rgba(220,0,34,${pulse})`;
+      ctx.fillRect(MX + e.tileX * S - 2, MY + e.tileY * S - 2, 6, 6);
+      ctx.shadowBlur = 0;
+    }
+  }
+
   // Chamber labels on minimap
   ctx.font = '6px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const labelPts = [[10,10],[39,10],[10,39],[39,39]];
+  const labelPts = [[10, 10], [39, 10], [10, 39], [39, 39]];
   for (let i = 0; i < 4; i++) {
     const [lx, ly] = labelPts[i];
     ctx.fillStyle = CHAMBER_COLORS[i] + 'cc';
@@ -130,14 +139,13 @@ function drawMinimap(
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state: GameState, tickN: number, chargingMs = 0) {
-  const blink = state.playerInvincibleTicks > 0 && Math.floor(tickN / 4) % 2 === 0;
-  if (blink) return;
+  const invincible = state.playerInvincibleTicks > 0;
 
-  const speeding   = state.speedActiveTicks > 0;
-  const carrying   = state.playerCarryingRuby;
-  const suitColor  = speeding ? '#00ffee' : carrying ? '#ff3366' : '#d8d870';
-  const suitDark   = speeding ? '#00aaaa' : carrying ? '#aa0033' : '#a0a040';
-  const glowColor  = speeding ? '#00ffee' : carrying ? '#ff1155' : '#eeee44';
+  const speeding = state.speedActiveTicks > 0;
+  const carrying = state.playerCarryingRuby;
+  const suitColor = speeding ? '#00ffee' : carrying ? '#ff3366' : '#d8d870';
+  const suitDark = speeding ? '#00aaaa' : carrying ? '#aa0033' : '#a0a040';
+  const glowColor = speeding ? '#00ffee' : carrying ? '#ff1155' : '#eeee44';
   const visorColor = speeding ? '#ffffff' : carrying ? '#ff88aa' : '#44ccff';
 
   // Shrink on laser fire
@@ -145,7 +153,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
   const laserShrink = laserFired
     ? 0.75 + 0.25 * (1 - (state.laserCooldown - (LASER_COOLDOWN - 10)) / 10)
     : 1.0;
-    
+
   // Shrink on bullet fire
   const bulletShrink = state.bulletCooldown > 0
     ? 0.8 + 0.2 * (1 - state.bulletCooldown / BULLET_COOLDOWN)
@@ -158,8 +166,8 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
   const chargeShrink = 1 - chargeProgress * 0.70;
   const scaleFactor = Math.min(laserShrink, chargeShrink, bulletShrink);
 
-  const sz  = Math.floor(TILE_SIZE * 0.74 * scaleFactor);
-  const h   = Math.floor(sz / 2);
+  const sz = Math.floor(TILE_SIZE * 0.74 * scaleFactor);
+  const h = Math.floor(sz / 2);
   const { playerDirX: dx, playerDirY: dy } = state;
 
   // Speed burst glow on initial cast
@@ -168,7 +176,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
 
   // Outer glow
   ctx.shadowColor = glowColor;
-  ctx.shadowBlur  = speeding ? (burstGlow > 0 ? burstGlow : 22) : 14;
+  ctx.shadowBlur = speeding ? (burstGlow > 0 ? burstGlow : 22) : 14;
 
   // ── Spacesuit body (solid square) ─────────────────────────────────────
   ctx.fillStyle = suitColor;
@@ -185,17 +193,17 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
   const vh = Math.floor(sz * 0.30); // visor height
   let vx = sx - vw / 2, vy = sy - vh / 2;
 
-  if (dx === 1)       { vx = sx + h - pad - Math.floor(vh * 0.1) - vh; vy = sy - vw / 2; }
-  else if (dx === -1) { vx = sx - h + pad + Math.floor(vh * 0.1);        vy = sy - vw / 2; }
+  if (dx === 1) { vx = sx + h - pad - Math.floor(vh * 0.1) - vh; vy = sy - vw / 2; }
+  else if (dx === -1) { vx = sx - h + pad + Math.floor(vh * 0.1); vy = sy - vw / 2; }
   else if (dy === -1) { vx = sx - vw / 2; vy = sy - h + pad + Math.floor(vh * 0.1); }
-  else                { vx = sx - vw / 2; vy = sy + h - pad - Math.floor(vh * 0.1) - vh; }
+  else { vx = sx - vw / 2; vy = sy + h - pad - Math.floor(vh * 0.1) - vh; }
 
   const vwFinal = (dx !== 0) ? vh : vw;
   const vhFinal = (dx !== 0) ? vw : vh;
 
   ctx.shadowColor = visorColor;
-  ctx.shadowBlur  = 10;
-  ctx.fillStyle   = visorColor + 'cc';
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = visorColor + 'cc';
   ctx.fillRect(vx, vy, vwFinal, vhFinal);
   // Visor glare highlight
   ctx.fillStyle = '#ffffff55';
@@ -207,47 +215,77 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
   ctx.fillStyle = suitColor;
   ctx.fillRect(sx - 1, sy - h - antH, 2, antH);
   ctx.shadowColor = glowColor;
-  ctx.shadowBlur  = 8;
-  ctx.fillStyle   = '#ffffff';
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(sx - 2, sy - h - antH - 2, 4, 4);
   ctx.shadowBlur = 0;
 
   // ── Wave charge ring ──────────────────────────────────────────────────
   if (chargingMs >= 40 && state.waveCooldown === 0) {
     const progress = Math.min(1, chargingMs / 1000);
-    const ringPad  = Math.floor(h * (0.15 + progress * 1.6));
+    const ringPad = Math.floor(h * (0.15 + progress * 1.6));
     ctx.globalAlpha = 0.15 + 0.7 * progress;
     ctx.strokeStyle = '#00ccff';
     ctx.shadowColor = '#00ccff';
-    ctx.shadowBlur  = Math.floor(20 * progress);
-    ctx.lineWidth   = Math.max(1, Math.floor(4 * progress));
+    ctx.shadowBlur = Math.floor(20 * progress);
+    ctx.lineWidth = Math.max(1, Math.floor(4 * progress));
     ctx.strokeRect(sx - h - ringPad, sy - h - ringPad, sz + ringPad * 2, sz + ringPad * 2);
-    ctx.shadowBlur  = 0;
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     // Fully charged: fast pulsing second ring
     if (progress >= 0.98) {
       const pulse = 0.4 + 0.6 * Math.abs(Math.sin(Date.now() * 0.012));
       ctx.globalAlpha = pulse * 0.6;
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth   = 2;
+      ctx.lineWidth = 2;
       const r2 = ringPad * 1.4;
       ctx.strokeRect(sx - h - r2, sy - h - r2, sz + r2 * 2, sz + r2 * 2);
       ctx.globalAlpha = 1;
     }
   }
+
+  // Shield aura when player is invincible (shielder kill buff)
+  if (invincible) {
+    const pulse = 0.55 + 0.45 * Math.abs(Math.sin(tickN * 0.07));
+    const shieldPad = Math.floor(h * 0.5);
+    ctx.globalAlpha = pulse * 0.75;
+    ctx.strokeStyle = '#00ddcc';
+    ctx.shadowColor = '#00ffee';
+    ctx.shadowBlur = Math.floor(16 * pulse);
+    ctx.lineWidth = 3;
+    ctx.strokeRect(sx - h - shieldPad, sy - h - shieldPad, sz + shieldPad * 2, sz + shieldPad * 2);
+    // Inner thinner ring
+    ctx.globalAlpha = pulse * 0.4;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx - h - shieldPad + 3, sy - h - shieldPad + 3, sz + (shieldPad - 3) * 2, sz + (shieldPad - 3) * 2);
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+
+  // Electric aura when sniper buff is active
+  if (state.electricBuffTicks > 0) {
+    const ePulse = 0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.18));
+    ctx.globalAlpha = ePulse * 0.6;
+    ctx.strokeStyle = '#ffffaa';
+    ctx.shadowColor = '#ffff44';
+    ctx.shadowBlur = Math.floor(12 * ePulse);
+    ctx.lineWidth = 2;
+    const eOff = invincible ? Math.floor(h * 0.5) + 5 : Math.floor(h * 0.3);
+    ctx.strokeRect(sx - h - eOff, sy - h - eOff, sz + eOff * 2, sz + eOff * 2);
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
 }
 
 // Blocky diamond shape (like playing card diamond) centered at (cx,cy) fitting in `sz`
 function drawPixelDiamond(ctx: CanvasRenderingContext2D, cx: number, cy: number, sz: number, color: string) {
-  const p    = Math.max(2, Math.floor(sz / 10)); // pixel unit
+  const p = Math.max(2, Math.floor(sz / 10)); // pixel unit
   const rows = 9;   // must be odd for a symmetric diamond
-  const mid  = Math.floor(rows / 2);
+  const mid = Math.floor(rows / 2);
   ctx.fillStyle = color;
   for (let i = 0; i < rows; i++) {
     const dist = Math.abs(i - mid);
-    const w    = (mid - dist + 1) * 2 * p;
-    const x    = cx - w / 2;
-    const y    = cy - mid * p + i * p;
+    const w = (mid - dist + 1) * 2 * p;
+    const x = cx - w / 2;
+    const y = cy - mid * p + i * p;
     ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), p);
   }
 }
@@ -255,12 +293,12 @@ function drawPixelDiamond(ctx: CanvasRenderingContext2D, cx: number, cy: number,
 // 8-pointed compass/north star — 4 long cardinal tips, 4 shorter diagonal tips
 function drawCompassStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, sz: number, color: string) {
   const outerR = sz / 2;       // long cardinal tips (N/E/S/W)
-  const diagR  = sz * 0.28;    // shorter diagonal tips
+  const diagR = sz * 0.28;    // shorter diagonal tips
   const innerR = sz * 0.045;   // tight concave valleys between tips
   ctx.beginPath();
   for (let i = 0; i < 8; i++) {
     const tipAngle = (i * Math.PI / 4) - Math.PI / 2; // start from top (N)
-    const tipR     = i % 2 === 0 ? outerR : diagR;
+    const tipR = i % 2 === 0 ? outerR : diagR;
     const tx = cx + Math.cos(tipAngle) * tipR;
     const ty = cy + Math.sin(tipAngle) * tipR;
     const valAngle = tipAngle + Math.PI / 8;
@@ -282,16 +320,16 @@ function drawPixelBolt(ctx: CanvasRenderingContext2D, cx: number, cy: number, sz
   const ox = Math.round(cx - (cols * p) / 2);
   const oy = Math.round(cy - (rows * p) / 2);
   const grid = [
-    [0,0,0,0,0,1,1,0],
-    [0,0,0,0,1,1,1,0],
-    [0,0,0,1,1,1,0,0],
-    [0,0,1,1,1,0,0,0],
-    [0,1,1,1,1,1,0,0],
-    [0,0,0,1,1,1,0,0],
-    [0,0,1,1,1,0,0,0],
-    [0,1,1,1,0,0,0,0],
-    [0,1,1,0,0,0,0,0],
-    [1,1,0,0,0,0,0,0],
+    [0, 0, 0, 0, 0, 1, 1, 0],
+    [0, 0, 0, 0, 1, 1, 1, 0],
+    [0, 0, 0, 1, 1, 1, 0, 0],
+    [0, 0, 1, 1, 1, 0, 0, 0],
+    [0, 1, 1, 1, 1, 1, 0, 0],
+    [0, 0, 0, 1, 1, 1, 0, 0],
+    [0, 0, 1, 1, 1, 0, 0, 0],
+    [0, 1, 1, 1, 0, 0, 0, 0],
+    [0, 1, 1, 0, 0, 0, 0, 0],
+    [1, 1, 0, 0, 0, 0, 0, 0],
   ];
   ctx.fillStyle = color;
   for (let r = 0; r < rows; r++) {
@@ -301,39 +339,27 @@ function drawPixelBolt(ctx: CanvasRenderingContext2D, cx: number, cy: number, sz
   }
 }
 
-// Pixel art circle (like the classic staircase pixel circle)
-function drawPixelCircle(ctx: CanvasRenderingContext2D, cx: number, cy: number, sz: number, color: string) {
-  const p = Math.max(1, Math.round(sz / 11));
-  // widths per row (out of 11 units), gives staircase corners
-  const widths = [5, 5, 9, 9, 11, 11, 11, 9, 9, 5, 5];
-  const totalH = widths.length * p;
-  ctx.fillStyle = color;
-  for (let i = 0; i < widths.length; i++) {
-    const w = widths[i] * p;
-    ctx.fillRect(Math.round(cx - w / 2), Math.round(cy - totalH / 2 + i * p), w, p);
-  }
-}
 
 function drawRubyGem(ctx: CanvasRenderingContext2D, sx: number, sy: number, tickN: number) {
   const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.06));
-  const sz  = Math.floor(TILE_SIZE * 0.68);
-  const h   = sz / 2;
+  const sz = Math.floor(TILE_SIZE * 0.68);
+  const h = sz / 2;
   const pad = Math.max(2, Math.floor(sz * 0.14));
 
   // Outer glow box
   ctx.shadowColor = RUBY_COLOR;
-  ctx.shadowBlur  = Math.floor(20 * pulse);
-  ctx.fillStyle   = RUBY_COLOR;
+  ctx.shadowBlur = Math.floor(20 * pulse);
+  ctx.fillStyle = RUBY_COLOR;
   ctx.fillRect(sx - h, sy - h, sz, sz);
 
   // Inner darker panel
   ctx.shadowBlur = 0;
-  ctx.fillStyle  = '#880033';
+  ctx.fillStyle = '#880033';
   ctx.fillRect(sx - h + pad, sy - h + pad, sz - pad * 2, sz - pad * 2);
 
   // Blocky star inside
   ctx.shadowColor = RUBY_COLOR;
-  ctx.shadowBlur  = Math.floor(14 * pulse);
+  ctx.shadowBlur = Math.floor(14 * pulse);
   drawCompassStar(ctx, sx, sy, sz - pad * 2, '#ff88aa');
   ctx.shadowBlur = 0;
 
@@ -342,32 +368,149 @@ function drawRubyGem(ctx: CanvasRenderingContext2D, sx: number, sy: number, tick
   ctx.fillRect(sx - h + pad + 1, sy - h + pad + 1, Math.floor(pad * 0.8), Math.floor(pad * 0.8));
 }
 
-function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createInitialState>['enemies'][0], sx: number, sy: number, tickN: number) {
-  const cfg  = ENEMY_CONFIGS[e.type];
+function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createInitialState>['enemies'][0], sx: number, sy: number, tickN: number, shielded = false) {
+  const cfg = ENEMY_CONFIGS[e.type];
   const size = Math.floor(TILE_SIZE * cfg.bodyFraction);
   const half = size / 2;
-  const pad  = Math.max(2, Math.floor(size * 0.12));
+  const pad = Math.max(2, Math.floor(size * 0.12));
   const flash = e.flashTicks > 0;
   // Attack animation: scale up slightly when about to attack (last 15 ticks of cooldown)
   const attacking = e.attackTimer > 0 && e.attackTimer <= 15 && !e.exploding;
   const attackScale = attacking ? (1 + 0.15 * (1 - e.attackTimer / 15)) : 1;
   const drawSz = Math.floor(size * attackScale);
-  const drawH  = drawSz / 2;
+  const drawH = drawSz / 2;
   const color = flash ? '#ffffff' : cfg.color;
 
   // Glow — brightens during attack wind-up
   ctx.shadowColor = e.exploding ? '#ff4400' : color;
-  ctx.shadowBlur  = e.exploding ? (14 + 6 * Math.abs(Math.sin(tickN * 0.3)))
-                  : attacking   ? (16 + 8 * (1 - e.attackTimer / 15))
-                  : 8;
+  ctx.shadowBlur = e.exploding ? (14 + 6 * Math.abs(Math.sin(tickN * 0.3)))
+    : attacking ? (16 + 8 * (1 - e.attackTimer / 15))
+      : 8;
+
+  // ── Boss: fully custom draw ───────────────────────────────────────────
+  if (e.type === 'boss') {
+    const bSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale);
+    const bH = bSz / 2;
+    const bPad = Math.max(3, Math.floor(bSz * 0.10));
+    const pulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.06));
+    const hpPct = e.hp / e.maxHp;
+    const bFlash = e.flashTicks > 0;
+    const bodyColor = bFlash ? '#ffffff' : '#cc0022';
+
+    // Outer crimson glow
+    ctx.shadowColor = '#ff0033'; ctx.shadowBlur = Math.floor(22 * pulse);
+
+    // Shoulder spikes (left and right) - they extend further during attack
+    const spikeW = Math.max(4, Math.floor(bSz * 0.18));
+    const spikeH = Math.max(6, Math.floor(bSz * (attacking ? 0.50 : 0.30)));
+    ctx.fillStyle = bFlash ? '#ffffff' : '#880011';
+    ctx.fillRect(sx - bH - spikeW, sy - Math.floor(spikeH * 0.6), spikeW, spikeH); // left spike
+    ctx.fillRect(sx + bH, sy - Math.floor(spikeH * 0.6), spikeW, spikeH); // right spike
+    // Spike tips (gold)
+    ctx.fillStyle = bFlash ? '#ffffff' : '#ffcc00';
+    ctx.fillRect(sx - bH - spikeW - 2, sy - Math.floor(spikeH * 0.6), 3, 3);
+    ctx.fillRect(sx + bH + spikeW, sy - Math.floor(spikeH * 0.6), 3, 3);
+
+    // Main body
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(sx - bH, sy - bH, bSz, bSz);
+    ctx.shadowBlur = 0;
+
+    // Inner armor plate (dark inset)
+    if (!bFlash) {
+      ctx.fillStyle = '#550011';
+      ctx.fillRect(sx - bH + bPad, sy - bH + bPad, bSz - bPad * 2, bSz - bPad * 2);
+      // Gold cross/X armor detail
+      ctx.fillStyle = '#ffcc0088';
+      const cx = bSz - bPad * 2, gH = Math.max(1, Math.floor(bSz * 0.07));
+      ctx.fillRect(sx - bH + bPad, sy - Math.floor(gH / 2), cx, gH); // horizontal bar
+      ctx.fillRect(sx - Math.floor(gH / 2), sy - bH + bPad, gH, cx); // vertical bar
+    }
+
+    // Crown (5 spikes on top)
+    if (!bFlash) {
+      ctx.fillStyle = '#ffcc00';
+      ctx.shadowColor = '#ffcc00'; ctx.shadowBlur = 8;
+      const crownW = bSz;
+      const crownX = sx - bH;
+      const crownBase = sy - bH;
+      const crownH = Math.max(5, Math.floor(bSz * (attacking ? 0.35 : 0.22)));
+      // 5 alternating-height spikes: tall, short, tall, short, tall
+      const spW = Math.floor(crownW / 5);
+      const heights = [crownH, Math.floor(crownH * 0.55), crownH, Math.floor(crownH * 0.55), crownH];
+      for (let i = 0; i < 5; i++) {
+        ctx.fillRect(crownX + i * spW, crownBase - heights[i], spW - 1, heights[i]);
+      }
+      ctx.shadowBlur = 0;
+    }
+
+    // 4 eyes (2 rows of 2)
+    if (!bFlash) {
+      const eSz = Math.max(3, Math.floor(bSz * 0.16));
+      const pSz = Math.max(2, Math.floor(eSz * 0.6));
+      const ex1 = sx - bH + bPad + 2;
+      const ex2 = sx + bH - bPad - eSz - 2;
+      const ey1 = sy - bH + bPad + 2;
+      const ey2 = ey1 + eSz + 3;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex1, ey1, eSz, eSz); ctx.fillRect(ex2, ey1, eSz, eSz);
+      ctx.fillRect(ex1, ey2, eSz, eSz); ctx.fillRect(ex2, ey2, eSz, eSz);
+      // Eyes glow yellow when attacking
+      ctx.fillStyle = attacking ? '#ffcc00' : '#ff0000';
+      ctx.shadowColor = attacking ? '#ffcc00' : '#ff0000'; ctx.shadowBlur = attacking ? 12 : 6;
+      ctx.fillRect(ex1 + 1, ey1 + 1, pSz, pSz); ctx.fillRect(ex2 + 1, ey1 + 1, pSz, pSz);
+      ctx.fillRect(ex1 + 1, ey2 + 1, pSz, pSz); ctx.fillRect(ex2 + 1, ey2 + 1, pSz, pSz);
+      ctx.shadowBlur = 0;
+
+      // Wide jagged mouth with teeth
+      const mW = Math.max(8, Math.floor(bSz * 0.70));
+      const mH = Math.max(2, Math.floor(bSz * (attacking ? 0.18 : 0.10)));
+      const mX = sx - Math.floor(mW / 2);
+      const mY = ey2 + eSz + 3 + (attacking ? 4 : 0); // Drop jaw slightly when attacking
+      const toothW = Math.max(2, Math.floor(mW / 6));
+      ctx.fillStyle = '#cc0000';
+      ctx.fillRect(mX, mY, mW, mH);
+      ctx.fillStyle = '#ffffff';
+      for (let t = 0; t < 5; t++) {
+        ctx.fillRect(mX + toothW * t + 1, mY - mH, Math.max(1, toothW - 2), mH + 1);
+      }
+    }
+
+    // HP bar above boss
+    const barW = bSz + 10;
+    const barH = 4;
+    const barX = sx - Math.floor(barW / 2);
+    const barY = sy - bH - 16;
+    ctx.fillStyle = '#440000';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = hpPct > 0.5 ? '#ff2222' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
+    ctx.fillRect(barX, barY, Math.floor(barW * hpPct), barH);
+    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // Ghost is semi-transparent
+  if (e.type === 'ghost') ctx.globalAlpha = 0.55 + 0.2 * Math.abs(Math.sin(tickN * 0.08));
 
   // ── Blocky body (slightly scaled during attack) ───────────────────────
   ctx.fillStyle = color;
-  ctx.fillRect(sx - drawH, sy - drawH, drawSz, drawSz);
+  if (e.type === 'splitter' && !flash) {
+    // Two boxes stacked vertically with a gap between them
+    const boxH = Math.floor(drawSz * 0.44);
+    const gap2 = Math.max(2, drawSz - boxH * 2);
+    ctx.fillRect(sx - drawH, sy - drawH, drawSz, boxH);           // top box
+    ctx.fillStyle = '#aaffcc';
+    ctx.fillRect(sx - drawH, sy - drawH + boxH + gap2, drawSz, boxH); // bottom box (lighter)
+  } else {
+    ctx.fillRect(sx - drawH, sy - drawH, drawSz, drawSz);
+  }
   ctx.shadowBlur = 0;
 
   // Inner panel (darker)
-  if (!flash) {
+  if (!flash && e.type !== 'splitter') {
     const darken = e.type === 'armored' ? '66' : '44';
     ctx.fillStyle = '#000000' + darken;
     ctx.fillRect(sx - half + pad, sy - half + pad, size - pad * 2, size - pad * 2);
@@ -375,43 +518,245 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
 
   // ── Antenna ───────────────────────────────────────────────────────────
   const antH = Math.max(3, Math.floor(size * 0.28));
-  const antW = e.type === 'armored' ? 3 : 2;
+  const dotSz = 3;
   ctx.fillStyle = color;
-  ctx.fillRect(sx - Math.floor(antW / 2), sy - half - antH, antW, antH);
-  // Antenna tip dot
-  const dotSz = e.type === 'fast' ? 4 : 3;
-  ctx.fillStyle = flash ? '#ffffff' : '#ffffff';
   ctx.shadowColor = color;
-  ctx.shadowBlur  = 6;
-  ctx.fillRect(sx - Math.floor(dotSz / 2), sy - half - antH - dotSz, dotSz, dotSz);
-  ctx.shadowBlur = 0;
-
-  // ── Eyes ──────────────────────────────────────────────────────────────
-  if (!flash) {
-    const threeEyes = e.type === 'fast' || e.type === 'bomber';
-    const eyeSz  = Math.max(2, Math.floor(size * 0.18));
-    const pupSz  = Math.max(1, eyeSz - 1);
-    const eyeY   = sy - half + pad + 1;
-    const eyeClr = e.type === 'armored' ? '#ffff00' : e.type === 'bomber' ? '#ff6600' : '#ff2200';
-
+  if (e.type === 'bomber') {
+    // No antenna — bald, dangerous look
+  } else if (e.type === 'fast') {
+    // Twin antennas
+    const fw = 2, fgap = Math.floor(size * 0.17);
+    ctx.fillRect(sx - fgap - fw, sy - half - antH, fw, antH);
+    ctx.fillRect(sx + fgap, sy - half - antH, fw, antH);
+    ctx.shadowBlur = 6;
     ctx.fillStyle = '#ffffff';
-    if (threeEyes) {
-      // 3 eyes spread across the body
+    ctx.fillRect(sx - fgap - 1, sy - half - antH - dotSz, dotSz, dotSz);
+    ctx.fillRect(sx + fgap, sy - half - antH - dotSz, dotSz, dotSz);
+    ctx.shadowBlur = 0;
+  } else if (e.type === 'healer') {
+    // Triple fan antennas
+    const hw = 2, hgap = Math.floor(size * 0.20);
+    const sideH = Math.max(2, Math.floor(antH * 0.70));
+    ctx.fillRect(sx - Math.floor(hw / 2), sy - half - antH, hw, antH);
+    ctx.fillRect(sx - hgap - hw, sy - half - sideH, hw, sideH);
+    ctx.fillRect(sx + hgap, sy - half - sideH, hw, sideH);
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx - Math.floor(dotSz / 2), sy - half - antH - dotSz, dotSz, dotSz);
+    const sd = dotSz - 1;
+    ctx.fillRect(sx - hgap - hw + Math.floor(hw / 2) - Math.floor(sd / 2), sy - half - sideH - sd, sd, sd);
+    ctx.fillRect(sx + hgap + Math.floor(hw / 2) - Math.floor(sd / 2), sy - half - sideH - sd, sd, sd);
+    ctx.shadowBlur = 0;
+  } else if (e.type === 'sniper') {
+    // Tall single antenna with crosshair tip
+    const tallH = Math.floor(antH * 1.5);
+    ctx.fillRect(sx - 1, sy - half - tallH, 2, tallH);
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx - Math.floor(dotSz / 2), sy - half - tallH - dotSz, dotSz, dotSz);
+    ctx.fillRect(sx - dotSz - 1, sy - half - tallH - 1, dotSz * 2 + 3, 1); // horizontal tick
+    ctx.shadowBlur = 0;
+  } else if (e.type === 'charger') {
+    // Side antennas — one extends left, one extends right from mid-body
+    const antLen = Math.max(5, Math.floor(size * 0.38));
+    const antThk = 2;
+    const midY = sy - Math.floor(antThk / 2);
+    ctx.shadowColor = color; ctx.shadowBlur = 5;
+    ctx.fillRect(sx - half - antLen, midY, antLen, antThk); // left
+    ctx.fillRect(sx + half, midY, antLen, antThk); // right
+    // Tips
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(sx - half - antLen - 2, midY - 1, 2, antThk + 2);
+    ctx.fillRect(sx + half + antLen, midY - 1, 2, antThk + 2);
+    ctx.shadowBlur = 0;
+  } else if (e.type === 'mini_splitter') {
+    // No antenna
+  } else if (e.type === 'ghost') {
+    // 3 antennas hanging from the bottom (ghost tendrils)
+    const gw = 2, ggap = Math.floor(size * 0.22);
+    const botY = sy + half;
+    const tentH = Math.floor(antH * 1.1);
+    const sideH = Math.floor(antH * 0.75);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color; ctx.shadowBlur = 5;
+    ctx.fillRect(sx - Math.floor(gw / 2), botY, gw, tentH);       // center
+    ctx.fillRect(sx - ggap - gw, botY, gw, sideH);      // left
+    ctx.fillRect(sx + ggap, botY, gw, sideH);      // right
+    // Tip dots
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx - Math.floor(dotSz / 2), botY + tentH, dotSz, dotSz);
+    ctx.fillRect(sx - ggap - gw, botY + sideH, dotSz - 1, dotSz - 1);
+    ctx.fillRect(sx + ggap, botY + sideH, dotSz - 1, dotSz - 1);
+    ctx.shadowBlur = 0;
+  } else if (e.type === 'shielder') {
+    // Wide flat antenna (broad shield-like tip)
+    ctx.fillRect(sx - 1, sy - half - antH, 2, antH);
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx - Math.floor(dotSz * 1.5), sy - half - antH - dotSz, dotSz * 3, dotSz); // wide flat tip
+    ctx.shadowBlur = 0;
+  } else if (e.type === 'splitter') {
+    // Twin antennas (same as fast but spaced for the wider body)
+    const sw = 2, sgap = Math.floor(size * 0.20);
+    ctx.fillRect(sx - sgap - sw, sy - half - antH, sw, antH);
+    ctx.fillRect(sx + sgap, sy - half - antH, sw, antH);
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx - sgap - 1, sy - half - antH - dotSz, dotSz, dotSz);
+    ctx.fillRect(sx + sgap, sy - half - antH - dotSz, dotSz, dotSz);
+    ctx.shadowBlur = 0;
+  } else {
+    // normal / armored: single centered antenna
+    const aw = e.type === 'armored' ? 3 : 2;
+    ctx.fillRect(sx - Math.floor(aw / 2), sy - half - antH, aw, antH);
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx - Math.floor(dotSz / 2), sy - half - antH - dotSz, dotSz, dotSz);
+    ctx.shadowBlur = 0;
+  }
+
+  // ── Eyes / face ───────────────────────────────────────────────────────
+  if (!flash) {
+    const eyeY = sy - half + pad + 1;
+    if (e.type === 'sniper') {
+      // 1 large central cycloptic eye
+      const eyeSz = Math.max(4, Math.floor(size * 0.34));
+      const pupSz = Math.max(2, Math.floor(eyeSz * 0.55));
+      const ex = sx - Math.floor(eyeSz / 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex, eyeY, eyeSz, eyeSz);
+      ctx.shadowColor = '#ff2200';
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = '#ff2200';
+      ctx.fillRect(ex + Math.floor((eyeSz - pupSz) / 2), eyeY + Math.floor((eyeSz - pupSz) / 2), pupSz, pupSz);
+      ctx.shadowBlur = 0;
+    } else if (e.type === 'fast') {
+      // No eyes — just a wide mouth (aggressive horizontal slit)
+      const mouthW = Math.max(4, Math.floor(size * 0.55));
+      const mouthH = Math.max(2, Math.floor(size * 0.12));
+      const mouthY = sy - half + Math.floor(size * 0.52);
+      ctx.fillStyle = '#ff2200';
+      ctx.shadowColor = '#ff2200';
+      ctx.shadowBlur = 5;
+      ctx.fillRect(sx - Math.floor(mouthW / 2), mouthY, mouthW, mouthH);
+      ctx.shadowBlur = 0;
+    } else if (e.type === 'healer') {
+      // 2 normal top eyes + 1 centered mouth-eye embedded in body
+      const eyeSz = Math.max(2, Math.floor(size * 0.18));
+      const pupSz = Math.max(1, eyeSz - 1);
+      const eyeClr = '#ff55cc';
+      const ex1 = sx - half + pad + 1;
+      const ex2 = sx + half - pad - eyeSz - 1;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex1, eyeY, eyeSz, eyeSz);
+      ctx.fillRect(ex2, eyeY, eyeSz, eyeSz);
+      ctx.fillStyle = eyeClr;
+      ctx.fillRect(ex1 + 1, eyeY + 1, pupSz, pupSz);
+      ctx.fillRect(ex2 + 1, eyeY + 1, pupSz, pupSz);
+      // mouth-eye: centered, below the top eyes
+      const mEyeY = eyeY + eyeSz + Math.max(2, Math.floor(size * 0.10));
+      const mEx = sx - Math.floor(eyeSz / 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(mEx, mEyeY, eyeSz, eyeSz);
+      ctx.shadowColor = eyeClr;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = eyeClr;
+      ctx.fillRect(mEx + 1, mEyeY + 1, pupSz, pupSz);
+      ctx.shadowBlur = 0;
+    } else if (e.type === 'charger') {
+      // 2 narrow angry slit eyes
+      const eSz = Math.max(2, Math.floor(size * 0.20));
+      const eH = Math.max(1, Math.floor(eSz * 0.4)); // thin slits
+      const ex1 = sx - half + pad + 1;
+      const ex2 = sx + half - pad - eSz - 1;
+      ctx.fillStyle = '#ffaa00';
+      ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 5;
+      ctx.fillRect(ex1, eyeY, eSz, eH);
+      ctx.fillRect(ex2, eyeY, eSz, eH);
+      ctx.shadowBlur = 0;
+    } else if (e.type === 'ghost') {
+      // Hollow eyes — white outline only
+      const eSz = Math.max(3, Math.floor(size * 0.22));
+      const ex1 = sx - half + pad + 1;
+      const ex2 = sx + half - pad - eSz - 1;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
+      ctx.shadowColor = '#8855ff'; ctx.shadowBlur = 6;
+      ctx.strokeRect(ex1, eyeY, eSz, eSz);
+      ctx.strokeRect(ex2, eyeY, eSz, eSz);
+      ctx.shadowBlur = 0;
+    } else if (e.type === 'splitter') {
+      // 2 green eyes
+      const eSz = Math.max(2, Math.floor(size * 0.18));
+      const pSz = Math.max(1, eSz - 1);
+      const ex1 = sx - half + pad + 1;
+      const ex2 = sx + half - pad - eSz - 1;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex1, eyeY, eSz, eSz);
+      ctx.fillRect(ex2, eyeY, eSz, eSz);
+      ctx.fillStyle = '#00ff44';
+      ctx.fillRect(ex1 + 1, eyeY + 1, pSz, pSz);
+      ctx.fillRect(ex2 + 1, eyeY + 1, pSz, pSz);
+    } else if (e.type === 'mini_splitter') {
+      // 2 tiny eyes — no pupils, just small white squares
+      const eSz = Math.max(1, Math.floor(size * 0.22));
+      const ex1 = sx - half + pad;
+      const ex2 = sx + half - pad - eSz;
+      ctx.fillStyle = '#aaffcc';
+      ctx.fillRect(ex1, eyeY, eSz, eSz);
+      ctx.fillRect(ex2, eyeY, eSz, eSz);
+    } else if (e.type === 'shielder') {
+      // No eyes — two smile mouths stacked
+      const mW = Math.max(6, Math.floor(size * 0.56));
+      const mH = Math.max(1, Math.floor(size * 0.10));
+      const mX = sx - Math.floor(mW / 2);
+      const cW = Math.max(1, Math.floor(mW * 0.13));
+      const cH = Math.max(2, Math.floor(mH * 2.5));
+      const smileH = cH + mH;
+      const m1Y = sy - half + Math.floor(size * 0.30);
+      const m2Y = m1Y + smileH + Math.max(2, Math.floor(size * 0.10));
+      ctx.fillStyle = '#00ddcc';
+      ctx.shadowColor = '#00ddcc'; ctx.shadowBlur = 5;
+      for (const mY of [m1Y, m2Y]) {
+        ctx.fillRect(mX, mY, mW, mH);
+        ctx.fillRect(mX, mY - cH, cW, cH);
+        ctx.fillRect(mX + mW - cW, mY - cH, cW, cH);
+      }
+      ctx.shadowBlur = 0;
+    } else if (e.type === 'bomber') {
+      // 3 eyes in a row
+      const eyeSz = Math.max(2, Math.floor(size * 0.17));
+      const pupSz = Math.max(1, eyeSz - 1);
       const gap = Math.floor((size - pad * 2 - eyeSz * 3) / 2);
       const ex1 = sx - half + pad;
       const ex2 = ex1 + eyeSz + gap;
       const ex3 = ex2 + eyeSz + gap;
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(ex1, eyeY, eyeSz, eyeSz);
       ctx.fillRect(ex2, eyeY, eyeSz, eyeSz);
       ctx.fillRect(ex3, eyeY, eyeSz, eyeSz);
-      ctx.fillStyle = eyeClr;
+      ctx.fillStyle = '#ff6600';
       ctx.fillRect(ex1 + 1, eyeY + 1, pupSz, pupSz);
       ctx.fillRect(ex2 + 1, eyeY + 1, pupSz, pupSz);
       ctx.fillRect(ex3 + 1, eyeY + 1, pupSz, pupSz);
+      // Smile mouth (U-shape): bottom bar + two corner uprights
+      const mW = Math.max(6, Math.floor(size * 0.55));
+      const mH = Math.max(1, Math.floor(size * 0.10));
+      const mX = sx - Math.floor(mW / 2);
+      const mY = eyeY + eyeSz + Math.max(2, Math.floor(size * 0.10));
+      const cW = Math.max(1, Math.floor(mW * 0.13));
+      const cH = Math.max(2, Math.floor(mH * 2.5));
+      ctx.fillStyle = e.exploding ? '#ff2200' : '#cc3300';
+      ctx.fillRect(mX, mY, mW, mH);           // bottom bar
+      ctx.fillRect(mX, mY - cH, cW, cH);      // left corner upright
+      ctx.fillRect(mX + mW - cW, mY - cH, cW, cH); // right corner upright
     } else {
-      // 2 eyes
+      // normal / armored: 2 eyes
+      const eyeSz = Math.max(2, Math.floor(size * 0.18));
+      const pupSz = Math.max(1, eyeSz - 1);
+      const eyeClr = e.type === 'armored' ? '#ffff00' : '#ff2200';
       const ex1 = sx - half + pad + 1;
       const ex2 = sx + half - pad - eyeSz - 1;
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(ex1, eyeY, eyeSz, eyeSz);
       ctx.fillRect(ex2, eyeY, eyeSz, eyeSz);
       ctx.fillStyle = eyeClr;
@@ -424,10 +769,25 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   if (e.type === 'armored' && e.hp > e.maxHp / 2) {
     // Shield border plates
     ctx.strokeStyle = cfg.shieldColor + 'bb';
-    ctx.lineWidth   = 3;
+    ctx.lineWidth = 3;
     ctx.shadowColor = cfg.shieldColor;
-    ctx.shadowBlur  = 8;
+    ctx.shadowBlur = 8;
     ctx.strokeRect(sx - half - 3, sy - half - 3, size + 6, size + 6);
+    ctx.shadowBlur = 0;
+  }
+  if (e.type === 'armored' && !flash) {
+    // Wavy/squiggly mouth below the eyes
+    const wW = Math.max(8, Math.floor(size * 0.60));
+    const segW = Math.max(2, Math.floor(wW / 6));
+    const wH = Math.max(1, Math.floor(size * 0.09));
+    const amp = Math.max(2, Math.floor(size * 0.12));
+    const wX = sx - Math.floor(wW / 2);
+    const wY = sy - half + Math.floor(size * 0.55);
+    ctx.fillStyle = '#ffff00';
+    ctx.shadowColor = '#ffff00'; ctx.shadowBlur = 4;
+    for (let i = 0; i < 6; i++) {
+      ctx.fillRect(wX + i * segW, wY + (i % 2 === 0 ? 0 : amp), segW, wH);
+    }
     ctx.shadowBlur = 0;
   }
   if (e.type === 'bomber') {
@@ -444,10 +804,96 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   }
   if (e.type === 'bomber' && e.exploding) {
     ctx.strokeStyle = '#ff4400';
-    ctx.lineWidth   = 3;
+    ctx.lineWidth = 3;
     ctx.shadowColor = '#ff6600';
-    ctx.shadowBlur  = 18;
+    ctx.shadowBlur = 18;
     ctx.strokeRect(sx - half - 4, sy - half - 4, size + 8, size + 8);
+    ctx.shadowBlur = 0;
+  }
+
+  // ── Charger: motion trail when charging / dizzy when stunned ─────────
+  if (e.type === 'charger') {
+    if (e.chargeDirX !== 0 || e.chargeDirY !== 0) {
+      // Motion trail — two faint rects trailing behind
+      for (let t = 1; t <= 2; t++) {
+        const alpha = 0.25 / t;
+        ctx.fillStyle = `rgba(255,68,0,${alpha})`;
+        ctx.fillRect(sx - drawH - e.chargeDirX * TILE_SIZE * t * 0.4,
+          sy - drawH - e.chargeDirY * TILE_SIZE * t * 0.4, drawSz, drawSz);
+      }
+    } else if (e.windupTicks > 0) {
+      // Dizzy stars
+      const dAngle = (tickN * 0.15) % (Math.PI * 2);
+      for (let d = 0; d < 3; d++) {
+        const a = dAngle + (d * Math.PI * 2 / 3);
+        const dx2 = Math.cos(a) * (half + 5), dy2 = Math.sin(a) * (half + 4);
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(sx + Math.floor(dx2) - 2, sy + Math.floor(dy2) - 2, 3, 3);
+      }
+    }
+  }
+
+  // ── Shielder: shield arc toward shielded target (drawn per-enemy; shielded overlay is separate) ──
+  if (e.type === 'shielder' && e.shieldTargetId !== -1) {
+    ctx.shadowColor = '#00ddcc'; ctx.shadowBlur = 8;
+    ctx.strokeStyle = 'rgba(0,221,204,0.55)'; ctx.lineWidth = 2;
+    ctx.strokeRect(sx - half - 3, sy - half - 3, size + 6, size + 6);
+    ctx.shadowBlur = 0;
+  }
+
+  // ── Shielded enemy overlay ────────────────────────────────────────────
+  if (shielded) {
+    ctx.shadowColor = '#00ddcc'; ctx.shadowBlur = 12;
+    ctx.strokeStyle = 'rgba(0,221,204,0.75)'; ctx.lineWidth = 3;
+    ctx.strokeRect(sx - half - 4, sy - half - 4, size + 8, size + 8);
+    // Corner triangles
+    const ct = Math.max(3, Math.floor(half * 0.35));
+    ctx.fillStyle = 'rgba(0,221,204,0.6)';
+    for (const [cx2, cy2] of [[sx - half - 4, sy - half - 4], [sx + half + 4, sy - half - 4], [sx - half - 4, sy + half + 4], [sx + half + 4, sy + half + 4]] as [number, number][]) {
+      ctx.fillRect(cx2 - 1, cy2 - 1, ct, 2);
+      ctx.fillRect(cx2 - 1, cy2 - 1, 2, ct);
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  // ── Healer pulsing aura ring ─────────────────────────────────────────
+  if (e.type === 'healer') {
+    const healProgress = 1 - e.attackTimer / HEALER_HEAL_INTERVAL; // 0→1 toward next heal
+    const pulse = 0.4 + 0.6 * Math.abs(Math.sin(Date.now() * 0.01));
+    const ringR = half + 4 + Math.floor(healProgress * 10);
+    ctx.shadowColor = '#ff55cc';
+    ctx.shadowBlur = 5 + Math.floor(healProgress * 12);
+    ctx.strokeStyle = `rgba(255,85,204,${(0.2 + 0.6 * healProgress) * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx - ringR, sy - ringR, ringR * 2, ringR * 2);
+    ctx.shadowBlur = 0;
+  }
+
+  // ── Sniper wind-up aiming ring ────────────────────────────────────────
+  if (e.type === 'sniper' && e.windupTicks > 0) {
+    const progress = 1 - e.windupTicks / 50; // 0→1 as windup completes
+    const ringR = half + 6 + Math.floor(progress * 10);
+    const pulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() * 0.018));
+    const danger = `rgba(255,${Math.floor(80 * (1 - progress))},0,${0.6 + 0.4 * pulse})`;
+    ctx.shadowColor = '#ff2200';
+    ctx.shadowBlur = 10 + Math.floor(progress * 16);
+    ctx.strokeStyle = danger;
+    ctx.lineWidth = 2 + Math.floor(progress * 2);
+    ctx.strokeRect(sx - ringR, sy - ringR, ringR * 2, ringR * 2);
+    // Corner tick marks
+    const tick = Math.max(4, Math.floor(ringR * 0.3));
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 0;
+    for (const [cx2, cy2, dx2, dy2] of [
+      [sx - ringR, sy - ringR, 1, 1],
+      [sx + ringR, sy - ringR, -1, 1],
+      [sx - ringR, sy + ringR, 1, -1],
+      [sx + ringR, sy + ringR, -1, -1],
+    ] as [number, number, number, number][]) {
+      ctx.beginPath(); ctx.moveTo(cx2, cy2); ctx.lineTo(cx2 + dx2 * tick, cy2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx2, cy2); ctx.lineTo(cx2, cy2 + dy2 * tick); ctx.stroke();
+    }
     ctx.shadowBlur = 0;
   }
 
@@ -455,9 +901,9 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   if (e.hp < e.maxHp) {
     const barW = size + 4;
     const barH = Math.max(5, Math.floor(size * 0.13));
-    const bx   = sx - barW / 2;
-    const by   = sy - half - antH - dotSz - barH - 3;
-    const pct  = e.hp / e.maxHp;
+    const bx = sx - barW / 2;
+    const by = sy - half - antH - dotSz - barH - 3;
+    const pct = e.hp / e.maxHp;
     ctx.fillStyle = '#330000';
     ctx.fillRect(bx, by, barW, barH);
     ctx.fillStyle = pct > 0.5 ? '#00cc44' : pct > 0.25 ? '#ffaa00' : '#ff3300';
@@ -496,30 +942,30 @@ function drawGame(
     const bh2 = (r2 - r1 - 1) * TILE_SIZE;
     const col = CHAMBER_COLORS[ch];
     ctx.shadowColor = col;
-    ctx.shadowBlur  = 22;
+    ctx.shadowBlur = 22;
     ctx.strokeStyle = col + '99';
-    ctx.lineWidth   = 3;
+    ctx.lineWidth = 3;
     ctx.strokeRect(bx2, by2, bw2, bh2);
-    ctx.shadowBlur  = 10;
+    ctx.shadowBlur = 10;
     ctx.strokeStyle = col + '44';
-    ctx.lineWidth   = 8;
+    ctx.lineWidth = 8;
     ctx.strokeRect(bx2, by2, bw2, bh2);
-    ctx.shadowBlur  = 0;
+    ctx.shadowBlur = 0;
   }
 
   // Hallway border lines — exposed long sides of each corridor (neutral glow)
   // fillFloor zones: (9,20,11,30), (38,20,40,30), (20,9,30,11), (20,38,30,40)
   const TS = TILE_SIZE;
-  const hallways: [number,number,number,number][] = [
-    [9,20,11,30],   // top horizontal  (ALPHA ↔ BETA)
-    [38,20,40,30],  // bottom horizontal (GAMMA ↔ DELTA)
-    [20,9,30,11],   // left vertical   (ALPHA ↔ GAMMA)
-    [20,38,30,40],  // right vertical  (BETA  ↔ DELTA)
+  const hallways: [number, number, number, number][] = [
+    [9, 20, 11, 30],   // top horizontal  (ALPHA ↔ BETA)
+    [38, 20, 40, 30],  // bottom horizontal (GAMMA ↔ DELTA)
+    [20, 9, 30, 11],   // left vertical   (ALPHA ↔ GAMMA)
+    [20, 38, 30, 40],  // right vertical  (BETA  ↔ DELTA)
   ];
   ctx.shadowColor = '#8899ff';
-  ctx.shadowBlur  = 14;
+  ctx.shadowBlur = 14;
   ctx.strokeStyle = '#8899ff88';
-  ctx.lineWidth   = 3;
+  ctx.lineWidth = 3;
   for (const [hr1, hc1, hr2, hc2] of hallways) {
     const isHoriz = (hr2 - hr1) < (hc2 - hc1);
     if (isHoriz) {
@@ -609,7 +1055,7 @@ function drawGame(
         // Blocky diamond symbol - blinking pulse
         const blinkPulse = Math.pow(Math.abs(Math.sin(tickN * 0.08 + ch * 2)), 8);
         ctx.shadowColor = tcol;
-        ctx.shadowBlur  = Math.floor(16 * blinkPulse);
+        ctx.shadowBlur = Math.floor(16 * blinkPulse);
         const diaSize = Math.floor(TILE_SIZE * (0.15 + 0.45 * blinkPulse));
         drawPixelDiamond(ctx, sx + TILE_SIZE / 2, sy + TILE_SIZE / 2, diaSize, tcol);
         ctx.shadowBlur = 0;
@@ -652,9 +1098,9 @@ function drawGame(
     // meteor grows from 2 tiles to 11 tiles wide as it falls
     const metSz = Math.floor(TILE_SIZE * (2 + 9 * strikeProg));
     const startY = (r1 - 1) * TILE_SIZE - camY - metSz;
-    const endY   = cy2;
-    const metY   = Math.round(startY + (endY - startY) * strikeProg);
-    const metX   = Math.round(cx2);
+    const endY = cy2;
+    const metY = Math.round(startY + (endY - startY) * strikeProg);
+    const metX = Math.round(cx2);
     if (metY < endY) {
       const tailH = Math.min(canvasH, metSz * 3);
       const tailW = Math.max(4, Math.floor(metSz * 0.55));
@@ -727,9 +1173,9 @@ function drawGame(
     for (let dy = -radiusTiles; dy <= radiusTiles; dy++) {
       for (let dx = -radiusTiles; dx <= radiusTiles; dx++) {
         if (Math.hypot(dx, dy) <= radiusTiles) {
-           const hx = bsx + dx * TILE_SIZE;
-           const hy = bsy + dy * TILE_SIZE;
-           ctx.fillRect(hx + 1, hy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+          const hx = bsx + dx * TILE_SIZE;
+          const hy = bsy + dy * TILE_SIZE;
+          ctx.fillRect(hx + 1, hy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
         }
       }
     }
@@ -746,16 +1192,16 @@ function drawGame(
     ctx.shadowColor = bombCol;
     ctx.shadowBlur = 6;
     ctx.fillStyle = bombCol;
-    ctx.fillRect(bodyCX - bw/2 - 2, bodyCY - bw/2 - 2, bw + 4, bw + 4);
+    ctx.fillRect(bodyCX - bw / 2 - 2, bodyCY - bw / 2 - 2, bw + 4, bw + 4);
     ctx.shadowBlur = 0;
 
     // Dark orangeish fill
     ctx.fillStyle = innerCol;
-    ctx.fillRect(bodyCX - bw/2 + 2, bodyCY - bw/2 + 2, bw - 4, bw - 4);
+    ctx.fillRect(bodyCX - bw / 2 + 2, bodyCY - bw / 2 + 2, bw - 4, bw - 4);
 
     // Highlight corner
     ctx.fillStyle = state.bomb.powered ? '#ffeedd' : '#ffbb88';
-    ctx.fillRect(bodyCX - bw/2 + 5, bodyCY - bw/2 + 5, 3, 3);
+    ctx.fillRect(bodyCX - bw / 2 + 5, bodyCY - bw / 2 + 5, 3, 3);
     // Fuse rope (line from top of circle to spark)
     const fuseX = bodyCX + Math.floor(bodyW * 0.22);
     const fuseTopY = Math.round(bodyCY - bodyW / 2 - Math.floor(TILE_SIZE * 0.18));
@@ -765,8 +1211,8 @@ function drawGame(
     // Spark dot
     const sparkOn = Math.floor(tickN * 0.2) % 2 === 0;
     ctx.shadowColor = bombCol;
-    ctx.shadowBlur  = sparkOn ? 12 : 0;
-    ctx.fillStyle   = sparkOn ? '#ffffff' : bombCol;
+    ctx.shadowBlur = sparkOn ? 12 : 0;
+    ctx.fillStyle = sparkOn ? '#ffffff' : bombCol;
     ctx.fillRect(fuseX - 1, fuseTopY - 3, 4, 4);
     ctx.shadowBlur = 0;
     // 7-pointed star inside body
@@ -803,10 +1249,14 @@ function drawGame(
   }
 
   // Enemies
+  const shieldedIds = new Set(
+    state.enemies.filter(e => e.type === 'shielder' && e.shieldTargetId !== -1).map(e => e.shieldTargetId)
+  );
   for (const e of state.enemies) {
     const sx = e.x - camX;
     const sy = e.y - camY;
-    drawEnemy(ctx, e, sx, sy, tickN);
+    drawEnemy(ctx, e, sx, sy, tickN, shieldedIds.has(e.id));
+    ctx.globalAlpha = 1; // reset in case ghost modified it
   }
 
   // Enemy attack lasers — drawn after enemies, over them
@@ -822,30 +1272,107 @@ function drawGame(
       ? state.rubyTileY * TILE_SIZE + TILE_SIZE / 2 - camY
       : state.playerY - camY;
     const ecol = ENEMY_CONFIGS[e.type].color;
-    ctx.globalAlpha = alpha * 0.75;
-    ctx.shadowColor = ecol;
-    ctx.shadowBlur  = 16;
-    ctx.strokeStyle = ecol;
-    ctx.lineWidth   = Math.max(4, Math.floor(TILE_SIZE * 0.22));
-    ctx.lineCap     = 'square';
-    ctx.beginPath();
-    ctx.moveTo(exs, eys);
-    ctx.lineTo(tgtX, tgtY);
-    ctx.stroke();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth   = 2;
-    ctx.beginPath();
-    ctx.moveTo(exs, eys);
-    ctx.lineTo(tgtX, tgtY);
-    ctx.stroke();
-    ctx.shadowBlur  = 0;
-    ctx.globalAlpha = 1;
-    ctx.lineCap     = 'butt';
+
+    if (e.type === 'ghost') {
+      const t = 1 - (e.shootTicks / 14); // 0 to 1 progress
+      const dx = tgtX - exs;
+      const dy = tgtY - eys;
+      const totalLen = Math.sqrt(dx * dx + dy * dy) || 1;
+      const nx = dx / totalLen;
+      const ny = dy / totalLen;
+
+      const traveled = t * totalLen;
+      const bx = exs + nx * traveled; // front of bullet
+      const by = eys + ny * traveled;
+
+      const maxTailLen = TILE_SIZE * 0.4; // much shorter tail
+      const tailLen = Math.min(maxTailLen, traveled);
+
+      const startX = bx - nx * tailLen;
+      const startY = by - ny * tailLen;
+      const endX = bx;
+      const endY = by;
+
+      const size = Math.max(2, Math.floor(TILE_SIZE * 0.15)); // smaller bullet
+
+      ctx.globalAlpha = 0.8;
+      ctx.shadowColor = ecol;
+      ctx.shadowBlur = 16;
+      ctx.strokeStyle = ecol;
+      ctx.lineWidth = size;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = size * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+
+      ctx.lineCap = 'butt';
+    } else if (e.type === 'splitter' || e.type === 'armored') {
+      const t = 1 - (e.shootTicks / 14); // 0 to 1 progress
+      const dx = tgtX - exs;
+      const dy = tgtY - eys;
+      const totalLen = Math.sqrt(dx * dx + dy * dy) || 1;
+      const nx = dx / totalLen;
+      const ny = dy / totalLen;
+
+      const traveled = t * totalLen;
+      const bx = exs + nx * traveled; // center of ball
+      const by = eys + ny * traveled;
+
+      const ballRadius = Math.max(4, Math.floor(TILE_SIZE * 0.22));
+
+      ctx.globalAlpha = 0.85;
+      ctx.shadowColor = ecol;
+      ctx.shadowBlur = 16;
+      ctx.fillStyle = ecol;
+      ctx.beginPath();
+      ctx.arc(bx, by, ballRadius, 0, 2 * Math.PI);
+      ctx.fill();
+
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(bx, by, ballRadius * 0.45, 0, 2 * Math.PI);
+      ctx.fill();
+    } else {
+      ctx.globalAlpha = alpha * 0.75;
+      ctx.shadowColor = ecol;
+      ctx.shadowBlur = 16;
+      ctx.strokeStyle = ecol;
+      ctx.lineWidth = Math.max(4, Math.floor(TILE_SIZE * 0.22));
+      ctx.lineCap = 'square';
+      ctx.beginPath();
+      ctx.moveTo(exs, eys);
+      ctx.lineTo(tgtX, tgtY);
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(exs, eys);
+      ctx.lineTo(tgtX, tgtY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      ctx.lineCap = 'butt';
+    }
   }
 
   // Player
-  const psx = state.playerX - camX;
+  const jiggle = state.healJiggleTicks > 0
+    ? Math.sin(state.healJiggleTicks * 1.8) * 3
+    : 0;
+  const psx = state.playerX - camX + jiggle;
   const psy = state.playerY - camY;
   drawPlayer(ctx, psx, psy, state, tickN, chargingMs);
 
@@ -853,17 +1380,19 @@ function drawGame(
   for (const b of state.laserBullets || []) {
     const shadowCol = b.powered ? '#ffaa00' : '#00ffff';
     const strokeOut = b.powered ? '#ffcc00' : '#44ddff';
-    const strokeIn  = b.powered ? '#ffee88' : '#aaffff';
+    const strokeIn = b.powered ? '#ffee88' : '#aaffff';
 
     const cx = b.x * TILE_SIZE - camX;
     const cy = b.y * TILE_SIZE - camY;
-    
+
     // Streak from previous position to slightly ahead
-    const len = Math.sqrt(b.dx*b.dx + b.dy*b.dy) || 1;
+    const len = Math.sqrt(b.dx * b.dx + b.dy * b.dy) || 1;
     const nx = b.dx / len;
     const ny = b.dy / len;
-    const tailLen = TILE_SIZE * 1.5;
-    
+    const maxTailLen = TILE_SIZE * 1.5;
+    const traveled = b.ticks * BULLET_SPEED * TILE_SIZE;
+    const tailLen = Math.min(maxTailLen, traveled);
+
     const startX = cx - nx * tailLen;
     const startY = cy - ny * tailLen;
     const endX = cx + nx * TILE_SIZE * 0.4;
@@ -871,13 +1400,23 @@ function drawGame(
 
     const size = b.powered ? 24 : 12;
 
-    // Outer glow
-    ctx.globalAlpha = 0.8;
+    // Outermost soft glow
+    ctx.globalAlpha = 0.4;
     ctx.shadowColor = shadowCol;
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 25;
+    ctx.strokeStyle = shadowCol;
+    ctx.lineWidth = size * 1.8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    // Outer bright layer
+    ctx.globalAlpha = 0.8;
+    ctx.shadowBlur = 12;
     ctx.strokeStyle = strokeOut;
     ctx.lineWidth = size;
-    ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(startX, startY);
     ctx.lineTo(endX, endY);
@@ -885,6 +1424,7 @@ function drawGame(
 
     // Inner bright core
     ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
     ctx.strokeStyle = strokeIn;
     ctx.lineWidth = size * 0.4;
     ctx.beginPath();
@@ -895,43 +1435,73 @@ function drawGame(
     ctx.shadowBlur = 0;
   }
 
-  // Laser beams — tile-wide
-  for (const beam of state.laserBeams) {
-    const alpha = beam.ticks / 18;
-    const shadowCol = beam.powered ? '#ffaa00' : '#00ffff';
-    const strokeOut = beam.powered ? '#ffcc00' : '#44ddff';
-    const strokeIn  = beam.powered ? '#ffee88' : '#aaffff';
+  // Lightning arcs — chain from sniper kill
+  for (const arc of state.lightningArcs) {
+    const progress = arc.ticks / 22;
+    ctx.globalAlpha = progress * 0.9;
+    ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 14;
+    ctx.strokeStyle = '#ffffaa'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(arc.fromX - camX, arc.fromY - camY);
+    // Zigzag midpoint for electric look
+    const midX = (arc.fromX + arc.toX) / 2 - camX + (Math.random() - 0.5) * 16;
+    const midY = (arc.fromY + arc.toY) / 2 - camY + (Math.random() - 0.5) * 16;
+    ctx.lineTo(midX, midY);
+    ctx.lineTo(arc.toX - camX, arc.toY - camY);
+    ctx.stroke();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(arc.fromX - camX, arc.fromY - camY);
+    ctx.lineTo(midX, midY);
+    ctx.lineTo(arc.toX - camX, arc.toY - camY);
+    ctx.stroke();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
 
-    // Outer wide glow layer
+  // Laser beams — player=cyan, powered=gold, sniper=red, boss=dark red
+  for (const beam of state.laserBeams) {
+    const isEnemy = !!beam.color;
+    const isBossLaser = beam.color === '#cc0022';
+    const maxTicks = isEnemy ? 22 : 18;
+    const alpha = beam.ticks / maxTicks;
+    const shadowCol = isBossLaser ? '#ff0033' : isEnemy ? '#ff2200' : beam.powered ? '#ffaa00' : '#00ffff';
+    const strokeOut = isBossLaser ? '#cc0022' : isEnemy ? '#ff4400' : beam.powered ? '#ffcc00' : '#44ddff';
+    const strokeIn = isBossLaser ? '#ff3355' : isEnemy ? '#ff8844' : beam.powered ? '#ffee88' : '#aaffff';
+    
+    const outerW = isBossLaser ? Math.floor(TILE_SIZE * 1.2) : isEnemy ? Math.max(4, Math.floor(TILE_SIZE * 0.25)) : TILE_SIZE;
+    const innerW = isBossLaser ? Math.floor(TILE_SIZE * 0.6) : Math.max(4, Math.floor(TILE_SIZE * 0.35));
+    const coreW = isBossLaser ? 4 : 2;
+
+    ctx.lineCap = 'square';
     ctx.globalAlpha = alpha * 0.45;
     ctx.shadowColor = shadowCol;
-    ctx.shadowBlur  = 18;
+    ctx.shadowBlur = isBossLaser ? 32 : 18;
     ctx.strokeStyle = strokeOut;
-    ctx.lineWidth   = TILE_SIZE;
-    ctx.lineCap     = 'square';
+    ctx.lineWidth = outerW;
     ctx.beginPath();
     ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
     ctx.lineTo(beam.endX - camX, beam.endY - camY);
     ctx.stroke();
-    // Bright core
+    
     ctx.globalAlpha = alpha * 0.85;
     ctx.strokeStyle = strokeIn;
-    ctx.lineWidth   = Math.max(4, Math.floor(TILE_SIZE * 0.35));
+    ctx.lineWidth = innerW;
     ctx.beginPath();
     ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
     ctx.lineTo(beam.endX - camX, beam.endY - camY);
     ctx.stroke();
-    // White center line
+    
     ctx.globalAlpha = alpha;
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth   = 2;
+    ctx.lineWidth = coreW;
     ctx.beginPath();
     ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
     ctx.lineTo(beam.endX - camX, beam.endY - camY);
     ctx.stroke();
-    ctx.shadowBlur  = 0;
+    
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
-    ctx.lineCap     = 'butt';
+    ctx.lineCap = 'butt';
   }
 
   // Wave effects (expanding SQUARE ring)
@@ -946,25 +1516,25 @@ function drawGame(
     // Outer glow ring
     ctx.globalAlpha = Math.min(1, alpha * 1.5);
     ctx.shadowColor = glowColor;
-    ctx.shadowBlur  = 40;
+    ctx.shadowBlur = 40;
     ctx.strokeStyle = ringColor;
-    ctx.lineWidth   = 14;
+    ctx.lineWidth = 14;
     ctx.strokeRect(wx - r, wy - r, r * 2, r * 2);
 
     // Bright core ring
     ctx.globalAlpha = Math.min(1, alpha * 1.2);
-    ctx.shadowBlur  = 20;
+    ctx.shadowBlur = 20;
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth   = 4;
+    ctx.lineWidth = 4;
     ctx.strokeRect(wx - r, wy - r, r * 2, r * 2);
 
     // Inner secondary ring (lags behind at 70% radius)
     const r2 = r * 0.7;
     ctx.globalAlpha = alpha * 0.8;
     ctx.shadowColor = glowColor;
-    ctx.shadowBlur  = 20;
+    ctx.shadowBlur = 20;
     ctx.strokeStyle = ringColor;
-    ctx.lineWidth   = 6;
+    ctx.lineWidth = 6;
     ctx.strokeRect(wx - r2, wy - r2, r2 * 2, r2 * 2);
 
     // Wave faint fill
@@ -974,10 +1544,10 @@ function drawGame(
 
     // Tinted fill
     ctx.globalAlpha = alpha * 0.12;
-    ctx.fillStyle   = ringColor;
+    ctx.fillStyle = ringColor;
     ctx.fillRect(wx - r, wy - r, r * 2, r * 2);
 
-    ctx.shadowBlur  = 0;
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
   }
 
@@ -988,36 +1558,36 @@ function drawGame(
     ctx.globalAlpha = Math.min(1, alpha * 1.5);
     ctx.strokeStyle = '#ffee77';
     ctx.shadowColor = '#ff3300';
-    ctx.shadowBlur  = 40;
-    ctx.lineWidth   = 6;
+    ctx.shadowBlur = 40;
+    ctx.lineWidth = 6;
     ctx.strokeRect(bwx - r, bwy - r, r * 2, r * 2);
     ctx.globalAlpha = Math.min(1, alpha * 1.2);
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth   = 3;
+    ctx.lineWidth = 3;
     ctx.strokeRect(bwx - r * 0.5, bwy - r * 0.5, r, r);
     ctx.globalAlpha = alpha * 0.6;
-    ctx.fillStyle   = '#ff3300';
+    ctx.fillStyle = '#ff3300';
     ctx.fillRect(bwx - r, bwy - r, r * 2, r * 2);
-    ctx.shadowBlur  = 0;
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
   }
 
   // Minimap
-  drawMinimap(ctx, state, canvasW, canvasH, tickN);
+  drawMinimap(ctx, state, canvasW, tickN);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function RubyStarPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const stateRef  = useRef<GameState | null>(null);
-  const tickRef   = useRef(0);
-  const rafRef    = useRef(0);
-  const bgmRef    = useRef<BGMControllerHandle>(null);
+  const stateRef = useRef<GameState | null>(null);
+  const tickRef = useRef(0);
+  const rafRef = useRef(0);
+  const bgmRef = useRef<BGMControllerHandle>(null);
   const [showRules, setShowRules] = useState(true);
   const [, forceRender] = useState(0);
   const [isGodQuery, setIsGodQuery] = useState(false);
-  const touchStartRef    = useRef<{ x: number; y: number } | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const mouseDownTimeRef = useRef<number>(0);
 
   const rerender = useCallback(() => forceRender(n => n + 1), []);
@@ -1029,7 +1599,7 @@ export default function RubyStarPage() {
       setIsGodQuery(window.location.search.includes('god=1'));
     }
     if (typeof screen !== 'undefined' && screen.orientation && (screen.orientation as any).lock) {
-      (screen.orientation as any).lock('landscape').catch(() => {});
+      (screen.orientation as any).lock('landscape').catch(() => { });
     }
   }, []);
 
@@ -1100,9 +1670,9 @@ export default function RubyStarPage() {
     if (!canvas) return;
     const resize = () => {
       const parent = canvas.parentElement!;
-      canvas.width  = parent.clientWidth;
+      canvas.width = parent.clientWidth;
       canvas.height = parent.clientHeight;
-      canvas.style.width  = `${parent.clientWidth}px`;
+      canvas.style.width = `${parent.clientWidth}px`;
       canvas.style.height = `${parent.clientHeight}px`;
     };
     resize();
@@ -1119,7 +1689,7 @@ export default function RubyStarPage() {
 
       // Teleport menu
       if (state.gamePhase === 'teleporting') {
-        if (e.key === 'Escape') { cancelTeleport(state); rerender(); return; }
+        if (e.key === 'Escape' || e.code === 'Space') { cancelTeleport(state); rerender(); return; }
         const numMap: Record<string, number> = { '1': 0, '2': 1, '3': 2, '4': 3 };
         const dest = numMap[e.key];
         if (dest !== undefined && state.teleportDestOptions.includes(dest)) {
@@ -1130,10 +1700,10 @@ export default function RubyStarPage() {
 
       // Movement
       const dirMap: Record<string, [number, number]> = {
-        ArrowUp: [0,-1], w: [0,-1], W: [0,-1],
-        ArrowDown: [0,1], s: [0,1], S: [0,1],
-        ArrowLeft: [-1,0], a: [-1,0], A: [-1,0],
-        ArrowRight: [1,0], d: [1,0], D: [1,0],
+        ArrowUp: [0, -1], w: [0, -1], W: [0, -1],
+        ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
+        ArrowLeft: [-1, 0], a: [-1, 0], A: [-1, 0],
+        ArrowRight: [1, 0], d: [1, 0], D: [1, 0],
       };
       const dir = dirMap[e.key];
       if (dir) {
@@ -1161,10 +1731,10 @@ export default function RubyStarPage() {
       const state = stateRef.current;
       if (!state) return;
       const dirMap: Record<string, [number, number]> = {
-        ArrowUp: [0,-1], w: [0,-1], W: [0,-1],
-        ArrowDown: [0,1], s: [0,1], S: [0,1],
-        ArrowLeft: [-1,0], a: [-1,0], A: [-1,0],
-        ArrowRight: [1,0], d: [1,0], D: [1,0],
+        ArrowUp: [0, -1], w: [0, -1], W: [0, -1],
+        ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
+        ArrowLeft: [-1, 0], a: [-1, 0], A: [-1, 0],
+        ArrowRight: [1, 0], d: [1, 0], D: [1, 0],
       };
       const dir = dirMap[e.key];
       if (dir && state.playerQueuedDirX === dir[0] && state.playerQueuedDirY === dir[1]) {
@@ -1207,7 +1777,7 @@ export default function RubyStarPage() {
     if (e.touches.length !== 1) return;
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     if (document.fullscreenElement === null && document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {});
+      document.documentElement.requestFullscreen().catch(() => { });
     }
   };
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -1233,21 +1803,6 @@ export default function RubyStarPage() {
     state.playerQueuedDirY = 0;
   };
 
-  const pressDir = (dx: number, dy: number) => {
-    const state = stateRef.current;
-    if (!state) return;
-    state.playerQueuedDirX = dx;
-    state.playerQueuedDirY = dy;
-  };
-  const releaseDir = (dx: number, dy: number) => {
-    const state = stateRef.current;
-    if (!state) return;
-    if (state.playerQueuedDirX === dx && state.playerQueuedDirY === dy) {
-      state.playerQueuedDirX = 0;
-      state.playerQueuedDirY = 0;
-    }
-  };
-
   const handleRestart = () => {
     const s = createInitialState();
     s.godMode = stateRef.current?.godMode ?? false;
@@ -1260,60 +1815,17 @@ export default function RubyStarPage() {
   const phase = state?.gamePhase ?? 'playing';
   const timeSurvived = Math.floor(state?.score ?? 0);
 
-  // Ability state helpers for UI
   const rubyHealAvail = state ? canHealRuby(state) : false;
-  const laserReady  = (state?.laserCooldown ?? 0) === 0;
-  const waveReady   = (state?.waveCooldown ?? 0) === 0;
-  const speedReady  = (state?.speedCooldown ?? 0) === 0;
-  const bombReady   = (state?.bombCooldown ?? 0) === 0 && !state?.bomb;
-  const powered     = (state?.poweredTicks ?? 0) > 0 || (state?.starEnergy ?? 0) >= STAR_ENERGY_MAX;
-  const carrying    = state?.playerCarryingRuby ?? true;
+  const powered = (state?.poweredTicks ?? 0) > 0 || (state?.starEnergy ?? 0) >= STAR_ENERGY_MAX;
+  const carrying = state?.playerCarryingRuby ?? true;
 
   // HP percentages
   const playerHpPct = Math.max(0, Math.min(100, ((state?.playerHP ?? PLAYER_MAX_HP) / PLAYER_MAX_HP) * 100));
-  const rubyHpPct   = Math.max(0, Math.min(100, ((state?.rubyHP ?? RUBY_MAX_HP) / RUBY_MAX_HP) * 100));
-  const energyPct   = Math.max(0, Math.min(100, ((state?.starEnergy ?? 0) / STAR_ENERGY_MAX) * 100));
+  const rubyHpPct = Math.max(0, Math.min(100, ((state?.rubyHP ?? RUBY_MAX_HP) / RUBY_MAX_HP) * 100));
+  const energyPct = Math.max(0, Math.min(100, ((state?.starEnergy ?? 0) / STAR_ENERGY_MAX) * 100));
 
   const playerBattColor = playerHpPct > 60 ? 'var(--success)' : playerHpPct > 30 ? 'var(--warning)' : 'var(--danger)';
-  const rubyBattColor   = rubyHpPct   > 60 ? '#ff4488'        : rubyHpPct   > 30 ? '#ff7700'        : '#ff2200';
-
-  // Ability button renderer
-  const abilityBtn = (
-    label: string, sub: string,
-    cooldownPct: number, ready: boolean, active: boolean,
-    onClick: () => void,
-    overrideColor?: string,
-  ) => {
-    const col = overrideColor ?? (active ? 'var(--cyan)' : ready ? 'var(--success)' : 'var(--text-muted)');
-    const bg  = active ? 'var(--cyan)22' : ready ? 'var(--success)22' : 'transparent';
-    const border = `3px solid ${active || ready ? col : 'rgba(255,255,255,0.15)'}`;
-    return (
-      <div
-        style={{
-          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', gap: '2px',
-          background: bg, borderTop: border,
-          cursor: 'pointer', userSelect: 'none', WebkitTapHighlightColor: 'transparent',
-          position: 'relative', overflow: 'hidden',
-        }}
-        onPointerDown={(e) => { e.preventDefault(); onClick(); }}
-      >
-        {cooldownPct > 0 && cooldownPct < 100 && (
-          <div style={{
-            position: 'absolute', bottom: 0, left: 0,
-            width: `${cooldownPct}%`, height: '2px', background: col, opacity: 0.5,
-          }} />
-        )}
-        <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-abl)', color: col,
-          textShadow: (active || ready) ? `0 0 10px ${col}` : 'none', lineHeight: 1 }}>
-          {label}
-        </span>
-        <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-abs)', color: col, lineHeight: 1 }}>
-          {sub}
-        </span>
-      </div>
-    );
-  };
+  const rubyBattColor = rubyHpPct > 60 ? '#ff4488' : rubyHpPct > 30 ? '#ff7700' : '#ff2200';
 
   return (
     <div style={{
@@ -1348,7 +1860,7 @@ export default function RubyStarPage() {
         }
       `}</style>
 
-      <BGMController ref={bgmRef} visible={false} src={['/sounds/rubyStarBGM.mp3']} volume={[0.3]} />
+      <BGMController ref={bgmRef} visible={false} src={['/sounds/rubyStarBGM.mp3']} volume={[0.29]} />
 
       {/* Rotate prompt */}
       <div className="rotate-overlay" style={{
@@ -1375,69 +1887,92 @@ export default function RubyStarPage() {
             Survive as long as possible in a 4-chamber space station under alien attack.
             Guard the <span style={{ color: RUBY_COLOR }}>Ruby Core</span> — if it or you run out of HP, it&apos;s over.
           </p>
+
+          {/* CONTROLS & ABILITIES */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
             <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              RUBY CORE
+              CONTROLS &amp; ABILITIES
+            </p>
+            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.9 }}>
+              <span style={{ color: 'var(--cyan)' }}>WASD / Arrows / Swipe</span> — Move<br />
+              <span style={{ color: 'var(--cyan)' }}>E / F</span> — Carry or place the Ruby Core (pick up within 2 tiles)<br />
+              <span style={{ color: 'var(--cyan)' }}>SPACE</span> — Heal nearby Ruby (if no enemies close) · or Teleport (if on ✦ pad)<br />
+              <span style={{ color: '#ffcc44' }}>Left-click</span> — <span style={{ color: '#ffcc44' }}>LASER</span> — beam forward, pierces enemies<br />
+              <span style={{ color: '#aaddff' }}>Hold-click</span> — <span style={{ color: '#aaddff' }}>WAVE</span> — charged ring blast (hold ~1s to auto-fire)<br />
+              <span style={{ color: '#ffee44' }}>Shift</span> — <span style={{ color: '#ffee44' }}>SPEED</span> — brief speed burst<br />
+              <span style={{ color: BOMB_COLOR }}>Q</span> — <span style={{ color: BOMB_COLOR }}>BOMB</span> — place first, press again to detonate<br />
+              <span style={{ color: '#ff9944' }}>Right-click</span> — <span style={{ color: '#ff9944' }}>BULLET</span> — fast low-damage burst<br />
+              <span style={{ color: 'var(--text-muted)' }}>1–4</span> — Select teleport destination after menu opens · ESC to cancel
+            </p>
+          </div>
+
+          {/* RUBY CORE */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+            <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
+              RUBY CORE &amp; HEALING
             </p>
             <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
-              <span style={{ color: RUBY_COLOR }}>Carry it</span> (WASD movement slows) — enemies only attack you.<br />
-              <span style={{ color: '#ffaa00' }}>Place it</span> [E / F] — enemies can target the ruby too.
-              Pick it back up by standing next to it and pressing E/F.
+              <span style={{ color: RUBY_COLOR }}>Carry it</span> — movement slows but enemies only target you.<br />
+              <span style={{ color: '#ffaa00' }}>Place it</span> — enemies can attack the ruby directly.<br />
+              Stand near the ruby with no enemies close, then press{' '}
+              <span style={{ color: '#ff88aa' }}>SPACE</span> to slowly heal both yourself and the Ruby Core.
+              Works even if the ruby is at full HP — you&apos;ll still recover your own health.
             </p>
           </div>
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-            <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              ABILITIES
-            </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.8 }}>
-              <span style={{ color: BOMB_COLOR }}>Q — BOMB:</span> Place; press again to detonate. Bait enemies in!
-            </p>
-          </div>
+
+          {/* STAR ENERGY & TELEPORT */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
             <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
               STAR ENERGY ✦ &amp; TELEPORT
             </p>
             <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
-              Kill enemies and collect <span style={{ color: '#66aaff' }}>energy crystals</span> to fill your star gauge.
-              When full, your next ability is <span style={{ color: '#ffcc00' }}>POWERED UP</span>. Walk onto a{' '}
-              <span style={{ color: 'var(--cyan)' }}>✦ teleport pad</span> to jump between chambers.
+              Kill enemies (not meteors) and collect <span style={{ color: '#66aaff' }}>energy crystals</span> to fill your star gauge.
+              When full, your next ability is <span style={{ color: '#ffcc00' }}>POWERED UP</span> for extra damage or range.<br />
+              Each chamber has a <span style={{ color: 'var(--cyan)' }}>✦ teleport pad</span> at its center.
+              Step on one and press SPACE to jump instantly between any of the 4 chambers.
             </p>
           </div>
+
+          {/* METEORITE */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
             <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
               METEORITE ☄
             </p>
             <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
-              Every ~30 seconds a chamber is targeted. You have{' '}
-              <span style={{ color: 'var(--danger)' }}>5 seconds to escape</span>. Watch the minimap!
-              Everything in the struck chamber is destroyed.
+              Every ~30 seconds a random chamber is targeted. You have{' '}
+              <span style={{ color: 'var(--danger)' }}>5 seconds to escape</span> — watch the minimap and the warning banner!
+              Every enemy in the struck chamber is wiped out (the Boss takes 75 damage instead).
             </p>
           </div>
+
+          {/* STRATEGY TIPS */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+            <p style={{ fontSize: '0.6rem', color: '#ffcc00', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
+              ★ HINT
+            </p>
+            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.8 }}>
+              Meteorite and teleportation could create a good synergy!
+            </p>
+          </div>
+
+          {/* ENEMIES */}
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
             <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
               ENEMIES
             </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.8 }}>
+            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.9 }}>
               <span style={{ color: '#44ee44' }}>■ NORMAL</span> — Standard attacker. Fast and fragile.<br />
-              <span style={{ color: '#4488ff' }}>■ ARMORED</span> — Tanky shield unit. Slow but hits hard.<br />
-              <span style={{ color: '#ff8844' }}>■ FAST</span> — Extremely quick, 1-shot fragile. Don&apos;t ignore it.<br />
-              <span style={{ color: '#cc44ff' }}>■ BOMBER</span> — Self-destructs in a wide blast when it reaches you.
-            </p>
-          </div>
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-            <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              CONTROLS
-            </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.8 }}>
-              <span style={{ color: 'var(--cyan)' }}>Move:</span> WASD / Arrow keys / Swipe<br />
-              <span style={{ color: 'var(--cyan)' }}>Laser:</span> Left click<br />
-              <span style={{ color: 'var(--cyan)' }}>Wave:</span> Hold left click (~1s)<br />
-              <span style={{ color: 'var(--cyan)' }}>Speed:</span> Shift / R key<br />
-              <span style={{ color: 'var(--cyan)' }}>Bomb:</span> Q key (place → press again to detonate)<br />
-              <span style={{ color: 'var(--cyan)' }}>Bullet:</span> Right click (fast low-damage laser)<br />
-              <span style={{ color: 'var(--cyan)' }}>Ruby carry/place:</span> E or F (pick up within 2 tiles)<br />
-              <span style={{ color: 'var(--cyan)' }}>Heal Ruby / Teleport:</span> SPACE (heals if near ruby, teleports if on pad)<br />
-              <span style={{ color: 'var(--cyan)' }}>Teleport jump:</span> press 1-4 after opening menu, or ESC to cancel
+              <span style={{ color: '#4488ff' }}>■ ARMORED</span> — Tanky with a damage shield. Slow but hits hard. Drops more energy.<br />
+              <span style={{ color: '#ff8844' }}>■ FAST</span> — Extremely quick and fragile. Don&apos;t let it swarm you.<br />
+              <span style={{ color: '#cc44ff' }}>■ BOMBER</span> — Self-destructs in a wide blast on arrival. Keep your distance.<br />
+              <span style={{ color: '#ffdd44' }}>■ SNIPER</span> — Long-range shot with windup telegraph. Kill it for a 5s electric chain buff.<br />
+              <span style={{ color: '#ff4444' }}>■ HEALER</span> — Heals nearby allies. Prioritize it. Kill rewards +20 player HP.<br />
+              <span style={{ color: '#ff6600' }}>■ CHARGER</span> — Locks on and charges at high speed. Kill rewards a speed burst.<br />
+              <span style={{ color: '#aaaaaa' }}>■ GHOST</span> — Phases through walls. Semi-transparent and hard to track. Kill restores +15 ruby HP.<br />
+              <span style={{ color: '#ee8822' }}>■ SPLITTER</span> — Splits into 2 Mini Splitters on death. Tanky stacked-box design.<br />
+              <span style={{ color: '#cc6611' }}>■ MINI SPLITTER</span> — Spawned from Splitter death. Small and fast.<br />
+              <span style={{ color: '#44ddff' }}>■ SHIELDER</span> — Shields the most-injured ally, halving all damage it takes. Kill grants ~2.5s invincibility.<br />
+              <span style={{ color: '#cc0022' }}>■ BOSS</span> — Massive, push-immune, BFS pathfinder. Teleport away and use meteors to whittle it down. Kill = full restore.
             </p>
           </div>
         </div>
@@ -1452,7 +1987,7 @@ export default function RubyStarPage() {
           display: 'flex', flexDirection: 'column', gap: '8px'
         }}>
           <div style={{ color: '#ffcc00', fontWeight: 'bold', fontSize: '0.8rem', textAlign: 'center' }}>GOD MODE</div>
-          <button 
+          <button
             style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: stateRef.current?.godMode ? '#ffcc00' : '#444', color: stateRef.current?.godMode ? '#000' : '#fff', border: 'none', borderRadius: '4px' }}
             onClick={() => {
               if (stateRef.current) stateRef.current.godMode = !stateRef.current.godMode;
@@ -1460,7 +1995,7 @@ export default function RubyStarPage() {
             }}>
             Immortal: {stateRef.current?.godMode ? 'ON' : 'OFF'}
           </button>
-          <button 
+          <button
             style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #ffcc00', borderRadius: '4px' }}
             onClick={() => {
               if (stateRef.current) {
@@ -1519,15 +2054,23 @@ export default function RubyStarPage() {
 
           {/* Star energy */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: 'var(--font-stat)', color: powered ? '#ffcc00' : 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.1em',
-              textShadow: powered ? '0 0 10px #ffcc00' : 'none' }}>✦</span>
-            <div style={{ width: 'var(--batt-w)', height: 'var(--batt-h)', border: `1px solid ${powered ? '#00ffff' : 'rgba(255,255,255,0.2)'}`,
-              borderRadius: '2px', background: 'rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${energyPct}%`,
+            <span style={{
+              fontSize: 'var(--font-stat)', color: powered ? '#ffcc00' : 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.1em',
+              textShadow: powered ? '0 0 10px #ffcc00' : 'none'
+            }}>✦</span>
+            <div style={{
+              width: 'var(--batt-w)', height: 'var(--batt-h)', border: `1px solid ${powered ? '#00ffff' : 'rgba(255,255,255,0.2)'}`,
+              borderRadius: '2px', background: 'rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden'
+            }}>
+              <div style={{
+                height: '100%', width: `${energyPct}%`,
                 background: powered ? '#ffffff' : 'linear-gradient(90deg, #4488ff, #88ccff)',
-                boxShadow: powered ? '0 0 10px #00ffff' : 'none', transition: 'background 0.3s' }} />
-              <div style={{ position: 'absolute', right: -2, top: '25%', width: 4, height: '50%',
-                background: powered ? '#ffffff' : 'rgba(255,255,255,0.2)', borderRadius: '0 2px 2px 0' }} />
+                boxShadow: powered ? '0 0 10px #00ffff' : 'none', transition: 'background 0.3s'
+              }} />
+              <div style={{
+                position: 'absolute', right: -2, top: '25%', width: 4, height: '50%',
+                background: powered ? '#ffffff' : 'rgba(255,255,255,0.2)', borderRadius: '0 2px 2px 0'
+              }} />
             </div>
           </div>
 
@@ -1548,9 +2091,11 @@ export default function RubyStarPage() {
           {isGodQuery && (
             <button
               className="btn btn-ghost"
-              style={{ fontSize: '0.7rem', padding: '4px 10px',
+              style={{
+                fontSize: '0.7rem', padding: '4px 10px',
                 color: state?.godMode ? 'var(--success)' : undefined,
-                borderColor: state?.godMode ? 'var(--success)' : undefined }}
+                borderColor: state?.godMode ? 'var(--success)' : undefined
+              }}
               onClick={() => { if (stateRef.current) { stateRef.current.godMode = !stateRef.current.godMode; rerender(); } }}
             >GOD</button>
           )}
@@ -1581,8 +2126,10 @@ export default function RubyStarPage() {
             }}
             onClick={(e) => { if (e.target === e.currentTarget) { cancelTeleport(state); rerender(); } }}
           >
-            <p style={{ fontFamily: 'var(--font-pixel)', fontSize: '1rem', color: 'var(--cyan)',
-              textShadow: '0 0 16px var(--cyan)', letterSpacing: '0.12em' }}>
+            <p style={{
+              fontFamily: 'var(--font-pixel)', fontSize: '1rem', color: 'var(--cyan)',
+              textShadow: '0 0 16px var(--cyan)', letterSpacing: '0.12em'
+            }}>
               TELEPORT — SELECT CHAMBER
             </p>
             <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -1621,6 +2168,25 @@ export default function RubyStarPage() {
         )}
 
         {/* Meteorite warning banner */}
+        {phase === 'playing' && (state?.bossWarningTicks ?? 0) > 0 && (
+          <div style={{
+            position: 'absolute', top: '50px', left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(20,0,0,0.92)', border: '2px solid #cc0022',
+            boxShadow: '0 0 28px #cc002288',
+            borderRadius: '6px', padding: '8px 24px',
+            display: 'flex', alignItems: 'center', gap: '14px',
+            animation: 'pulseGlow 0.35s ease-in-out infinite',
+            pointerEvents: 'none',
+          }}>
+            <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.9rem', color: '#ff2244' }}>
+              ⚠ BOSS APPROACHING
+            </span>
+            <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.9rem', color: '#ffcc00' }}>
+              {Math.ceil((state?.bossWarningTicks ?? 0) / 60)}s
+            </span>
+          </div>
+        )}
+
         {phase === 'playing' && (state?.meteoriteWarning ?? -1) >= 0 && (
           <div style={{
             position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
@@ -1655,76 +2221,6 @@ export default function RubyStarPage() {
         )}
       </div>
 
-      {/* ── Ability bar (bottom HUD) ─────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', flexShrink: 0, height: 'var(--bot-bar-h)',
-        borderTop: '2px solid var(--border)', background: 'rgba(0,0,10,0.97)',
-      }}>
-        {/* Ruby toggle */}
-        {abilityBtn(
-          carrying ? '◆ CARRY' : '◆ PLACE',
-          carrying ? 'HOLDING' : 'PLACED',
-          0, true, carrying,
-          () => { if (stateRef.current) { toggleCarryRuby(stateRef.current); rerender(); } },
-          RUBY_COLOR,
-        )}
-
-        {/* Laser */}
-        {abilityBtn(
-          'LASER',
-          laserReady ? (powered ? '★ READY' : 'READY') : `CD`,
-          laserReady ? 100 : (1 - (state?.laserCooldown ?? 0) / LASER_COOLDOWN) * 100,
-          laserReady, false,
-          () => { if (stateRef.current) { useLaser(stateRef.current); rerender(); } },
-          laserReady && powered ? '#ffcc00' : undefined,
-        )}
-
-        {/* Bullet */}
-        {abilityBtn(
-          'BULLET',
-          (state?.bulletCooldown ?? 0) === 0 ? (powered ? '★ READY' : 'READY') : `CD`,
-          (state?.bulletCooldown ?? 0) === 0 ? 100 : (1 - (state?.bulletCooldown ?? 0) / BULLET_COOLDOWN) * 100,
-          (state?.bulletCooldown ?? 0) === 0, false,
-          () => { if (stateRef.current) { useBullet(stateRef.current); rerender(); } },
-          (state?.bulletCooldown ?? 0) === 0 && powered ? '#ffcc00' : undefined,
-        )}
-
-        {/* Charge wave */}
-        {abilityBtn(
-          'WAVE',
-          waveReady ? 'HOLD' : 'CD',
-          waveReady ? 100 : (1 - (state?.waveCooldown ?? 0) / WAVE_COOLDOWN) * 100,
-          waveReady,
-          false,
-          () => { if (stateRef.current) { activateWave(stateRef.current); rerender(); } },
-          waveReady && powered ? '#ffcc00' : waveReady ? '#aaddff' : undefined,
-        )}
-
-        {/* Speed */}
-        {abilityBtn(
-          'SPEED',
-          (state?.speedActiveTicks ?? 0) > 0
-            ? `${Math.ceil((state?.speedActiveTicks ?? 0) / 60)}s`
-            : speedReady ? (powered ? '★ READY' : 'READY') : 'CD',
-          speedReady ? 100 : (1 - (state?.speedCooldown ?? 0) / SPEED_COOLDOWN) * 100,
-          speedReady, (state?.speedActiveTicks ?? 0) > 0,
-          () => { if (stateRef.current) { useSpeedBoost(stateRef.current); rerender(); } },
-          (state?.speedActiveTicks ?? 0) > 0 ? '#00ffee' : speedReady && powered ? '#ffcc00' : speedReady ? '#ffee44' : undefined,
-        )}
-
-        {/* Bomb */}
-        {abilityBtn(
-          state?.bomb ? 'DETONATE' : 'BOMB',
-          state?.bomb ? '◉ ARMED' : (state?.bombCooldown ?? 0) > 0 ? 'CD' : 'PLACE',
-          state?.bomb ? 100 : (state?.bombCooldown ?? 0) > 0
-            ? (1 - (state?.bombCooldown ?? 0) / 300) * 100
-            : 100,
-          bombReady || !!state?.bomb,
-          !!state?.bomb,
-          () => { if (stateRef.current) { useBomb(stateRef.current); rerender(); } },
-          state?.bomb ? '#ff4400' : (state?.bombCooldown ?? 0) > 0 ? 'var(--text-muted)' : powered ? '#ffcc00' : BOMB_COLOR,
-        )}
-      </div>
     </div>
   );
 }
