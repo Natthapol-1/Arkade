@@ -161,8 +161,8 @@ export function playGhostHunt(): void {
 
 export function playDotEat(): void {
   try {
-    const a = new Audio('/sounds/numberClick.mp3');
-    a.volume = 0.02; // Super low volume
+    const a = new Audio('/sounds/dereverse.wav');
+    a.volume = 0.05; // very low, nudged up slightly from 0.02
     a.play().catch(() => {});
   } catch {}
 }
@@ -595,6 +595,7 @@ function handleTileInteraction(state: GameState): void {
     state.score += 1;
     state.vision = clamp(state.vision + 0.05, MIN_VISION, MAX_VISION);
     state.speed = clamp(state.speed + 0.018, MIN_SPEED, MAX_SPEED);
+    playDotEat();
     return;
   }
 

@@ -336,6 +336,35 @@ function drawGame(
   }
 }
 
+// ─── Mobile touch button (note / dash) ────────────────────────────────────────
+
+function SSTouchButton({ label, color, size = 44, onDown, count, active = true, labelSize = '1.2rem' }: {
+  label: React.ReactNode; color: string; size?: number | string; onDown: () => void;
+  count?: number; active?: boolean; labelSize?: string;
+}) {
+  return (
+    <button
+      onPointerDown={(e) => { e.preventDefault(); onDown(); }}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{
+        width: size, height: size, borderRadius: '50%', flexShrink: 0,
+        border: active ? `3px solid ${color}` : `3px solid ${color}44`,
+        background: active ? color + '30' : color + '10',
+        color: active ? color : color + '99',
+        fontFamily: 'var(--font-pixel)', fontWeight: 400,
+        boxShadow: active ? `inset 0 0 24px ${color}33, 0 0 16px ${color}44` : 'none',
+        textShadow: active ? `0 0 14px ${color}, 0 0 28px ${color}88` : 'none',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        touchAction: 'none', padding: 0, lineHeight: 1, gap: '2px',
+        transition: 'background 0.1s ease, border-color 0.1s ease',
+      }}
+    >
+      <span style={{ fontSize: labelSize }}>{label}</span>
+      {count !== undefined && <span style={{ fontSize: '0.6rem', color: active ? 'var(--text)' : 'var(--text-muted)', textShadow: 'none' }}>×{count}</span>}
+    </button>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function SwiftSoundPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -456,7 +485,7 @@ export default function SwiftSoundPage() {
       }
 
       // Sprint
-      if (e.key === 'Shift') {
+      if (e.key === 'Shift' || e.key === 'r' || e.key === 'R') {
         e.preventDefault();
         activateSprint(state);
         return;
@@ -565,6 +594,54 @@ export default function SwiftSoundPage() {
     }
   };
 
+  // ── Mobile virtual joystick (movement) — reuses pressDir for the click-feedback sound ──
+  const [ssJoyThumb, setSsJoyThumb] = useState({ x: 0, y: 0 });
+  const ssJoyPointerIdRef = useRef<number | null>(null);
+  const SS_JOY_RADIUS = 44;
+  const SS_JOY_DEADZONE = 12;
+
+  const updateSsJoyFromPointer = useCallback((clientX: number, clientY: number, baseEl: HTMLElement) => {
+    const rect = baseEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > SS_JOY_RADIUS) { dx = (dx / dist) * SS_JOY_RADIUS; dy = (dy / dist) * SS_JOY_RADIUS; }
+    setSsJoyThumb({ x: dx, y: dy });
+
+    const state = stateRef.current;
+    if (!state) return;
+    if (dist < SS_JOY_DEADZONE) {
+      state.playerQueuedDirX = 0; state.playerQueuedDirY = 0;
+      return;
+    }
+    // Set direction directly (not via pressDir) — the joystick shouldn't play the
+    // per-press movement click, since it fires continuously while dragging.
+    if (Math.abs(dx) > Math.abs(dy)) {
+      state.playerQueuedDirX = dx > 0 ? 1 : -1; state.playerQueuedDirY = 0;
+    } else {
+      state.playerQueuedDirX = 0; state.playerQueuedDirY = dy > 0 ? 1 : -1;
+    }
+  }, []);
+
+  const handleSsJoyPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    ssJoyPointerIdRef.current = e.pointerId;
+    updateSsJoyFromPointer(e.clientX, e.clientY, e.currentTarget);
+  };
+  const handleSsJoyPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (ssJoyPointerIdRef.current !== e.pointerId) return;
+    updateSsJoyFromPointer(e.clientX, e.clientY, e.currentTarget);
+  };
+  const handleSsJoyPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (ssJoyPointerIdRef.current !== e.pointerId) return;
+    ssJoyPointerIdRef.current = null;
+    setSsJoyThumb({ x: 0, y: 0 });
+    const state = stateRef.current;
+    if (state) { state.playerQueuedDirX = 0; state.playerQueuedDirY = 0; }
+  };
+
   const pressNote = (note: NoteName) => {
     const state = stateRef.current;
     if (!state) return;
@@ -628,8 +705,11 @@ export default function SwiftSoundPage() {
           --bot-bar-h: 60px;
           --font-note: 1.3rem;
           --font-count: 0.7rem;
-          --font-dash-main: 1.1rem;
-          --font-dash-sub: 0.6rem;
+          --font-dash-main: 0.75rem;
+          --font-dash-sub: 0.5rem;
+          --btn-size: 64px;
+          --btn-font: 1.2rem;
+          --btn-dash: 0.75rem;
         }
         @media (min-width: 1024px) {
           :root {
@@ -642,8 +722,11 @@ export default function SwiftSoundPage() {
             --bot-bar-h: 90px;
             --font-note: 1.6rem;
             --font-count: 0.9rem;
-            --font-dash-main: 1.4rem;
-            --font-dash-sub: 0.8rem;
+            --font-dash-main: 0.95rem;
+            --font-dash-sub: 0.6rem;
+            --btn-size: 86px;
+            --btn-font: 1.6rem;
+            --btn-dash: 0.95rem;
           }
         }
         @media (min-width: 768px) {
@@ -658,6 +741,11 @@ export default function SwiftSoundPage() {
             transform: scale(0.85);
             transform-origin: top center;
           }
+        }
+        /* Virtual joystick only shows on touch devices */
+        .ss-joystick { display: none !important; }
+        @media (hover: none) and (pointer: coarse) {
+          .ss-joystick { display: flex !important; }
         }
       `}</style>
       <BGMController ref={bgmRef} visible={false} src={["/sounds/swiftSoundBGM.mp3", "/sounds/horrorBGM1.mp3", "/sounds/horrorBGM2.mp3"]} volume={[0.3, 0.03, 0.25]} />
@@ -1019,91 +1107,63 @@ export default function SwiftSoundPage() {
             </div>
           )}
         </div>
-      </div>
 
-      {/* ── Bottom Bar (piano keys) ───────────────────────────────────────── */}
-      <div style={{
-        display: 'flex',
-        flexShrink: 0,
-        borderTop: '2px solid var(--border)',
-        background: 'rgba(5,5,16,0.97)',
-        height: 'var(--bot-bar-h)',
-      }}>
-        {NOTES.map((note, i) => {
-          const count = state?.noteInventory[note] ?? 0;
-          const color = NOTE_COLORS[note];
-          const active = count > 0;
-          return (
-            <div
-              key={note}
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '3px',
-                background: active ? color + '30' : color + '10',
-                borderRight: '1px solid var(--border)',
-                borderTop: active ? `3px solid ${color}` : `3px solid ${color}44`,
-                cursor: 'pointer',
-                WebkitTapHighlightColor: 'transparent',
-                userSelect: 'none',
-                transition: 'background 0.1s ease, border-color 0.1s ease',
-                boxShadow: active ? `inset 0 0 24px ${color}33, 0 -2px 16px ${color}44` : 'none',
-              }}
-              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); pressNote(note); }}
-            >
-              <span style={{
-                fontFamily: 'var(--font-pixel)',
-                fontSize: 'var(--font-note)',
-                color: active ? color : color + '99',
-                textShadow: active ? `0 0 14px ${color}, 0 0 28px ${color}88` : 'none',
-                lineHeight: 1,
-              }}>{note}</span>
-              <span style={{
-                fontFamily: 'var(--font-pixel)',
-                fontSize: 'var(--font-count)',
-                color: active ? 'var(--text)' : 'var(--text-muted)',
-                lineHeight: 1,
-              }}>×{count}</span>
-            </div>
-          );
-        })}
-        {/* Dash button */}
+        {/* ── Virtual joystick (left) — hidden on desktop ── */}
+        <div
+          className="ss-joystick"
+          style={{
+            position: 'fixed', left: '20px', bottom: '20px', zIndex: 60,
+            width: '132px', height: '132px', borderRadius: '50%',
+            border: '2px solid rgba(0,212,255,0.35)', background: 'rgba(0,20,30,0.35)',
+            touchAction: 'none', alignItems: 'center', justifyContent: 'center',
+          }}
+          onPointerDown={handleSsJoyPointerDown}
+          onPointerMove={handleSsJoyPointerMove}
+          onPointerUp={handleSsJoyPointerUp}
+          onPointerCancel={handleSsJoyPointerUp}
+        >
+          <div style={{
+            position: 'absolute',
+            left: `calc(50% + ${ssJoyThumb.x}px - 30px)`,
+            top: `calc(50% + ${ssJoyThumb.y}px - 30px)`,
+            width: '60px', height: '60px', borderRadius: '50%',
+            background: 'rgba(0,212,255,0.35)', border: '2px solid rgba(0,212,255,0.8)',
+            boxShadow: '0 0 12px rgba(0,212,255,0.5)',
+            pointerEvents: 'none',
+          }} />
+        </div>
+
+        {/* ── Action buttons (bottom-right) — visible everywhere ── */}
         <div
           style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '3px',
-            background: state?.sprintActive ? 'var(--cyan)22' : (state?.sprintCooldown ?? 0) > 0 ? 'var(--void)' : 'var(--success)22',
-            borderTop: `3px solid ${state?.sprintActive ? 'var(--cyan)' : (state?.sprintCooldown ?? 0) > 0 ? 'transparent' : 'var(--success)'}`,
-            cursor: 'pointer',
-            WebkitTapHighlightColor: 'transparent',
-            userSelect: 'none',
-            transition: 'background 0.1s ease, border-color 0.1s ease',
-            boxShadow: state?.sprintActive ? 'inset 0 0 24px var(--cyan)33, 0 -2px 16px var(--cyan)44' : (state?.sprintCooldown ?? 0) === 0 ? 'inset 0 0 24px var(--success)33, 0 -2px 16px var(--success)44' : 'none',
+            position: 'fixed', right: '16px', bottom: '16px', zIndex: 60,
+            display: 'flex', flexDirection: 'column', gap: '10px', touchAction: 'none',
           }}
-          onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); activateSprint(stateRef.current!); rerender(); }}
         >
-          <span style={{
-            fontFamily: 'var(--font-pixel)',
-            fontSize: 'var(--font-dash-main)',
-            color: state?.sprintActive ? 'var(--cyan)' : (state?.sprintCooldown ?? 0) > 0 ? 'var(--text-muted)' : 'var(--success)',
-            textShadow: state?.sprintActive ? '0 0 14px var(--cyan), 0 0 28px var(--cyan)88' : (state?.sprintCooldown ?? 0) === 0 ? '0 0 14px var(--success), 0 0 28px var(--success)88' : 'none',
-            lineHeight: 1,
-          }}>DASH</span>
-          <span style={{
-            fontFamily: 'var(--font-pixel)',
-            fontSize: 'var(--font-dash-sub)',
-            color: state?.sprintActive ? 'var(--cyan)' : (state?.sprintCooldown ?? 0) > 0 ? 'var(--text-muted)' : 'var(--success)',
-            lineHeight: 1,
-          }}>{state?.sprintActive ? '>>' : (state?.sprintCooldown ?? 0) > 0 ? 'WAIT' : 'READY'}</span>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {NOTES.slice(0, 4).map(note => {
+              const count = state?.noteInventory[note] ?? 0;
+              return <SSTouchButton key={note} size="var(--btn-size)" labelSize="var(--btn-font)" label={note} count={count} active={count > 0} color={NOTE_COLORS[note]} onDown={() => pressNote(note)} />;
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {NOTES.slice(4).map(note => {
+              const count = state?.noteInventory[note] ?? 0;
+              return <SSTouchButton key={note} size="var(--btn-size)" labelSize="var(--btn-font)" label={note} count={count} active={count > 0} color={NOTE_COLORS[note]} onDown={() => pressNote(note)} />;
+            })}
+            <SSTouchButton
+              size="var(--btn-size)"
+              label={state?.sprintActive ? '>>' : (state?.sprintCooldown ?? 0) > 0 ? 'WAIT' : 'DASH'}
+              color={state?.sprintActive ? 'var(--cyan)' : (state?.sprintCooldown ?? 0) > 0 ? 'var(--text-muted)' : 'var(--success)'}
+              active={state?.sprintActive || (state?.sprintCooldown ?? 0) === 0}
+              labelSize="var(--btn-dash)"
+              onDown={() => { const s = stateRef.current; if (s) { activateSprint(s); rerender(); } }}
+            />
+          </div>
         </div>
       </div>
+
+
     </div>
   );
 }

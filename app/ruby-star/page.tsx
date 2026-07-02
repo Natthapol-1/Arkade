@@ -2167,7 +2167,7 @@ function TouchAbilityButton({ label, color, size = 56, onDown, onUp, className, 
       style={{
         width: size, height: size, borderRadius: '50%', flexShrink: 0,
         border: `2px solid ${color}`, background: 'rgba(10,10,20,0.55)',
-        color, fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: size < 44 ? '0.4rem' : '0.46rem',
+        color, fontFamily: 'var(--font-pixel)', fontWeight: 700, fontSize: size < 44 ? '0.4rem' : '0.65rem',
         boxShadow: `0 0 12px ${color}55`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         touchAction: 'none', padding: 0, lineHeight: 1.1, textAlign: 'center',
@@ -2983,42 +2983,42 @@ export default function RubyStarPage() {
               RUBY to bullet's left, and a small SPEED/dash button in the very corner.
               Each button grays out while its ability is on cooldown. */}
           <TouchAbilityButton
-            label="LASER" color={(state?.laserCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffcc44'} size={96}
+            label="LASER" color={(state?.laserCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffcc44'} size={64}
             onDown={handleTouchLaserDown} onUp={handleTouchLaserUp}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '60px', bottom: '90px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '68px', bottom: '80px', zIndex: 60 }}
           />
           <TouchAbilityButton
             label="BULLET" color={(state?.bulletCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ff9944'} size={64}
             onDown={handleTouchBullet}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '150px', bottom: '30px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '96px', bottom: '16px', zIndex: 60 }}
           />
           <TouchAbilityButton
             label="BOMB" color={(!state?.bomb && (state?.bombCooldown ?? 0) > 0) ? COOLDOWN_GRAY : BOMB_COLOR} size={64}
             onDown={handleTouchBomb}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '30px', bottom: '190px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '8px', bottom: '110px', zIndex: 60 }}
           />
           {/* RUBY — carry/place toggle, identical to E/F */}
           <TouchAbilityButton
             label="RUBY" color={RUBY_COLOR} size={60}
             onDown={handleTouchRuby}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '230px', bottom: '30px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '176px', bottom: '16px', zIndex: 60 }}
           />
           {/* HEAL/TP — teleport-or-heal, identical to Space */}
           <TouchAbilityButton
-            label="HEAL/TP" color="#ff88aa" size={60}
+            label={<>HEAL<br/>TP</>} color="#ff88aa" size={60}
             onDown={handleTouchHeal}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '310px', bottom: '30px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '252px', bottom: '16px', zIndex: 60 }}
           />
           <TouchAbilityButton
-            label="SPD" color={(state?.speedCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffee44'} size={64}
+            label="SPD" color={(state?.speedCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffee44'} size={48}
             onDown={handleTouchSpeed}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '20px', bottom: '20px', zIndex: 61 }}
+            style={{ position: 'fixed', right: '16px', bottom: '16px', zIndex: 61 }}
           />
         </>
       )}
