@@ -1368,7 +1368,7 @@ function drawGame(
   // Mobile sees more of the map (zoomed out); desktop is untouched. The whole world is drawn
   // in a scaled coordinate space (viewW/viewH), then we restore back to true pixel space
   // before the minimap so it isn't affected by this — it gets its own independent mobile sizing.
-  const worldZoom = isMobileTouch ? 0.45 : 1;
+  const worldZoom = isMobileTouch ? 0.4 : 1;
   const viewW = canvasW / worldZoom;
   const viewH = canvasH / worldZoom;
 
@@ -2200,7 +2200,7 @@ export default function RubyStarPage() {
   // ── Mobile virtual joystick ──────────────────────────────────────────────
   const [joyThumb, setJoyThumb] = useState({ x: 0, y: 0 });
   const joyPointerIdRef = useRef<number | null>(null);
-  const JOY_RADIUS = 44;
+  const JOY_RADIUS = 64;
   const JOY_DEADZONE = 12;
 
   const updateJoyFromPointer = useCallback((clientX: number, clientY: number, baseEl: HTMLElement) => {
@@ -2957,8 +2957,8 @@ export default function RubyStarPage() {
           <div
             className="rs-touch-controls"
             style={{
-              position: 'fixed', left: '20px', bottom: '20px', zIndex: 60,
-              width: '112px', height: '112px', borderRadius: '50%',
+              position: 'fixed', left: '30px', bottom: '30px', zIndex: 60,
+              width: '160px', height: '160px', borderRadius: '50%',
               border: '2px solid rgba(0,212,255,0.35)', background: 'rgba(0,20,30,0.35)',
               touchAction: 'none', alignItems: 'center', justifyContent: 'center',
             }}
@@ -2969,9 +2969,9 @@ export default function RubyStarPage() {
           >
             <div style={{
               position: 'absolute',
-              left: `calc(50% + ${joyThumb.x}px - 25px)`,
-              top: `calc(50% + ${joyThumb.y}px - 25px)`,
-              width: '50px', height: '50px', borderRadius: '50%',
+              left: `calc(50% + ${joyThumb.x}px - 35px)`,
+              top: `calc(50% + ${joyThumb.y}px - 35px)`,
+              width: '70px', height: '70px', borderRadius: '50%',
               background: 'rgba(0,212,255,0.35)', border: '2px solid rgba(0,212,255,0.8)',
               boxShadow: '0 0 12px rgba(0,212,255,0.5)',
               pointerEvents: 'none',
@@ -2983,42 +2983,42 @@ export default function RubyStarPage() {
               RUBY to bullet's left, and a small SPEED/dash button in the very corner.
               Each button grays out while its ability is on cooldown. */}
           <TouchAbilityButton
-            label="LASER" color={(state?.laserCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffcc44'} size={64}
+            label="LASER" color={(state?.laserCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffcc44'} size={96}
             onDown={handleTouchLaserDown} onUp={handleTouchLaserUp}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '46px', bottom: '60px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '60px', bottom: '90px', zIndex: 60 }}
           />
           <TouchAbilityButton
-            label="BULLET" color={(state?.bulletCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ff9944'} size={44}
+            label="BULLET" color={(state?.bulletCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ff9944'} size={64}
             onDown={handleTouchBullet}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '100px', bottom: '12px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '150px', bottom: '30px', zIndex: 60 }}
           />
           <TouchAbilityButton
-            label="BOMB" color={(!state?.bomb && (state?.bombCooldown ?? 0) > 0) ? COOLDOWN_GRAY : BOMB_COLOR} size={44}
+            label="BOMB" color={(!state?.bomb && (state?.bombCooldown ?? 0) > 0) ? COOLDOWN_GRAY : BOMB_COLOR} size={64}
             onDown={handleTouchBomb}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '10px', bottom: '130px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '30px', bottom: '190px', zIndex: 60 }}
           />
           {/* RUBY — carry/place toggle, identical to E/F */}
           <TouchAbilityButton
-            label="RUBY" color={RUBY_COLOR} size={40}
+            label="RUBY" color={RUBY_COLOR} size={60}
             onDown={handleTouchRuby}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '170px', bottom: '12px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '230px', bottom: '30px', zIndex: 60 }}
           />
           {/* HEAL/TP — teleport-or-heal, identical to Space */}
           <TouchAbilityButton
-            label="HEAL/TP" color="#ff88aa" size={40}
+            label="HEAL/TP" color="#ff88aa" size={60}
             onDown={handleTouchHeal}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '220px', bottom: '12px', zIndex: 60 }}
+            style={{ position: 'fixed', right: '310px', bottom: '30px', zIndex: 60 }}
           />
           <TouchAbilityButton
-            label="SPD" color={(state?.speedCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffee44'} size={44}
+            label="SPD" color={(state?.speedCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffee44'} size={64}
             onDown={handleTouchSpeed}
             className="rs-touch-controls"
-            style={{ position: 'fixed', right: '16px', bottom: '16px', zIndex: 61 }}
+            style={{ position: 'fixed', right: '20px', bottom: '20px', zIndex: 61 }}
           />
         </>
       )}
