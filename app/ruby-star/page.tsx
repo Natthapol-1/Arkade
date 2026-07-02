@@ -2679,7 +2679,7 @@ export default function RubyStarPage() {
             <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
               Every ~30 seconds a chamber is targeted, cycling clockwise (ALPHA → BETA → DELTA → GAMMA → repeat). You have{' '}
               <span style={{ color: 'var(--danger)' }}>5 seconds to escape</span> — watch the minimap and the warning banner!
-              Every enemy in the struck chamber is wiped out (Fiery King and Splitter Queen instead lose 75% of their max HP — dying outright if already at or below that).
+              Every enemy in the struck chamber is wiped out (Fiery King and Shadow Queen instead lose 75% of their max HP — dying outright if already at or below that).
             </p>
           </div>
 
@@ -2711,7 +2711,7 @@ export default function RubyStarPage() {
               <span style={{ color: '#cc6611' }}>■ MINI SPLITTER</span> — Spawned from Splitter death. Small and fast.<br />
               <span style={{ color: '#44ddff' }}>■ SHIELDER</span> — Shields the most-injured ally, halving all damage it takes. Kill grants ~2.5s invincibility.<br />
               <span style={{ color: '#cc0022' }}>■ FIERY KING</span> — High HP, high damage.<br />
-              <span style={{ color: '#cc33ff' }}>■ SPLITTER QUEEN</span> — Can teleport and leaves a decoy behind that deals damage.
+              <span style={{ color: '#cc33ff' }}>■ SHADOW QUEEN</span> — Can teleport and leaves a decoy behind that deals damage.
             </p>
           </div>
         </div>
@@ -2758,7 +2758,7 @@ export default function RubyStarPage() {
               if (stateRef.current) godSpawnBoss(stateRef.current, 'splitter_queen');
               rerender();
             }}>
-            Spawn Queen
+            Spawn Shadow Queen
           </button>
         </div>
       )}
