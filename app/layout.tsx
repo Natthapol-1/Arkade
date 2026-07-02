@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import DisableContextMenu from "@/components/DisableContextMenu";
 
 export const metadata: Metadata = {
   title: "ARKADE // Terminal Console",
@@ -27,6 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body suppressHydrationWarning>
+        <DisableContextMenu />
         {children}
       </body>
     </html>

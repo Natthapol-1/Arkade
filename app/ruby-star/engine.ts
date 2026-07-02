@@ -1,7 +1,7 @@
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
   T_WALL, T_TELEPORT,
-  PLAYER_START, CHAMBER_SPAWN_TILES,
+  PLAYER_START, CHAMBER_SPAWN_TILES, TELEPORT_PADS,
   chamberOfTile,
   PLAYER_MAX_HP, RUBY_MAX_HP, PLAYER_BASE_SPEED, PLAYER_CARRY_MULT, PLAYER_INVINCIBLE_TICKS,
   LASER_RANGE, LASER_RANGE_PWR, LASER_DMG, LASER_DMG_PWR, LASER_COOLDOWN,
@@ -20,6 +20,7 @@ import {
   CHARGER_CHARGE_SPEED, CHARGER_SIGHT_RANGE, CHARGER_STUN_TICKS,
   SHIELDER_SHIELD_RANGE,
   BOSS_SPAWN_INTERVAL, BOSS_WARNING_TICKS, BOSS_METEOR_DMG, BOSS_ATTACK_RANGE,
+  QUEEN_PHASE_INTERVAL, QUEEN_ATTACK_RANGE, QUEEN_WINDUP_TICKS,
   DIFFICULTY_RAMP_TICKS, DIFFICULTY_TIERS,
   ENEMY_CONFIGS, EnemyType,
   generateMap,
@@ -48,6 +49,7 @@ export interface Enemy {
   pushDirY: number;
   pushTiles: number; // remaining push tiles
   flashTicks: number; // hit flash
+  healFlashTicks: number; // pink heal-aura ticks (healer's pulse landed on this enemy)
   shootTicks: number; // ticks remaining for attack-laser visual
   // bomber specific
   exploding: boolean;
@@ -59,6 +61,8 @@ export interface Enemy {
   chargeDirY: number;
   // shielder specific
   shieldTargetId: number; // ID of ally being shielded; -1 = none
+  // splitter_queen specific — countdown to her next phase-jump; unused for queen_echo (echoes are permanent)
+  phaseTimer: number;
 }
 
 export interface Bomb {
@@ -110,6 +114,15 @@ export interface LightningArc {
   fromX: number; fromY: number;
   toX: number; toY: number;
   ticks: number;
+}
+
+export interface DeathParticle {
+  x: number; y: number;
+  vx: number; vy: number;
+  ticks: number;
+  maxTicks: number;
+  size: number;
+  color: string;
 }
 
 export type GamePhase = 'playing' | 'teleporting' | 'lost';
@@ -181,6 +194,7 @@ export interface GameState {
   waveEffects: WaveEffect[];
   bombBlasts: BombBlast[];
   lightningArcs: LightningArc[];
+  deathParticles: DeathParticle[];
 
   // Teleport
   playerChamber: number;   // -1 if in hallway
@@ -303,9 +317,28 @@ function playSFX_alienDeath() {
   } catch { }
 }
 
+function playSFX_bossDeath() {
+  try {
+    const a = new Audio('/sounds/shield.mp3'); a.volume = 0.55; a.play().catch(() => {});
+  } catch { }
+}
+
+function playSFX_decoyDeath() {
+  try {
+    const a = new Audio('/sounds/decoyDeath.mp3'); a.volume = 0.4; a.play().catch(() => {});
+  } catch { }
+}
+
 function playSFX_alienShoot() {
   try {
     const a = new Audio('/sounds/alienShootLaser.wav'); a.volume = 0.29; a.play().catch(() => {});
+  } catch { }
+}
+
+function playSFX_queenAttack() {
+  try {
+    const a = new Audio('/sounds/bossQueenAttack1.mp3'); a.volume = 0.85; a.play().catch(() => {});
+    const b = new Audio('/sounds/gameModeClick.mp3'); b.volume = 0.8; b.play().catch(() => {});
   } catch { }
 }
 
@@ -378,6 +411,12 @@ export function playSFX_teleport() {
     playTone(330, 0.06, 0.13, 'sine');
     setTimeout(() => playTone(495, 0.06, 0.13, 'sine'), 70);
     setTimeout(() => playTone(660, 0.12, 0.13, 'sine'), 140);
+  } catch { }
+}
+
+function playSFX_queenTeleport() {
+  try {
+    const a = new Audio('/sounds/ghostHunt2.mp3'); a.volume = 0.5; a.play().catch(() => {});
   } catch { }
 }
 
@@ -470,6 +509,7 @@ export function createInitialState(): GameState {
     waveEffects: [],
     bombBlasts: [],
     lightningArcs: [],
+    deathParticles: [],
 
     playerChamber: 0,
     teleportDestOptions: [],
@@ -595,11 +635,13 @@ function spawnEnemy(state: GameState) {
       targeting: 'player',
       pushDirX: 0, pushDirY: 0, pushTiles: 0,
       flashTicks: 0,
+      healFlashTicks: 0,
       shootTicks: 0,
       exploding: false, explodeTick: 0,
       windupTicks: 0,
       chargeDirX: 0, chargeDirY: 0,
       shieldTargetId: -1,
+      phaseTimer: 0,
     };
     state.enemies.push(enemy);
   }
@@ -661,6 +703,53 @@ function fireSniperLaser(state: GameState, e: Enemy) {
   playSFX_alienShoot();
 }
 
+function fireQueenBolt(state: GameState, e: Enemy, tgtX: number, tgtY: number, targetIsPlayer: boolean) {
+  const cfg = ENEMY_CONFIGS[e.type as 'splitter_queen' | 'queen_echo'];
+  state.laserBeams.push({ fromX: e.x, fromY: e.y, dirX: 0, dirY: 0, endX: tgtX, endY: tgtY, ticks: 20, color: cfg.color });
+  if (targetIsPlayer) damagePlayer(state, cfg.damageToPlayer);
+  else if (state.rubyTileX !== -1) damageRuby(state, cfg.damageToRuby);
+  e.shootTicks = 20;
+  e.attackTimer = cfg.attackCooldown;
+  playSFX_queenAttack();
+}
+
+// Teleports the Queen to a spawn tile in a different chamber (weighted toward whichever
+// is farthest from the player), leaving a decaying 1-HP echo at her old position.
+function phaseQueenJump(state: GameState, e: Enemy) {
+  const curChamber = chamberOfTile(e.tileX, e.tileY);
+  const playerChamber = chamberOfTile(state.playerTileX, state.playerTileY);
+
+  state.enemies.push({
+    id: state.nextEnemyId++, type: 'queen_echo',
+    x: e.x, y: e.y, tileX: e.tileX, tileY: e.tileY, targetTileX: e.tileX, targetTileY: e.tileY,
+    stepProgress: 0, hp: 1, maxHp: 1,
+    path: [], pathTimer: 0, attackTimer: 0, targeting: 'player',
+    pushDirX: 0, pushDirY: 0, pushTiles: 0, flashTicks: 0, healFlashTicks: 0,
+    shootTicks: 0, exploding: false, explodeTick: 0,
+    windupTicks: 0, chargeDirX: 0, chargeDirY: 0, shieldTargetId: -1,
+    phaseTimer: 0, // unused for echoes — they persist until killed, not on a timer
+  });
+
+  // Never land in the chamber she just left, or the one the player is currently standing in
+  const others = [0, 1, 2, 3].filter(ch => ch !== curChamber && ch !== playerChamber);
+  others.sort((a, b) => {
+    const da = tileEuclidDist(state.playerTileX, state.playerTileY, TELEPORT_PADS[a][0], TELEPORT_PADS[a][1]);
+    const db = tileEuclidDist(state.playerTileX, state.playerTileY, TELEPORT_PADS[b][0], TELEPORT_PADS[b][1]);
+    return db - da; // farthest-from-player first
+  });
+  const nextChamber = Math.random() < 0.65 ? others[0] : others[Math.floor(Math.random() * others.length)];
+
+  const pool = CHAMBER_SPAWN_TILES[nextChamber];
+  const [tx, ty] = pool[Math.floor(Math.random() * pool.length)];
+  e.tileX = tx; e.tileY = ty; e.targetTileX = tx; e.targetTileY = ty;
+  e.x = tx * TILE_SIZE + TILE_SIZE / 2; e.y = ty * TILE_SIZE + TILE_SIZE / 2;
+  e.stepProgress = 0;
+  e.phaseTimer = QUEEN_PHASE_INTERVAL;
+  e.windupTicks = 0;
+  e.attackTimer = 0;
+  playSFX_queenTeleport();
+}
+
 // ─── Enemy update ────────────────────────────────────────────────────────────
 
 function updateEnemies(state: GameState) {
@@ -669,6 +758,7 @@ function updateEnemies(state: GameState) {
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const e = state.enemies[i];
     if (e.flashTicks > 0) e.flashTicks--;
+    if (e.healFlashTicks > 0) e.healFlashTicks--;
     if (e.shootTicks > 0) e.shootTicks--;
 
     // Bomber explode mechanic
@@ -692,6 +782,11 @@ function updateEnemies(state: GameState) {
         e.x = nx * TILE_SIZE + TILE_SIZE / 2;
         e.y = ny * TILE_SIZE + TILE_SIZE / 2;
       }
+      // Knockback overrides normal step interpolation — resync target/step state
+      // so the resumed movement (or charger's charge) doesn't lerp toward a
+      // stale pre-push tile (which visibly dragged the enemy across walls).
+      e.targetTileX = e.tileX; e.targetTileY = e.tileY; e.stepProgress = 0;
+      if (e.type === 'charger') { e.chargeDirX = 0; e.chargeDirY = 0; }
       e.pushTiles = Math.max(0, e.pushTiles - 1);
       continue;
     }
@@ -720,6 +815,7 @@ function updateEnemies(state: GameState) {
           ticks: 22,
           color: '#cc0022'
         });
+        spawnFireBurst(state, state.playerX, state.playerY);
       }
 
       // BFS toward player — recalculate frequently so boss tracks across chambers
@@ -744,6 +840,72 @@ function updateEnemies(state: GameState) {
           e.stepProgress = 0;
         }
       }
+      continue;
+    }
+
+    // ── Splitter Queen special logic ──────────────────────────────────────
+    if (e.type === 'splitter_queen') {
+      e.pushTiles = 0; // immune to knockback, like the boss
+
+      const qChamber = chamberOfTile(e.tileX, e.tileY);
+      const hasPlacedRubyQ = state.rubyTileX !== -1;
+      const playerInChamber = chamberOfTile(state.playerTileX, state.playerTileY) === qChamber;
+      const rubyInChamber = hasPlacedRubyQ && chamberOfTile(state.rubyTileX, state.rubyTileY) === qChamber;
+      const targetIsPlayer = playerInChamber || !rubyInChamber;
+      e.targeting = targetIsPlayer ? 'player' : 'ruby';
+      const qTgtTX = targetIsPlayer ? state.playerTileX : state.rubyTileX;
+      const qTgtTY = targetIsPlayer ? state.playerTileY : state.rubyTileY;
+      const inChamberTarget = targetIsPlayer ? playerInChamber : rubyInChamber;
+      const qDist = tileEuclidDist(e.tileX, e.tileY, qTgtTX, qTgtTY);
+      // No line-of-sight requirement — her bolts pierce walls, only chamber + range gate her.
+
+      if (e.windupTicks > 0) {
+        if (!inChamberTarget || qDist > QUEEN_ATTACK_RANGE) {
+          e.windupTicks = 0;
+        } else {
+          e.windupTicks--;
+          if (e.windupTicks === 0) {
+            const tgtX = targetIsPlayer ? state.playerX : state.rubyTileX * TILE_SIZE + TILE_SIZE / 2;
+            const tgtY = targetIsPlayer ? state.playerY : state.rubyTileY * TILE_SIZE + TILE_SIZE / 2;
+            fireQueenBolt(state, e, tgtX, tgtY, targetIsPlayer);
+          }
+        }
+      } else {
+        if (e.attackTimer > 0) e.attackTimer--;
+        if (e.attackTimer === 0 && inChamberTarget && qDist <= QUEEN_ATTACK_RANGE) {
+          e.windupTicks = QUEEN_WINDUP_TICKS;
+        }
+      }
+
+      // Phase-jump countdown runs independently of her attack state
+      e.phaseTimer--;
+      if (e.phaseTimer <= 0) phaseQueenJump(state, e);
+      continue;
+    }
+
+    // ── Queen Echo special logic ──────────────────────────────────────────
+    if (e.type === 'queen_echo') {
+      e.pushTiles = 0;
+      const chamber = chamberOfTile(e.tileX, e.tileY);
+      const playerInChamber = chamberOfTile(state.playerTileX, state.playerTileY) === chamber;
+      const eDist = tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY);
+      // No line-of-sight requirement — bolts pierce walls, only chamber + range gate the attack.
+
+      if (e.windupTicks > 0) {
+        if (!playerInChamber || eDist > QUEEN_ATTACK_RANGE) {
+          e.windupTicks = 0;
+        } else {
+          e.windupTicks--;
+          if (e.windupTicks === 0) fireQueenBolt(state, e, state.playerX, state.playerY, true);
+        }
+      } else {
+        if (e.attackTimer > 0) e.attackTimer--;
+        if (e.attackTimer === 0 && playerInChamber && eDist <= QUEEN_ATTACK_RANGE) {
+          e.windupTicks = QUEEN_WINDUP_TICKS;
+        }
+      }
+
+      // Echoes persist until the player kills them — no self-expiry.
       continue;
     }
 
@@ -813,13 +975,18 @@ function updateEnemies(state: GameState) {
 
       // Heal pulse: restore HP for all allies within radius (including from range)
       if (e.attackTimer === 0) {
+        let healedAnyone = false;
         for (const ally of state.enemies) {
           if (ally === e) continue;
           const dist = tileEuclidDist(e.tileX, e.tileY, ally.tileX, ally.tileY);
           if (dist <= HEALER_HEAL_RADIUS && ally.hp < ally.maxHp) {
             ally.hp = Math.min(ally.maxHp, ally.hp + HEALER_HEAL_AMOUNT);
-            ally.flashTicks = 6; // brief pink flash to show heal
+            ally.healFlashTicks = 20; // pink heal aura
+            healedAnyone = true;
           }
+        }
+        if (healedAnyone) {
+          const a = new Audio('/sounds/swap.mp3'); a.volume = 0.15; a.play().catch(() => {});
         }
         e.attackTimer = HEALER_HEAL_INTERVAL;
       }
@@ -882,8 +1049,8 @@ function updateEnemies(state: GameState) {
           const hasRubyC  = state.rubyTileX !== -1;
           const hitRuby   = hasRubyC && nx === state.rubyTileX && ny === state.rubyTileY;
           if (hitWall || hitPlayer || hitRuby) {
-            if (hitPlayer) { playSFX_enemyAttack(); damagePlayer(state, cCfg.damageToPlayer); e.attackTimer = cCfg.attackCooldown; }
-            if (hitRuby && !hitPlayer) { playSFX_enemyAttack(); damageRuby(state, cCfg.damageToRuby); e.attackTimer = cCfg.attackCooldown; }
+            if (hitPlayer) { playSFX_enemyAttack(); damagePlayer(state, cCfg.damageToPlayer); e.attackTimer = cCfg.attackCooldown; e.shootTicks = 14; }
+            if (hitRuby && !hitPlayer) { playSFX_enemyAttack(); damageRuby(state, cCfg.damageToRuby); e.attackTimer = cCfg.attackCooldown; e.shootTicks = 14; }
             e.chargeDirX = 0; e.chargeDirY = 0;
             e.windupTicks = hitWall ? CHARGER_STUN_TICKS : Math.floor(CHARGER_STUN_TICKS / 2);
           } else {
@@ -1155,10 +1322,45 @@ function triggerBomberExplosion(state: GameState, e: Enemy) {
   }
 }
 
+function spawnFireBurst(state: GameState, x: number, y: number) {
+  const colors = ['#ffee00', '#ff8800', '#ff3300'];
+  const count = 8 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+    const speed = 0.6 + Math.random() * 2.0;
+    state.deathParticles.push({
+      x, y,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 0.6, // slight upward kick, like fire
+      ticks: 18, maxTicks: 18,
+      size: 2 + Math.random() * 3,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    });
+  }
+}
+
+function spawnDeathParticles(state: GameState, e: Enemy) {
+  const color = ENEMY_CONFIGS[e.type].color;
+  const count = 10 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+    const speed = 0.8 + Math.random() * 2.2;
+    state.deathParticles.push({
+      x: e.x, y: e.y,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      ticks: 22, maxTicks: 22,
+      size: 2 + Math.random() * 3,
+      color,
+    });
+  }
+}
+
 function killEnemy(state: GameState, idx: number, fromMeteor = false) {
   const e = state.enemies[idx];
-  
-  if (!fromMeteor) {
+  spawnDeathParticles(state, e);
+
+  // Echoes never grant score/energy/kill-effects — only the real Queen dying counts.
+  const skipRewards = fromMeteor || e.type === 'queen_echo';
+  if (!skipRewards) {
     state.killScore += ENEMY_CONFIGS[e.type].scoreValue;
     const wasMax = state.starEnergy >= STAR_ENERGY_MAX;
     const energyGain = STAR_ENERGY_PER_KILL + (e.type === 'armored' ? 8 : 0);
@@ -1178,7 +1380,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
         if (tileEuclidDist(e.tileX, e.tileY, ally.tileX, ally.tileY) <= RANGE * 0.75) damageEnemy(state, ally, 20);
       }
     } else if (e.type === 'healer') {
-      state.playerHP = Math.min(PLAYER_MAX_HP, state.playerHP + 20);
+      state.playerHP = Math.min(PLAYER_MAX_HP, state.playerHP + 24); // was 20, +20%
       try { const a = new Audio('/sounds/grow.wav'); a.volume = 0.38; a.play().catch(() => {}); } catch {}
     } else if (e.type === 'charger') {
       state.speedActiveTicks = Math.max(state.speedActiveTicks, 120);
@@ -1212,23 +1414,40 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
           hp: miniCfg.maxHp, maxHp: miniCfg.maxHp,
           path: [], pathTimer: 0, attackTimer: 0, targeting: 'player',
           pushDirX: 0, pushDirY: 0, pushTiles: 0,
-          flashTicks: 0, shootTicks: 0, exploding: false, explodeTick: 0,
-          windupTicks: 0, chargeDirX: 0, chargeDirY: 0, shieldTargetId: -1,
+          flashTicks: 0, healFlashTicks: 0, shootTicks: 0, exploding: false, explodeTick: 0,
+          windupTicks: 0, chargeDirX: 0, chargeDirY: 0, shieldTargetId: -1, phaseTimer: 0,
         });
       }
     }
+  }
 
-    if (e.type === 'boss') {
-      state.bossesKilled++;
-      state.playerHP = PLAYER_MAX_HP;
-      state.rubyHP   = RUBY_MAX_HP;
-      state.starEnergy = STAR_ENERGY_MAX;
-      playSFX_powerUp();
+  // Boss-tier full-restore reward — applies no matter how the kill happened (including a
+  // meteor strike finishing it off), unlike the score/energy rewards above which meteor kills skip.
+  if (e.type === 'boss' || e.type === 'splitter_queen') {
+    state.bossesKilled++;
+    state.playerHP = PLAYER_MAX_HP;
+    state.rubyHP   = RUBY_MAX_HP;
+    state.starEnergy = STAR_ENERGY_MAX;
+    playSFX_powerUp();
+    if (e.type === 'splitter_queen') {
+      // Killing the real Queen instantly dissolves any echoes she left behind
+      for (let j = state.enemies.length - 1; j >= 0; j--) {
+        if (state.enemies[j].type === 'queen_echo') {
+          spawnDeathParticles(state, state.enemies[j]);
+          state.enemies.splice(j, 1);
+          playSFX_decoyDeath();
+        }
+      }
     }
   }
 
-  state.enemies.splice(idx, 1);
-  playSFX_alienDeath();
+  // Re-locate by reference — the echo cleanup above may have shifted this enemy's index
+  const finalIdx = state.enemies.indexOf(e);
+  if (finalIdx !== -1) state.enemies.splice(finalIdx, 1);
+
+  if (e.type === 'boss' || e.type === 'splitter_queen') playSFX_bossDeath();
+  else if (e.type === 'queen_echo') playSFX_decoyDeath();
+  else playSFX_alienDeath();
 }
 
 // ─── Player movement ──────────────────────────────────────────────────────────
@@ -1286,6 +1505,7 @@ function updatePlayer(state: GameState) {
         if (!wasMax && state.starEnergy >= STAR_ENERGY_MAX) {
           playSFX_powerUp();
         }
+        grantInstantSpeedBoost(state);
         state.resources.splice(i, 1);
         playSFX_pickup();
       }
@@ -1309,7 +1529,7 @@ function updateMeteorite(state: GameState) {
       for (let i = state.enemies.length - 1; i >= 0; i--) {
         const e = state.enemies[i];
         if (chamberOfTile(e.tileX, e.tileY) === ch) {
-          if (e.type === 'boss') {
+          if (e.type === 'boss' || e.type === 'splitter_queen') {
             damageEnemy(state, e, BOSS_METEOR_DMG);
             if (e.hp <= 0) killEnemy(state, i, true);
           } else {
@@ -1340,11 +1560,20 @@ function updateMeteorite(state: GameState) {
 
 // ─── Abilities ───────────────────────────────────────────────────────────────
 
+// Grants a free speed burst that ignores/doesn't touch the SPEED ability's own cooldown —
+// used as a passive bonus (energy pickups, entering the powered-up state), not a manual cast.
+function grantInstantSpeedBoost(state: GameState) {
+  state.speedActiveTicks = Math.max(state.speedActiveTicks, SPEED_DURATION);
+  state.speedFlashTicks = 30;
+  playSFX_speed();
+}
+
 function checkAndConsumePower(state: GameState): boolean {
   if (state.poweredTicks > 0) return true;
   if (state.starEnergy >= STAR_ENERGY_MAX) {
     state.starEnergy = 0;
     state.poweredTicks = 120;
+    grantInstantSpeedBoost(state);
     return true;
   }
   return false;
@@ -1616,8 +1845,9 @@ export function tick(state: GameState) {
     if (state.bossWarningTicks > 0) {
       state.bossWarningTicks--;
       if (state.bossWarningTicks === 0) {
-        // Spawn boss at a random spawn tile far from player
-        const hasBoss = state.enemies.some(e => e.type === 'boss');
+        // Spawn one random boss-tier enemy at a spawn tile far from player.
+        // "hasBoss" covers both boss types — only one boss-tier enemy may exist at a time.
+        const hasBoss = state.enemies.some(e => e.type === 'boss' || e.type === 'splitter_queen');
         if (!hasBoss) {
           const allSpawns: [number, number][] = [];
           for (let ch = 0; ch < 4; ch++) {
@@ -1629,17 +1859,19 @@ export function tick(state: GameState) {
           }
           if (allSpawns.length > 0) {
             const [tx, ty] = allSpawns[Math.floor(Math.random() * allSpawns.length)];
-            const cfg = ENEMY_CONFIGS.boss;
+            const bossType: EnemyType = Math.random() < 0.5 ? 'boss' : 'splitter_queen';
+            const cfg = ENEMY_CONFIGS[bossType];
             const bossHp = cfg.maxHp + state.bossesKilled * 15;
             state.enemies.push({
-              id: state.nextEnemyId++, type: 'boss',
+              id: state.nextEnemyId++, type: bossType,
               x: tx * TILE_SIZE + TILE_SIZE / 2, y: ty * TILE_SIZE + TILE_SIZE / 2,
               tileX: tx, tileY: ty, targetTileX: tx, targetTileY: ty,
               stepProgress: 0, hp: bossHp, maxHp: bossHp,
               path: [], pathTimer: 0, attackTimer: 0, targeting: 'player',
-              pushDirX: 0, pushDirY: 0, pushTiles: 0, flashTicks: 0,
+              pushDirX: 0, pushDirY: 0, pushTiles: 0, flashTicks: 0, healFlashTicks: 0,
               shootTicks: 0, exploding: false, explodeTick: 0,
               windupTicks: 0, chargeDirX: 0, chargeDirY: 0, shieldTargetId: -1,
+              phaseTimer: bossType === 'splitter_queen' ? QUEEN_PHASE_INTERVAL : 0,
             });
           }
         }
@@ -1648,7 +1880,7 @@ export function tick(state: GameState) {
     } else {
       state.bossTimer--;
       if (state.bossTimer <= 0) {
-        const hasBoss = state.enemies.some(e => e.type === 'boss');
+        const hasBoss = state.enemies.some(e => e.type === 'boss' || e.type === 'splitter_queen');
         if (!hasBoss) state.bossWarningTicks = BOSS_WARNING_TICKS;
         else state.bossTimer = BOSS_SPAWN_INTERVAL; // already has a boss, delay
       }
@@ -1722,6 +1954,12 @@ export function tick(state: GameState) {
   state.waveEffects = state.waveEffects.filter(w => { w.ticks--; w.radius = w.maxRadius * (1 - w.ticks / 30); return w.ticks > 0; });
   state.bombBlasts = state.bombBlasts.filter(b => { b.ticks--; b.radius = b.maxRadius * (1 - b.ticks / 28); return b.ticks > 0; });
   state.lightningArcs = state.lightningArcs.filter(a => { a.ticks--; return a.ticks > 0; });
+  state.deathParticles = state.deathParticles.filter(p => {
+    p.x += p.vx; p.y += p.vy;
+    p.vx *= 0.9; p.vy *= 0.9;
+    p.ticks--;
+    return p.ticks > 0;
+  });
   // Clean up chain-lightning casualties
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     if (state.enemies[i].hp <= 0) killEnemy(state, i);

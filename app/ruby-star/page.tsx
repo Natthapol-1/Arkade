@@ -14,7 +14,7 @@ import {
   LASER_COOLDOWN,
   STAR_ENERGY_MAX,
   METEORITE_WARNING, BOMB_RADIUS, BOMB_RADIUS_PWR, BULLET_COOLDOWN, BULLET_SPEED,
-  HEALER_HEAL_INTERVAL,
+  HEALER_HEAL_INTERVAL, QUEEN_WINDUP_TICKS, QUEEN_PHASE_TELEGRAPH,
 } from './constants';
 import {
   GameState, createInitialState, tick,
@@ -27,6 +27,7 @@ import {
 const BG_COLOR = '#000010';
 const RUBY_COLOR = '#ff1155';
 const BOMB_COLOR = '#ff6600';
+const COOLDOWN_GRAY = '#5a5a66'; // mobile ability buttons dim to this while their ability is on cooldown
 
 // ─── Drawing ──────────────────────────────────────────────────────────────────
 
@@ -35,8 +36,9 @@ function drawMinimap(
   state: GameState,
   canvasW: number,
   tickN: number,
+  isMobileTouch = false,
 ) {
-  const S = 4; // px per tile
+  const S = isMobileTouch ? 3 : 4; // px per tile — smaller on mobile, unchanged on desktop
   const MW = MAP_COLS * S;
   const MH = MAP_ROWS * S;
   const PAD = 8;
@@ -115,13 +117,27 @@ function drawMinimap(
     }
   }
 
-  // Boss on minimap — large pulsing red dot
+  // Boss on minimap — huge pulsing red dot with glowing core and border
   for (const e of state.enemies) {
-    if (e.type === 'boss') {
-      const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.08));
-      ctx.shadowColor = '#ff0033'; ctx.shadowBlur = Math.floor(8 * pulse);
-      ctx.fillStyle = `rgba(220,0,34,${pulse})`;
-      ctx.fillRect(MX + e.tileX * S - 2, MY + e.tileY * S - 2, 6, 6);
+    if (e.type === 'boss' || e.type === 'splitter_queen') {
+      const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.12));
+      const bx = MX + e.tileX * S;
+      const by = MY + e.tileY * S;
+
+      // Use deep purple theme for the Queen, red for regular Boss
+      const colorGlow = e.type === 'splitter_queen' ? '#8800ff' : '#ff0033';
+      const colorFill = e.type === 'splitter_queen' ? `rgba(136,0,255,${pulse})` : `rgba(255,0,34,${pulse})`;
+
+      ctx.shadowColor = colorGlow; ctx.shadowBlur = Math.floor(15 * pulse);
+      ctx.fillStyle = colorFill;
+      ctx.fillRect(bx - 3, by - 3, 8, 8);
+
+      ctx.fillStyle = '#ffcc00'; // Keep inner core gold/yellow for both
+      ctx.fillRect(bx - 1, by - 1, 4, 4);
+
+      ctx.strokeStyle = `rgba(255,204,0,${pulse})`;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx - 4, by - 4, 10, 10);
       ctx.shadowBlur = 0;
     }
   }
@@ -377,9 +393,31 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   // Attack animation: scale up slightly when about to attack (last 15 ticks of cooldown)
   const attacking = e.attackTimer > 0 && e.attackTimer <= 15 && !e.exploding;
   const attackScale = attacking ? (1 + 0.15 * (1 - e.attackTimer / 15)) : 1;
-  const drawSz = Math.floor(size * attackScale);
+  // Bomber explode animation: gradually swell up as fuse ticks down from 60
+  const explodeScale = (e.type === 'bomber' && e.exploding) ? (1 + 0.5 * (1 - Math.max(0, e.explodeTick) / 60)) : 1;
+  // Attack-impact animation: punchy bloat-then-squash the instant a hit actually lands (driven by shootTicks,
+  // the same timer that drives the per-type attack-projectile visuals), decaying back to normal size.
+  const impactMax = (e.type === 'sniper' || e.type === 'boss') ? 22 : 14;
+  const impactT = e.shootTicks > 0 ? 1 - e.shootTicks / impactMax : 1;
+  const impactScale = e.shootTicks > 0 ? 1 + 0.35 * Math.exp(-impactT * 4) * Math.cos(impactT * Math.PI * 2.2) : 1;
+  const drawSz = Math.floor(size * attackScale * explodeScale * impactScale);
   const drawH = drawSz / 2;
   const color = flash ? '#ffffff' : cfg.color;
+
+  // Heal aura — pink glow ring pulsing outward when a healer's pulse just landed on this enemy
+  if (e.healFlashTicks > 0) {
+    const hProgress = e.healFlashTicks / 20; // 1 -> 0
+    const auraSz = drawSz + 8 + 16 * (1 - hProgress);
+    const auraH = auraSz / 2;
+    ctx.save();
+    ctx.globalAlpha = hProgress * 0.85;
+    ctx.shadowColor = '#ff44cc';
+    ctx.shadowBlur = 20;
+    ctx.strokeStyle = '#ff77dd';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(sx - auraH, sy - auraH, auraSz, auraSz);
+    ctx.restore();
+  }
 
   // Glow — brightens during attack wind-up
   ctx.shadowColor = e.exploding ? '#ff4400' : color;
@@ -389,7 +427,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
 
   // ── Boss: fully custom draw ───────────────────────────────────────────
   if (e.type === 'boss') {
-    const bSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale);
+    const bSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
     const bH = bSz / 2;
     const bPad = Math.max(3, Math.floor(bSz * 0.10));
     const pulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.06));
@@ -425,6 +463,14 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       const cx = bSz - bPad * 2, gH = Math.max(1, Math.floor(bSz * 0.07));
       ctx.fillRect(sx - bH + bPad, sy - Math.floor(gH / 2), cx, gH); // horizontal bar
       ctx.fillRect(sx - Math.floor(gH / 2), sy - bH + bPad, gH, cx); // vertical bar
+
+      // Corner rivet studs — small gold rivets bolting the armor plate, one per corner
+      const rivetSz = Math.max(2, Math.floor(bSz * 0.07));
+      const rivetInset = bPad + Math.floor(rivetSz * 0.8);
+      ctx.fillStyle = '#ffcc00cc';
+      for (const [ox, oy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+        ctx.fillRect(sx + ox * (bH - rivetInset) - rivetSz / 2, sy + oy * (bH - rivetInset) - rivetSz / 2, rivetSz, rivetSz);
+      }
     }
 
     // Crown (5 spikes on top)
@@ -441,6 +487,13 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       for (let i = 0; i < 5; i++) {
         ctx.fillRect(crownX + i * spW, crownBase - heights[i], spW - 1, heights[i]);
       }
+      ctx.shadowBlur = 0;
+
+      // Twinkling ruby gem set into the center spike tip — a "living jewel" like the Queen's
+      const gemTwinkle = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09));
+      ctx.shadowColor = '#ff0033'; ctx.shadowBlur = Math.floor(8 * gemTwinkle);
+      ctx.fillStyle = `rgba(255,51,102,${gemTwinkle})`;
+      ctx.fillRect(sx - 2, crownBase - heights[2] - 3, 4, 4);
       ctx.shadowBlur = 0;
     }
 
@@ -488,12 +541,355 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
     ctx.strokeRect(barX, barY, barW, barH);
 
+    // Ground-fire glow — a warm pulsing wash beneath him, like he's standing over embers
+    const groundPulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.08));
+    ctx.shadowColor = '#ff4400'; ctx.shadowBlur = Math.floor(20 * groundPulse);
+    ctx.fillStyle = `rgba(255,68,0,${0.25 * groundPulse})`;
+    ctx.fillRect(sx - bH - 6, sy + bH - 4, bSz + 12, 10);
+    ctx.shadowBlur = 0;
+
+    // Orange fiery aura — a guttering flame-outline around his whole body, jittering in size/
+    // brightness like unstable heat haze rather than the Queen's smooth magic-breathing pulse
+    const auraFlicker = 0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.5) * Math.sin(tickN * 0.23 + 1));
+    const fAuraR = bH + 8 + Math.floor(6 * auraFlicker);
+    ctx.shadowColor = '#ff6600'; ctx.shadowBlur = Math.floor(14 * auraFlicker);
+    ctx.strokeStyle = `rgba(255,${120 + Math.floor(60 * auraFlicker)},0,${0.35 + 0.25 * auraFlicker})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx - fAuraR, sy - fAuraR, fAuraR * 2, fAuraR * 2);
+    ctx.shadowBlur = 0;
+
+    // Rising embers — sparks kicking off his body and drifting upward, flickering out like real
+    // cinders off a flame (not orbiting him — fire doesn't circle, it rises and dies)
+    const emberCount = 14;
+    for (let m = 0; m < emberCount; m++) {
+      const cycle = 60 + (m % 3) * 15; // varied lifespans so they don't pulse in lockstep
+      const phase = (tickN + m * (cycle / emberCount) * 5.3) % cycle;
+      const riseT = phase / cycle; // 0 (spawn, at his base) -> 1 (fully risen, faded out)
+      const jitterX = Math.sin(tickN * 0.22 + m * 2.1) * (bH * 0.7);
+      const ex = sx + jitterX * riseT;
+      const ey = sy + bH - riseT * (bSz + 22);
+      const emberSz = Math.max(1, 4 - Math.floor(riseT * 2.5));
+      const emberAlpha = Math.sin(riseT * Math.PI); // fades in, peaks mid-rise, fades out
+      ctx.globalAlpha = emberAlpha;
+      ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 10;
+      ctx.fillStyle = riseT < 0.4 ? '#ffee00' : riseT < 0.7 ? '#ff8800' : '#ff3300';
+      ctx.fillRect(ex - emberSz / 2, ey - emberSz / 2, emberSz, emberSz);
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Flickering flame licks — shoulder spike tips (bigger/brighter) plus the crown peak,
+    // an actual guttering-fire flicker rather than a steady glow
+    const flicker1 = 0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.45));
+    const flicker2 = 0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.45 + 1.3));
+    const flicker3 = 0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.5 + 2.4));
+    ctx.shadowColor = '#ff6600';
+    ctx.shadowBlur = Math.floor(16 * flicker1);
+    ctx.fillStyle = `rgba(255,${140 + Math.floor(90 * flicker1)},0,${0.75 + 0.25 * flicker1})`;
+    ctx.fillRect(sx - bH - spikeW - 2, sy - Math.floor(spikeH * 0.6) - 5, 7, 6);
+    ctx.shadowBlur = Math.floor(16 * flicker2);
+    ctx.fillStyle = `rgba(255,${140 + Math.floor(90 * flicker2)},0,${0.75 + 0.25 * flicker2})`;
+    ctx.fillRect(sx + bH + spikeW - 3, sy - Math.floor(spikeH * 0.6) - 5, 7, 6);
+    ctx.shadowBlur = Math.floor(14 * flicker3);
+    ctx.fillStyle = `rgba(255,${150 + Math.floor(80 * flicker3)},0,${0.7 + 0.3 * flicker3})`;
+    ctx.fillRect(sx - 3, sy - bH - Math.floor(bSz * 0.30) - 6, 6, 6);
+    ctx.shadowBlur = 0;
+
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     return;
   }
 
   // Ghost is semi-transparent
   if (e.type === 'ghost') ctx.globalAlpha = 0.55 + 0.2 * Math.abs(Math.sin(tickN * 0.08));
+  // Queen echo — unstable, flickers faster and dimmer than a ghost (it's decaying)
+  if (e.type === 'queen_echo') ctx.globalAlpha = 0.35 + 0.35 * Math.abs(Math.sin(tickN * 0.28));
+  // Splitter Queen destabilizes visually just before she phase-jumps away
+  if (e.type === 'splitter_queen' && e.phaseTimer <= QUEEN_PHASE_TELEGRAPH) {
+    const jProgress = 1 - e.phaseTimer / QUEEN_PHASE_TELEGRAPH; // 0 -> 1 as jump nears
+    ctx.globalAlpha = 1 - jProgress * 0.5 * (0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.5)));
+  }
+
+  // ── Splitter Queen: fully custom draw (regal counterpart to the King boss) ──
+  if (e.type === 'splitter_queen') {
+    const qSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const qH = qSz / 2;
+    const qPad = Math.max(3, Math.floor(qSz * 0.10));
+    const pulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.06));
+    const hpPct = e.hp / e.maxHp;
+    const qFlash = e.flashTicks > 0;
+    const bodyColor = qFlash ? '#ffffff' : '#8800cc';
+
+    // Outer violet glow
+    ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = Math.floor(22 * pulse);
+
+    // Slender epaulettes (tapered, unlike the King's blunt shoulder spikes)
+    const epW = Math.max(3, Math.floor(qSz * 0.13));
+    const epH = Math.max(6, Math.floor(qSz * (attacking ? 0.42 : 0.24)));
+    ctx.fillStyle = qFlash ? '#ffffff' : '#5a0088';
+    ctx.fillRect(sx - qH - epW, sy - Math.floor(epH * 0.55), epW, epH);
+    ctx.fillRect(sx + qH, sy - Math.floor(epH * 0.55), epW, epH);
+    ctx.fillStyle = qFlash ? '#ffffff' : '#ee99ff';
+    ctx.fillRect(sx - qH - epW - 2, sy - Math.floor(epH * 0.55), 2, 2);
+    ctx.fillRect(sx + qH + epW, sy - Math.floor(epH * 0.55), 2, 2);
+
+    // Main body
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(sx - qH, sy - qH, qSz, qSz);
+    ctx.shadowBlur = 0;
+
+    // Cloak hem — stepped, alternating-height fringe along her lower edge (pixel-art zigzag)
+    if (!qFlash) {
+      const hemSegW = Math.max(2, Math.floor(qSz / 5));
+      const hemH1 = Math.max(3, Math.floor(qSz * 0.12));
+      const hemH2 = Math.max(2, Math.floor(qSz * 0.06));
+      ctx.fillStyle = '#5a0088';
+      for (let i = 0; i < 5; i++) {
+        const hh = i % 2 === 0 ? hemH1 : hemH2;
+        ctx.fillRect(sx - qH + i * hemSegW, sy + qH, hemSegW - 1, hh);
+      }
+    }
+
+    // Inner plate + diamond gem motif (silver, not the King's gold cross)
+    if (!qFlash) {
+      ctx.fillStyle = '#4a0066';
+      ctx.fillRect(sx - qH + qPad, sy - qH + qPad, qSz - qPad * 2, qSz - qPad * 2);
+
+      // Twinkling center gem — brightness pulses independently for a "living jewel" feel
+      const gemTwinkle = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09));
+      ctx.fillStyle = `rgba(255,255,255,${gemTwinkle})`;
+      const gemSz = Math.max(3, Math.floor(qSz * 0.14));
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-gemSz / 2, -gemSz / 2, gemSz, gemSz);
+      ctx.restore();
+
+      // Corner gem studs — small diamonds echoing the center gem, one per plate corner
+      const studSz = Math.max(2, Math.floor(qSz * 0.07));
+      const studInset = qPad + Math.floor(studSz * 0.8);
+      ctx.fillStyle = '#ee99ffcc';
+      for (const [ox, oy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+        const stx = sx + ox * (qH - studInset);
+        const sty = sy + oy * (qH - studInset);
+        ctx.save();
+        ctx.translate(stx, sty);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillRect(-studSz / 2, -studSz / 2, studSz, studSz);
+        ctx.restore();
+      }
+    }
+
+    // Tiara (3 spikes: tall center gem-spike, shorter sides) — regal vs. the King's 5-spike crown
+    if (!qFlash) {
+      ctx.fillStyle = '#ddaaff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+      const tiaraH = Math.max(6, Math.floor(qSz * (attacking ? 0.40 : 0.26)));
+      const sideH = Math.floor(tiaraH * 0.55);
+      const tW = Math.max(3, Math.floor(qSz * 0.12));
+      ctx.fillRect(sx - Math.floor(tW / 2), sy - qH - tiaraH, tW, tiaraH); // center spike
+      ctx.fillRect(sx - qH + qPad, sy - qH - sideH, tW, sideH); // left spike
+      ctx.fillRect(sx + qH - qPad - tW, sy - qH - sideH, tW, sideH); // right spike
+      // Gem tip on center spike — twinkles out of sync with the center gem
+      const tipTwinkle = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09 + Math.PI / 2));
+      ctx.shadowColor = '#ff66ee'; ctx.shadowBlur = Math.floor(6 * tipTwinkle);
+      ctx.fillStyle = '#ff66ee';
+      ctx.fillRect(sx - 2, sy - qH - tiaraH - 3, 4, 4);
+      ctx.shadowBlur = 0;
+    }
+
+    // 2 large almond eyes — fewer/larger than the King's 4, glow gold when attacking
+    if (!qFlash) {
+      const eSz = Math.max(4, Math.floor(qSz * 0.20));
+      const pSz = Math.max(2, Math.floor(eSz * 0.55));
+      const eyeY = sy - qH + qPad + Math.floor(qSz * 0.20);
+      const ex1 = sx - Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
+      const ex2 = sx + Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex1, eyeY, eSz, eSz); ctx.fillRect(ex2, eyeY, eSz, eSz);
+      ctx.fillStyle = attacking ? '#ffcc00' : '#ee44ff';
+      ctx.shadowColor = attacking ? '#ffcc00' : '#ee44ff'; ctx.shadowBlur = attacking ? 12 : 6;
+      ctx.fillRect(ex1 + 1, eyeY + 1, pSz, pSz); ctx.fillRect(ex2 + 1, eyeY + 1, pSz, pSz);
+      ctx.shadowBlur = 0;
+
+      // Thin, closed regal mouth (no teeth, unlike the King)
+      const mW = Math.max(6, Math.floor(qSz * 0.42));
+      const mH = Math.max(1, Math.floor(qSz * 0.05));
+      ctx.fillStyle = '#4a0066';
+      ctx.fillRect(sx - Math.floor(mW / 2), eyeY + eSz + Math.max(3, Math.floor(qSz * 0.12)), mW, mH);
+    }
+
+    // HP bar above her
+    const barW = qSz + 10;
+    const barH = 4;
+    const barX = sx - Math.floor(barW / 2);
+    const barY = sy - qH - 16;
+    ctx.fillStyle = '#330044';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = hpPct > 0.5 ? '#dd44ff' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
+    ctx.fillRect(barX, barY, Math.floor(barW * hpPct), barH);
+    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
+
+    // Attack wind-up aiming ring (her custom body returns early, so draw it here too)
+    if (e.windupTicks > 0) {
+      const progress = 1 - e.windupTicks / QUEEN_WINDUP_TICKS;
+      const ringR = qH + 6 + Math.floor(progress * 10);
+      const ringPulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() * 0.018));
+      ctx.shadowColor = '#cc33ff';
+      ctx.shadowBlur = 10 + Math.floor(progress * 16);
+      ctx.strokeStyle = `rgba(221,${Math.floor(80 + 100 * progress)},255,${0.6 + 0.4 * ringPulse})`;
+      ctx.lineWidth = 2 + Math.floor(progress * 2);
+      ctx.strokeRect(sx - ringR, sy - ringR, ringR * 2, ringR * 2);
+      ctx.shadowBlur = 0;
+    }
+
+    // Idle aura ring — subtle constant breathing glow so she reads as magical even at rest
+    const auraR = qH + 10 + Math.floor(4 * pulse);
+    ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = 6;
+    ctx.strokeStyle = `rgba(221,68,255,${0.18 + 0.12 * pulse})`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx - auraR, sy - auraR, auraR * 2, auraR * 2);
+    ctx.shadowBlur = 0;
+
+    // Revolving magic ring — a segmented halo of tick marks spinning continuously around her,
+    // on a tilted ellipse so it reads as a ring orbiting in 3D, not a flat static circle
+    const ringR = qH + 21;
+    const ringSegs = 12;
+    const ringSpin = tickN * 0.06;
+    for (let r = 0; r < ringSegs; r++) {
+      const ang = ringSpin + (r * Math.PI * 2) / ringSegs;
+      const rx = sx + Math.cos(ang) * ringR;
+      const ry = sy + Math.sin(ang) * ringR * 0.42;
+      const depthFade = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(ang)); // segments at the "back" dim out
+      const segSz = 2.5;
+      ctx.globalAlpha = depthFade;
+      ctx.shadowColor = '#ee66ff'; ctx.shadowBlur = 6;
+      ctx.fillStyle = '#ffbbff';
+      ctx.fillRect(rx - segSz / 2, ry - segSz / 2, segSz, segSz);
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Orbiting magic motes — inner ring (3, faster/closer) + outer ring (2, slower/wider)
+    // for a layered "boss presence" that's always alive, not tied to any event
+    const orbitR = qH + 16;
+    for (let m = 0; m < 3; m++) {
+      const ang = tickN * 0.05 + (m * Math.PI * 2) / 3;
+      const mx = sx + Math.cos(ang) * orbitR;
+      const my = sy + Math.sin(ang) * orbitR * 0.6; // flattened ellipse orbit
+      const moteSz = 3;
+      ctx.shadowColor = '#ff88ee'; ctx.shadowBlur = 8;
+      ctx.fillStyle = '#ffccff';
+      ctx.fillRect(mx - moteSz / 2, my - moteSz / 2, moteSz, moteSz);
+      ctx.shadowBlur = 0;
+    }
+    const outerOrbitR = qH + 26;
+    for (let m = 0; m < 2; m++) {
+      const ang = -tickN * 0.025 + (m * Math.PI) + Math.PI / 4; // opposite direction, slower
+      const mx = sx + Math.cos(ang) * outerOrbitR;
+      const my = sy + Math.sin(ang) * outerOrbitR * 0.6;
+      const moteSz = 2;
+      ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = 6;
+      ctx.fillStyle = '#ee99ff';
+      ctx.fillRect(mx - moteSz / 2, my - moteSz / 2, moteSz, moteSz);
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // ── Queen Echo: a paler, simplified fragment of the Queen's silhouette ─
+  if (e.type === 'queen_echo') {
+    const qSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const qH = qSz / 2;
+    const qPad = Math.max(2, Math.floor(qSz * 0.10));
+    const eFlash = e.flashTicks > 0;
+
+    ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = 6;
+
+    // Epaulettes with tips — same shape/colors as the real Queen (the flicker/translucency
+    // already established earlier is what reads as "echo", not a separate off-palette color)
+    const epW = Math.max(3, Math.floor(qSz * 0.13));
+    const epH = Math.max(6, Math.floor(qSz * 0.24));
+    ctx.fillStyle = eFlash ? '#ffffff' : '#5a0088';
+    ctx.fillRect(sx - qH - epW, sy - Math.floor(epH * 0.55), epW, epH);
+    ctx.fillRect(sx + qH, sy - Math.floor(epH * 0.55), epW, epH);
+    ctx.fillStyle = eFlash ? '#ffffff' : '#ee99ff';
+    ctx.fillRect(sx - qH - epW - 2, sy - Math.floor(epH * 0.55), 2, 2);
+    ctx.fillRect(sx + qH + epW, sy - Math.floor(epH * 0.55), 2, 2);
+
+    // Main body — the Queen's real color, not a separate hue; alpha flicker sells the "echo" read
+    ctx.fillStyle = eFlash ? '#ffffff' : '#8800cc';
+    ctx.fillRect(sx - qH, sy - qH, qSz, qSz);
+    ctx.shadowBlur = 0;
+
+    if (!eFlash) {
+      // Inner plate + diamond gem motif — same as the Queen's
+      ctx.fillStyle = '#4a0066';
+      ctx.fillRect(sx - qH + qPad, sy - qH + qPad, qSz - qPad * 2, qSz - qPad * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      const gemSz = Math.max(3, Math.floor(qSz * 0.14));
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-gemSz / 2, -gemSz / 2, gemSz, gemSz);
+      ctx.restore();
+
+      // Glitch scanlines — a couple of horizontally-shifted slivers, the one thing that tells
+      // her apart from the real Queen up close (an unstable copy, not just a dimmer one)
+      const glitchY1 = sy - qH + Math.floor(qSz * (0.35 + 0.1 * Math.sin(tickN * 0.2)));
+      const glitchY2 = sy - qH + Math.floor(qSz * (0.65 + 0.1 * Math.cos(tickN * 0.17)));
+      const glitchH = Math.max(1, Math.floor(qSz * 0.05));
+      const glitchShift = Math.floor(qSz * 0.12 * Math.sin(tickN * 0.3));
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillRect(sx - qH + glitchShift, glitchY1, qSz, glitchH);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillRect(sx - qH - glitchShift, glitchY2, qSz, glitchH);
+
+      // Tiara (3 spikes + gem tip) — same shape as the Queen's
+      ctx.fillStyle = '#ddaaff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;
+      const tiaraH = Math.max(6, Math.floor(qSz * 0.26));
+      const sideH = Math.floor(tiaraH * 0.55);
+      const tW = Math.max(3, Math.floor(qSz * 0.12));
+      ctx.fillRect(sx - Math.floor(tW / 2), sy - qH - tiaraH, tW, tiaraH);
+      ctx.fillRect(sx - qH + qPad, sy - qH - sideH, tW, sideH);
+      ctx.fillRect(sx + qH - qPad - tW, sy - qH - sideH, tW, sideH);
+      ctx.fillStyle = '#ff66ee';
+      ctx.fillRect(sx - 2, sy - qH - tiaraH - 3, 4, 4);
+      ctx.shadowBlur = 0;
+
+      // 2 large almond eyes, same glow color as the Queen's — no mouth (she's a silent fragment)
+      const eSz = Math.max(4, Math.floor(qSz * 0.20));
+      const pSz = Math.max(2, Math.floor(eSz * 0.55));
+      const eyeY = sy - qH + qPad + Math.floor(qSz * 0.20);
+      const ex1 = sx - Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
+      const ex2 = sx + Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex1, eyeY, eSz, eSz); ctx.fillRect(ex2, eyeY, eSz, eSz);
+      ctx.fillStyle = '#ee44ff';
+      ctx.shadowColor = '#ee44ff'; ctx.shadowBlur = 5;
+      ctx.fillRect(ex1 + 1, eyeY + 1, pSz, pSz); ctx.fillRect(ex2 + 1, eyeY + 1, pSz, pSz);
+      ctx.shadowBlur = 0;
+    }
+
+    // Attack wind-up aiming ring (same treatment as the real Queen's)
+    if (e.windupTicks > 0) {
+      const progress = 1 - e.windupTicks / QUEEN_WINDUP_TICKS;
+      const ringR = qH + 6 + Math.floor(progress * 10);
+      const ringPulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() * 0.018));
+      ctx.shadowColor = '#cc33ff';
+      ctx.shadowBlur = 10 + Math.floor(progress * 16);
+      ctx.strokeStyle = `rgba(221,${Math.floor(80 + 100 * progress)},255,${0.6 + 0.4 * ringPulse})`;
+      ctx.lineWidth = 2 + Math.floor(progress * 2);
+      ctx.strokeRect(sx - ringR, sy - ringR, ringR * 2, ringR * 2);
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
 
   // ── Blocky body (slightly scaled during attack) ───────────────────────
   ctx.fillStyle = color;
@@ -589,11 +985,19 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.fillRect(sx + ggap, botY + sideH, dotSz - 1, dotSz - 1);
     ctx.shadowBlur = 0;
   } else if (e.type === 'shielder') {
-    // Wide flat antenna (broad shield-like tip)
-    ctx.fillRect(sx - 1, sy - half - antH, 2, antH);
+    // 3 antennas with flat shield-like tips
+    const hw = 2, hgap = Math.floor(size * 0.20);
+    const sideH = Math.max(2, Math.floor(antH * 0.75));
+    ctx.fillRect(sx - 1, sy - half - antH, 2, antH); // center
+    ctx.fillRect(sx - hgap - hw, sy - half - sideH, hw, sideH); // left
+    ctx.fillRect(sx + hgap, sy - half - sideH, hw, sideH); // right
     ctx.shadowBlur = 6;
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(sx - Math.floor(dotSz * 1.5), sy - half - antH - dotSz, dotSz * 3, dotSz); // wide flat tip
+    // tips
+    ctx.fillRect(sx - Math.floor(dotSz * 1.5), sy - half - antH - dotSz, dotSz * 3, dotSz); // center tip
+    const sTip = dotSz * 2;
+    ctx.fillRect(sx - hgap - hw - Math.floor((sTip - hw) / 2), sy - half - sideH - dotSz, sTip, dotSz); // left tip
+    ctx.fillRect(sx + hgap - Math.floor((sTip - hw) / 2), sy - half - sideH - dotSz, sTip, dotSz); // right tip
     ctx.shadowBlur = 0;
   } else if (e.type === 'splitter') {
     // Twin antennas (same as fast but spaced for the wider body)
@@ -664,38 +1068,66 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.fillRect(mEx + 1, mEyeY + 1, pupSz, pupSz);
       ctx.shadowBlur = 0;
     } else if (e.type === 'charger') {
-      // 2 narrow angry slit eyes
-      const eSz = Math.max(2, Math.floor(size * 0.20));
-      const eH = Math.max(1, Math.floor(eSz * 0.4)); // thin slits
+      // Smile mouth (U-shape) at the top
+      const mW = Math.max(6, Math.floor(size * 0.45));
+      const mH = Math.max(1, Math.floor(size * 0.10));
+      const mX = sx - Math.floor(mW / 2);
+      const mY = sy - half + pad + 2 + Math.max(2, Math.floor(size * 0.15));
+      const cW = Math.max(1, Math.floor(mW * 0.15));
+      const cH = Math.max(2, Math.floor(mH * 2.5));
+
+      ctx.fillStyle = '#ff2200';
+      ctx.fillRect(mX, mY, mW, mH);           // bottom bar
+      ctx.fillRect(mX, mY - cH, cW, cH);      // left corner
+      ctx.fillRect(mX + mW - cW, mY - cH, cW, cH); // right corner
+
+      // Diagonal slanted eyes (\ /) at the bottom
+      const eSz = Math.max(2, Math.floor(size * 0.12));
+      const bottomEyeY = sy + half - pad - eSz * 2 - 2;
       const ex1 = sx - half + pad + 1;
-      const ex2 = sx + half - pad - eSz - 1;
+      const ex2 = sx + half - pad - eSz * 2 - 1;
+
       ctx.fillStyle = '#ffaa00';
       ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 5;
-      ctx.fillRect(ex1, eyeY, eSz, eH);
-      ctx.fillRect(ex2, eyeY, eSz, eH);
+      // Left eye: \
+      ctx.fillRect(ex1, bottomEyeY, eSz, eSz);
+      ctx.fillRect(ex1 + eSz, bottomEyeY + eSz, eSz, eSz);
+      // Right eye: /
+      ctx.fillRect(ex2 + eSz, bottomEyeY, eSz, eSz);
+      ctx.fillRect(ex2, bottomEyeY + eSz, eSz, eSz);
       ctx.shadowBlur = 0;
     } else if (e.type === 'ghost') {
-      // Hollow eyes — white outline only
-      const eSz = Math.max(3, Math.floor(size * 0.22));
+      // Large hollow eyes — white outline with strong glow
+      const eSz = Math.max(4, Math.floor(size * 0.30));
       const ex1 = sx - half + pad + 1;
       const ex2 = sx + half - pad - eSz - 1;
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
-      ctx.shadowColor = '#8855ff'; ctx.shadowBlur = 6;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+      ctx.shadowColor = '#aa88ff'; ctx.shadowBlur = 15;
       ctx.strokeRect(ex1, eyeY, eSz, eSz);
       ctx.strokeRect(ex2, eyeY, eSz, eSz);
       ctx.shadowBlur = 0;
     } else if (e.type === 'splitter') {
-      // 2 green eyes
+      // 2 green eyes on top box, 2 on bottom box
       const eSz = Math.max(2, Math.floor(size * 0.18));
       const pSz = Math.max(1, eSz - 1);
       const ex1 = sx - half + pad + 1;
       const ex2 = sx + half - pad - eSz - 1;
+
+      const unscaledBoxH = Math.floor(size * 0.44);
+      const unscaledGap = Math.max(2, size - unscaledBoxH * 2);
+      const bottomEyeY = sy - half + unscaledBoxH + unscaledGap + pad;
+
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(ex1, eyeY, eSz, eSz);
       ctx.fillRect(ex2, eyeY, eSz, eSz);
+      ctx.fillRect(ex1, bottomEyeY, eSz, eSz);
+      ctx.fillRect(ex2, bottomEyeY, eSz, eSz);
+
       ctx.fillStyle = '#00ff44';
       ctx.fillRect(ex1 + 1, eyeY + 1, pSz, pSz);
       ctx.fillRect(ex2 + 1, eyeY + 1, pSz, pSz);
+      ctx.fillRect(ex1 + 1, bottomEyeY + 1, pSz, pSz);
+      ctx.fillRect(ex2 + 1, bottomEyeY + 1, pSz, pSz);
     } else if (e.type === 'mini_splitter') {
       // 2 tiny eyes — no pupils, just small white squares
       const eSz = Math.max(1, Math.floor(size * 0.22));
@@ -705,27 +1137,37 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.fillRect(ex1, eyeY, eSz, eSz);
       ctx.fillRect(ex2, eyeY, eSz, eSz);
     } else if (e.type === 'shielder') {
-      // No eyes — two smile mouths stacked
+      // A pair of vertical eyes (2 eyes stacked on top of each other) above 1 smile mouth
+      const eSz = Math.max(2, Math.floor(size * 0.15));
+      const pSz = Math.max(1, eSz - 1);
+      const eX = sx - Math.floor(eSz / 2);
+      const eY1 = sy - half + pad + 1;
+      const eY2 = eY1 + eSz + Math.max(3, Math.floor(size * 0.15));
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(eX, eY1, eSz, eSz);
+      ctx.fillRect(eX, eY2, eSz, eSz);
+      ctx.fillStyle = '#00ddcc';
+      ctx.fillRect(eX + 1, eY1 + 1, pSz, pSz);
+      ctx.fillRect(eX + 1, eY2 + 1, pSz, pSz);
+
       const mW = Math.max(6, Math.floor(size * 0.56));
       const mH = Math.max(1, Math.floor(size * 0.10));
       const mX = sx - Math.floor(mW / 2);
       const cW = Math.max(1, Math.floor(mW * 0.13));
       const cH = Math.max(2, Math.floor(mH * 2.5));
-      const smileH = cH + mH;
-      const m1Y = sy - half + Math.floor(size * 0.30);
-      const m2Y = m1Y + smileH + Math.max(2, Math.floor(size * 0.10));
+      const mY = eY2 + eSz + Math.max(1, Math.floor(size * 0.04)) + cH;
+
       ctx.fillStyle = '#00ddcc';
       ctx.shadowColor = '#00ddcc'; ctx.shadowBlur = 5;
-      for (const mY of [m1Y, m2Y]) {
-        ctx.fillRect(mX, mY, mW, mH);
-        ctx.fillRect(mX, mY - cH, cW, cH);
-        ctx.fillRect(mX + mW - cW, mY - cH, cW, cH);
-      }
+      ctx.fillRect(mX, mY, mW, mH);
+      ctx.fillRect(mX, mY - cH, cW, cH);
+      ctx.fillRect(mX + mW - cW, mY - cH, cW, cH);
       ctx.shadowBlur = 0;
     } else if (e.type === 'bomber') {
       // 3 eyes in a row
-      const eyeSz = Math.max(2, Math.floor(size * 0.17));
-      const pupSz = Math.max(1, eyeSz - 1);
+      const eyeSz = Math.max(3, Math.floor(size * 0.21));
+      const pupSz = Math.max(2, eyeSz - 1);
       const gap = Math.floor((size - pad * 2 - eyeSz * 3) / 2);
       const ex1 = sx - half + pad;
       const ex2 = ex1 + eyeSz + gap;
@@ -807,7 +1249,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.lineWidth = 3;
     ctx.shadowColor = '#ff6600';
     ctx.shadowBlur = 18;
-    ctx.strokeRect(sx - half - 4, sy - half - 4, size + 8, size + 8);
+    ctx.strokeRect(sx - drawH - 4, sy - drawH - 4, drawSz + 8, drawSz + 8);
     ctx.shadowBlur = 0;
   }
 
@@ -921,17 +1363,28 @@ function drawGame(
   canvasH: number,
   tickN: number,
   chargingMs = 0,
+  isMobileTouch = false,
 ): void {
-  let camX = state.playerX - canvasW / 2;
-  let camY = state.playerY - canvasH / 2;
+  // Mobile sees more of the map (zoomed out); desktop is untouched. The whole world is drawn
+  // in a scaled coordinate space (viewW/viewH), then we restore back to true pixel space
+  // before the minimap so it isn't affected by this — it gets its own independent mobile sizing.
+  const worldZoom = isMobileTouch ? 0.45 : 1;
+  const viewW = canvasW / worldZoom;
+  const viewH = canvasH / worldZoom;
+
+  let camX = state.playerX - viewW / 2;
+  let camY = state.playerY - viewH / 2;
   if (state.screenShakeTicks > 0) {
     const shakeStr = state.screenShakeAmt * (state.screenShakeTicks / 22);
     camX += Math.round((Math.random() - 0.5) * shakeStr * 2);
     camY += Math.round((Math.random() - 0.5) * shakeStr * 2);
   }
 
+  ctx.save();
+  ctx.scale(worldZoom, worldZoom);
+
   ctx.fillStyle = BG_COLOR;
-  ctx.fillRect(0, 0, canvasW, canvasH);
+  ctx.fillRect(0, 0, viewW, viewH);
 
   // Per-chamber glowing borders — inset 1 tile to sit right on the floor edge
   for (let ch = 0; ch < 4; ch++) {
@@ -995,8 +1448,8 @@ function drawGame(
   // Tile range in view
   const tx0 = Math.floor(camX / TILE_SIZE) - 1;
   const ty0 = Math.floor(camY / TILE_SIZE) - 1;
-  const tx1 = Math.ceil((camX + canvasW) / TILE_SIZE) + 1;
-  const ty1 = Math.ceil((camY + canvasH) / TILE_SIZE) + 1;
+  const tx1 = Math.ceil((camX + viewW) / TILE_SIZE) + 1;
+  const ty1 = Math.ceil((camY + viewH) / TILE_SIZE) + 1;
 
   // Tiles
   for (let ty = ty0; ty <= ty1; ty++) {
@@ -1102,7 +1555,7 @@ function drawGame(
     const metY = Math.round(startY + (endY - startY) * strikeProg);
     const metX = Math.round(cx2);
     if (metY < endY) {
-      const tailH = Math.min(canvasH, metSz * 3);
+      const tailH = Math.min(viewH, metSz * 3);
       const tailW = Math.max(4, Math.floor(metSz * 0.55));
       // Fire tail stretching above
       const tailAlpha = 0.35 + 0.3 * strikeProg;
@@ -1259,6 +1712,19 @@ function drawGame(
     ctx.globalAlpha = 1; // reset in case ghost modified it
   }
 
+  // Death particles — blocky debris burst on enemy kill
+  for (const p of state.deathParticles) {
+    const alpha = p.ticks / p.maxTicks;
+    const px = p.x - camX, py = p.y - camY;
+    ctx.globalAlpha = alpha;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(px - p.size / 2, py - p.size / 2, p.size, p.size);
+  }
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+
   // Enemy attack lasers — drawn after enemies, over them
   for (const e of state.enemies) {
     if (e.shootTicks <= 0) continue;
@@ -1368,7 +1834,7 @@ function drawGame(
       ctx.beginPath();
       ctx.arc(exs, eys, sweepRadius, angle - arcSpread / 2, angle + arcSpread / 2);
       ctx.stroke();
-      
+
       // Fix: reset alpha and line cap
       ctx.globalAlpha = 1;
       ctx.lineCap = 'butt';
@@ -1490,43 +1956,122 @@ function drawGame(
   for (const beam of state.laserBeams) {
     const isEnemy = !!beam.color;
     const isBossLaser = beam.color === '#cc0022';
+    const isQueenLaser = beam.color === '#cc33ff' || beam.color === '#dd88ff';
     const maxTicks = isEnemy ? 22 : 18;
     const alpha = beam.ticks / maxTicks;
-    const shadowCol = isBossLaser ? '#ff0033' : isEnemy ? '#ff2200' : beam.powered ? '#ffaa00' : '#00ffff';
-    const strokeOut = isBossLaser ? '#cc0022' : isEnemy ? '#ff4400' : beam.powered ? '#ffcc00' : '#44ddff';
-    const strokeIn = isBossLaser ? '#ff3355' : isEnemy ? '#ff8844' : beam.powered ? '#ffee88' : '#aaffff';
-    
-    const outerW = isBossLaser ? Math.floor(TILE_SIZE * 1.2) : isEnemy ? Math.max(4, Math.floor(TILE_SIZE * 0.25)) : TILE_SIZE;
-    const innerW = isBossLaser ? Math.floor(TILE_SIZE * 0.6) : Math.max(4, Math.floor(TILE_SIZE * 0.35));
+    const shadowCol = isBossLaser ? '#ff6600' : isQueenLaser ? '#dd44ff' : isEnemy ? '#ff2200' : beam.powered ? '#ffaa00' : '#00ffff';
+    const strokeOut = isBossLaser ? '#cc2200' : isQueenLaser ? '#cc33ff' : isEnemy ? '#ff4400' : beam.powered ? '#ffcc00' : '#44ddff';
+    const strokeIn = isBossLaser ? '#ff8800' : isQueenLaser ? '#ee99ff' : isEnemy ? '#ff8844' : beam.powered ? '#ffee88' : '#aaffff';
+    const coreCol = isBossLaser ? '#ffee88' : '#ffffff';
+
+    // Boss laser flickers like a guttering flame column; Queen laser shimmers like arcane current
+    const fireFlicker = isBossLaser ? 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.7)) : 1;
+    const queenShimmer = isQueenLaser ? 0.75 + 0.25 * Math.abs(Math.sin(tickN * 0.35)) : 1;
+
+    const outerW = isBossLaser ? Math.floor(TILE_SIZE * 1.2 * fireFlicker) : isEnemy ? Math.max(4, Math.floor(TILE_SIZE * 0.25)) : TILE_SIZE;
+    const innerW = isBossLaser ? Math.floor(TILE_SIZE * 0.6 * fireFlicker) : Math.max(4, Math.floor(TILE_SIZE * 0.35));
     const coreW = isBossLaser ? 4 : 2;
 
     ctx.lineCap = 'square';
-    ctx.globalAlpha = alpha * 0.45;
+    ctx.globalAlpha = alpha * 0.45 * fireFlicker * queenShimmer;
     ctx.shadowColor = shadowCol;
-    ctx.shadowBlur = isBossLaser ? 32 : 18;
+    ctx.shadowBlur = isBossLaser ? Math.floor(32 * fireFlicker) : 18;
     ctx.strokeStyle = strokeOut;
     ctx.lineWidth = outerW;
     ctx.beginPath();
     ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
     ctx.lineTo(beam.endX - camX, beam.endY - camY);
     ctx.stroke();
-    
-    ctx.globalAlpha = alpha * 0.85;
+
+    ctx.globalAlpha = alpha * 0.85 * fireFlicker;
     ctx.strokeStyle = strokeIn;
     ctx.lineWidth = innerW;
     ctx.beginPath();
     ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
     ctx.lineTo(beam.endX - camX, beam.endY - camY);
     ctx.stroke();
-    
+
     ctx.globalAlpha = alpha;
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = coreCol;
     ctx.lineWidth = coreW;
     ctx.beginPath();
     ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
     ctx.lineTo(beam.endX - camX, beam.endY - camY);
     ctx.stroke();
-    
+
+    // Arcane ripple — a shimmering wavy line riding alongside the Queen's bolt (heat-shimmer,
+    // but magical): several short zigzag segments offset by a traveling sine wave
+    if (isQueenLaser) {
+      const rdx = beam.endX - beam.fromX, rdy = beam.endY - beam.fromY;
+      const rlen = Math.sqrt(rdx * rdx + rdy * rdy) || 1;
+      const rnx = -rdy / rlen, rny = rdx / rlen;
+      ctx.globalAlpha = alpha * 0.5 * queenShimmer;
+      ctx.strokeStyle = '#ffccff';
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = '#ee66ff'; ctx.shadowBlur = 10;
+      ctx.beginPath();
+      const rippleSegs = 8;
+      for (let i = 0; i <= rippleSegs; i++) {
+        const t = i / rippleSegs;
+        const wob = Math.sin(t * Math.PI * 4 + tickN * 0.4) * 4;
+        const px = beam.fromX + rdx * t - camX + rnx * wob;
+        const py = beam.fromY + rdy * t - camY + rny * wob;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Queen bolt magic dust storm — a dense scatter of twinkling motes riding the whole beam,
+    // matching her orbiting-mote body effect: lots of them, varied size/color, drifting and twinkling
+    if (isQueenLaser) {
+      const bdx = beam.endX - beam.fromX, bdy = beam.endY - beam.fromY;
+      const blen = Math.sqrt(bdx * bdx + bdy * bdy) || 1;
+      const nx = -bdy / blen, ny = bdx / blen; // perpendicular unit vector
+      const sparkleCount = 22;
+      const sparkleColors = ['#ffccff', '#ee99ff', '#ffffff'];
+      for (let s = 0; s < sparkleCount; s++) {
+        const t = (s + 0.5) / sparkleCount + Math.sin(s * 2.7) * 0.02;
+        const cycle = 18 + (s % 5) * 3;
+        const phase = (tickN * 0.7 + s * 6.1) % cycle;
+        const life = phase / cycle; // 0 -> 1 twinkle lifespan
+        const wobble = Math.sin(tickN * 0.3 + s * 1.7) * 6 + (life - 0.5) * 10; // drifts outward as it twinkles
+        const px = beam.fromX + bdx * t - camX + nx * wobble;
+        const py = beam.fromY + bdy * t - camY + ny * wobble;
+        const sSz = Math.max(1, 3 - Math.floor(life * 2));
+        ctx.globalAlpha = alpha * Math.sin(life * Math.PI);
+        ctx.shadowColor = '#ee66ff'; ctx.shadowBlur = 8;
+        ctx.fillStyle = sparkleColors[s % sparkleColors.length];
+        ctx.fillRect(px - sSz / 2, py - sSz / 2, sSz, sSz);
+      }
+    }
+
+    // Boss laser ember storm — a dense scatter of embers riding the whole beam, matching the
+    // rising-ember effect on his body: lots of them, varied size/color, some rising, some falling
+    if (isBossLaser) {
+      const bdx = beam.endX - beam.fromX, bdy = beam.endY - beam.fromY;
+      const blen2 = Math.sqrt(bdx * bdx + bdy * bdy) || 1;
+      const bnx = -bdy / blen2, bny = bdx / blen2; // perpendicular unit vector
+      const emberCount = 22;
+      for (let s = 0; s < emberCount; s++) {
+        const t = (s + 0.5) / emberCount + Math.sin(s * 3.1) * 0.02;
+        const cycle = 16 + (s % 5) * 3;
+        const phase = (tickN * 0.8 + s * 7.3) % cycle;
+        const life = phase / cycle; // 0 -> 1 over this ember's lifespan
+        const rising = s % 2 === 0;
+        const drift = (rising ? -1 : 1) * life * 16; // half rise, half fall off the beam line
+        const jitter = Math.sin(tickN * 0.3 + s * 2.3) * 4;
+        const px = beam.fromX + bdx * t - camX + bnx * jitter;
+        const py = beam.fromY + bdy * t - camY + bny * jitter + drift;
+        const eSz = Math.max(1, 3 - Math.floor(life * 2));
+        const eAlpha = alpha * Math.sin(life * Math.PI); // fades in, peaks mid-life, fades out
+        ctx.globalAlpha = eAlpha;
+        ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 8;
+        ctx.fillStyle = life < 0.4 ? '#ffee00' : life < 0.7 ? '#ff8800' : '#ff3300';
+        ctx.fillRect(px - eSz / 2, py - eSz / 2, eSz, eSz);
+      }
+    }
+
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     ctx.lineCap = 'butt';
@@ -1600,8 +2145,38 @@ function drawGame(
     ctx.globalAlpha = 1;
   }
 
-  // Minimap
-  drawMinimap(ctx, state, canvasW, tickN);
+  ctx.restore(); // back to true physical-pixel space — unaffected by the world zoom above
+
+  // Minimap — drawn in true pixel space, with its own independent (smaller) mobile sizing
+  drawMinimap(ctx, state, canvasW, tickN, isMobileTouch);
+}
+
+// ─── Mobile ability button ────────────────────────────────────────────────────
+
+function TouchAbilityButton({ label, color, size = 56, onDown, onUp, className, style }: {
+  label: React.ReactNode; color: string; size?: number; onDown: () => void; onUp?: () => void;
+  className?: string; style?: React.CSSProperties;
+}) {
+  return (
+    <button
+      className={className}
+      onPointerDown={(e) => { e.preventDefault(); onDown(); }}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{
+        width: size, height: size, borderRadius: '50%', flexShrink: 0,
+        border: `2px solid ${color}`, background: 'rgba(10,10,20,0.55)',
+        color, fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: size < 44 ? '0.4rem' : '0.46rem',
+        boxShadow: `0 0 12px ${color}55`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        touchAction: 'none', padding: 0, lineHeight: 1.1, textAlign: 'center',
+        ...style,
+      }}
+    >
+      {label}
+    </button>
+  );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -1615,8 +2190,99 @@ export default function RubyStarPage() {
   const [showRules, setShowRules] = useState(true);
   const [, forceRender] = useState(0);
   const [isGodQuery, setIsGodQuery] = useState(false);
+  // Ref (not state) — read imperatively inside the rAF draw loop, whose effect doesn't
+  // re-run on state changes, so a plain useState here would risk a stale closure.
+  const isMobileTouchRef = useRef(false);
+  const teleportOpenedAtRef = useRef(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const mouseDownTimeRef = useRef<number>(0);
+
+  // ── Mobile virtual joystick ──────────────────────────────────────────────
+  const [joyThumb, setJoyThumb] = useState({ x: 0, y: 0 });
+  const joyPointerIdRef = useRef<number | null>(null);
+  const JOY_RADIUS = 44;
+  const JOY_DEADZONE = 12;
+
+  const updateJoyFromPointer = useCallback((clientX: number, clientY: number, baseEl: HTMLElement) => {
+    const rect = baseEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > JOY_RADIUS) { dx = (dx / dist) * JOY_RADIUS; dy = (dy / dist) * JOY_RADIUS; }
+    setJoyThumb({ x: dx, y: dy });
+
+    const state = stateRef.current;
+    if (!state || state.gamePhase !== 'playing') return;
+    if (dist < JOY_DEADZONE) {
+      state.playerQueuedDirX = 0; state.playerQueuedDirY = 0;
+      return;
+    }
+    if (Math.abs(dx) > Math.abs(dy)) {
+      state.playerQueuedDirX = dx > 0 ? 1 : -1;
+      state.playerQueuedDirY = 0;
+    } else {
+      state.playerQueuedDirX = 0;
+      state.playerQueuedDirY = dy > 0 ? 1 : -1;
+    }
+  }, []);
+
+  const handleJoyPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    joyPointerIdRef.current = e.pointerId;
+    updateJoyFromPointer(e.clientX, e.clientY, e.currentTarget);
+  };
+  const handleJoyPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (joyPointerIdRef.current !== e.pointerId) return;
+    updateJoyFromPointer(e.clientX, e.clientY, e.currentTarget);
+  };
+  const handleJoyPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (joyPointerIdRef.current !== e.pointerId) return;
+    joyPointerIdRef.current = null;
+    setJoyThumb({ x: 0, y: 0 });
+    const state = stateRef.current;
+    if (state) { state.playerQueuedDirX = 0; state.playerQueuedDirY = 0; }
+  };
+
+  // ── Mobile ability buttons — reuse the exact same engine calls as mouse/keyboard ──
+  const handleTouchLaserDown = () => {
+    const state = stateRef.current;
+    if (!state || state.gamePhase !== 'playing') return;
+    mouseDownTimeRef.current = Date.now();
+    useLaser(state);
+    rerender();
+  };
+  const handleTouchLaserUp = () => { mouseDownTimeRef.current = 0; };
+  const handleTouchBullet = () => {
+    const state = stateRef.current;
+    if (!state || state.gamePhase !== 'playing') return;
+    useBullet(state); rerender();
+  };
+  const handleTouchSpeed = () => {
+    const state = stateRef.current;
+    if (!state || state.gamePhase !== 'playing') return;
+    useSpeedBoost(state); rerender();
+  };
+  const handleTouchBomb = () => {
+    const state = stateRef.current;
+    if (!state || state.gamePhase !== 'playing') return;
+    useBomb(state); rerender();
+  };
+  // RUBY and HEAL are separate single-tap buttons — no hold-duration timing involved.
+  const handleTouchRuby = () => {
+    const state = stateRef.current;
+    if (!state || state.gamePhase !== 'playing') return;
+    toggleCarryRuby(state); rerender();
+  };
+  // HEAL also doubles as the TELEPORT button — identical priority to the Space key
+  // (teleport if standing on a pad, otherwise heal).
+  const handleTouchHeal = () => {
+    const state = stateRef.current;
+    if (!state || state.gamePhase !== 'playing') return;
+    if (!tryActivateTeleport(state)) healRuby(state);
+    rerender();
+  };
 
   const rerender = useCallback(() => forceRender(n => n + 1), []);
 
@@ -1625,6 +2291,15 @@ export default function RubyStarPage() {
     stateRef.current = createInitialState();
     if (typeof window !== 'undefined') {
       setIsGodQuery(window.location.search.includes('god=1'));
+      // Require all three signals — some desktop setups (touchscreen laptops/monitors)
+      // misreport hover/pointer and still have maxTouchPoints > 0, so also require a
+      // phone/tablet-sized viewport (a real desktop display is essentially never this narrow,
+      // even resized, since resizing a window doesn't add touch hardware or change these
+      // media features on its own).
+      isMobileTouchRef.current =
+        window.matchMedia('(hover: none) and (pointer: coarse)').matches &&
+        navigator.maxTouchPoints > 0 &&
+        window.innerWidth <= 1024;
     }
     if (typeof screen !== 'undefined' && screen.orientation && (screen.orientation as any).lock) {
       (screen.orientation as any).lock('landscape').catch(() => { });
@@ -1685,7 +2360,7 @@ export default function RubyStarPage() {
       if (W === 0 || H === 0) return;
       ctx.imageSmoothingEnabled = false;
       const chargingMs = mouseDownTimeRef.current > 0 ? Date.now() - mouseDownTimeRef.current : 0;
-      drawGame(ctx, state, W, H, t, chargingMs);
+      drawGame(ctx, state, W, H, t, chargingMs, isMobileTouchRef.current);
       if (t % 6 === 0) rerender();
     }
     rafRef.current = requestAnimationFrame(loop);
@@ -1843,6 +2518,14 @@ export default function RubyStarPage() {
   const phase = state?.gamePhase ?? 'playing';
   const timeSurvived = Math.floor(state?.score ?? 0);
 
+  // Guards the teleport overlay's backdrop-tap-to-cancel against the mobile "ghost click":
+  // the same touch that opened the menu (tapping HEAL/TP) can generate a trailing synthetic
+  // click at the same screen coordinates, landing on the backdrop that just appeared there
+  // and instantly cancelling it. Ignore backdrop clicks within a short window of opening.
+  useEffect(() => {
+    if (phase === 'teleporting') teleportOpenedAtRef.current = Date.now();
+  }, [phase]);
+
   const rubyHealAvail = state ? canHealRuby(state) : false;
   const powered = (state?.poweredTicks ?? 0) > 0 || (state?.starEnergy ?? 0) >= STAR_ENERGY_MAX;
   const carrying = state?.playerCarryingRuby ?? true;
@@ -1886,6 +2569,15 @@ export default function RubyStarPage() {
         @media (orientation: portrait) and (max-width: 768px) {
           .rotate-overlay { display: flex !important; }
         }
+        /* Touch controls (joystick + ability buttons) only ever show on devices whose
+           primary input has no hover and no fine pointer — i.e. touch, never desktop mouse.
+           !important on both rules: several of these elements (TouchAbilityButton) also set
+           display:flex inline for their own centering, which would otherwise always beat a
+           plain (non-important) class rule regardless of media query. */
+        .rs-touch-controls { display: none !important; }
+        @media (hover: none) and (pointer: coarse) {
+          .rs-touch-controls { display: flex !important; }
+        }
       `}</style>
 
       <BGMController ref={bgmRef} visible={false} src={['/sounds/rubyStarBGM.mp3']} volume={[0.29]} />
@@ -1928,9 +2620,10 @@ export default function RubyStarPage() {
               <span style={{ color: '#ffcc44' }}>Left-click</span> — <span style={{ color: '#ffcc44' }}>LASER</span> — beam forward, pierces enemies<br />
               <span style={{ color: '#aaddff' }}>Hold-click</span> — <span style={{ color: '#aaddff' }}>WAVE</span> — charged ring blast (hold ~1s to auto-fire)<br />
               <span style={{ color: '#ffee44' }}>Shift</span> — <span style={{ color: '#ffee44' }}>SPEED</span> — brief speed burst<br />
-              <span style={{ color: BOMB_COLOR }}>Q</span> — <span style={{ color: BOMB_COLOR }}>BOMB</span> — place first, press again to detonate<br />
+              <span style={{ color: BOMB_COLOR }}>Q</span> — <span style={{ color: BOMB_COLOR }}>BOMB</span> — place first, press again to detonate. Its blast also hurts <em>you</em> if you&apos;re still in range (the Ruby is never damaged by it)<br />
               <span style={{ color: '#ff9944' }}>Right-click</span> — <span style={{ color: '#ff9944' }}>BULLET</span> — fast low-damage burst<br />
-              <span style={{ color: 'var(--text-muted)' }}>1–4</span> — Select teleport destination after menu opens · ESC to cancel
+              <span style={{ color: 'var(--text-muted)' }}>1–4</span> — Select teleport destination after menu opens · ESC to cancel<br />
+              <span style={{ color: 'var(--text-muted)' }}>Mobile</span> — on-screen joystick (move) + ability buttons replace keyboard/mouse; same abilities, same cooldowns
             </p>
           </div>
 
@@ -1944,7 +2637,6 @@ export default function RubyStarPage() {
               <span style={{ color: '#ffaa00' }}>Place it</span> — enemies can attack the ruby directly.<br />
               Stand near the ruby with no enemies close, then press{' '}
               <span style={{ color: '#ff88aa' }}>SPACE</span> to slowly heal both yourself and the Ruby Core.
-              Works even if the ruby is at full HP — you&apos;ll still recover your own health.
             </p>
           </div>
 
@@ -1958,6 +2650,7 @@ export default function RubyStarPage() {
               When full, your next ability is <span style={{ color: '#ffcc00' }}>POWERED UP</span> for extra damage or range.<br />
               Each chamber has a <span style={{ color: 'var(--cyan)' }}>✦ teleport pad</span> at its center.
               Step on one and press SPACE to jump instantly between any of the 4 chambers.
+              Opening the destination menu <span style={{ color: '#ffcc00' }}>pauses the game</span> — enemies, timers, and the meteorite/boss clocks all freeze until you pick a chamber or cancel.
             </p>
           </div>
 
@@ -1969,7 +2662,7 @@ export default function RubyStarPage() {
             <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
               Every ~30 seconds a random chamber is targeted. You have{' '}
               <span style={{ color: 'var(--danger)' }}>5 seconds to escape</span> — watch the minimap and the warning banner!
-              Every enemy in the struck chamber is wiped out (the Boss takes 75 damage instead).
+              Every enemy in the struck chamber is wiped out (Fiery King and Splitter Queen just take 75 damage instead).
             </p>
           </div>
 
@@ -2000,7 +2693,8 @@ export default function RubyStarPage() {
               <span style={{ color: '#ee8822' }}>■ SPLITTER</span> — Splits into 2 Mini Splitters on death. Tanky stacked-box design.<br />
               <span style={{ color: '#cc6611' }}>■ MINI SPLITTER</span> — Spawned from Splitter death. Small and fast.<br />
               <span style={{ color: '#44ddff' }}>■ SHIELDER</span> — Shields the most-injured ally, halving all damage it takes. Kill grants ~2.5s invincibility.<br />
-              <span style={{ color: '#cc0022' }}>■ BOSS</span> — Massive, push-immune, BFS pathfinder. Teleport away and use meteors to whittle it down. Kill = full restore.
+              <span style={{ color: '#cc0022' }}>■ FIERY KING</span> — High HP, high damage.<br />
+              <span style={{ color: '#cc33ff' }}>■ SPLITTER QUEEN</span> — Can teleport and leaves a decoy behind that deals damage.
             </p>
           </div>
         </div>
@@ -2009,7 +2703,7 @@ export default function RubyStarPage() {
       {/* God Mode UI */}
       {isGodQuery && (
         <div style={{
-          position: 'absolute', top: 10, right: 10,
+          position: 'absolute', top: 10, right: 230,
           background: 'rgba(0,0,0,0.85)', border: '1px solid #ffcc00',
           padding: '12px', borderRadius: '4px', zIndex: 1000,
           display: 'flex', flexDirection: 'column', gap: '8px'
@@ -2152,7 +2846,11 @@ export default function RubyStarPage() {
               background: 'rgba(0,0,10,0.82)',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px',
             }}
-            onClick={(e) => { if (e.target === e.currentTarget) { cancelTeleport(state); rerender(); } }}
+            onClick={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (Date.now() - teleportOpenedAtRef.current < 400) return; // ignore the opening tap's ghost click
+              cancelTeleport(state); rerender();
+            }}
           >
             <p style={{
               fontFamily: 'var(--font-pixel)', fontSize: '1rem', color: 'var(--cyan)',
@@ -2248,6 +2946,82 @@ export default function RubyStarPage() {
           </div>
         )}
       </div>
+
+      {/* ── Mobile touch controls — joystick (movement) + ability buttons ──────
+          CSS-hidden whenever the device has a real mouse (hover:hover + pointer:fine),
+          so desktop input/behavior is completely unchanged. Siblings of the canvas
+          wrapper (not descendants), so they never interfere with its own touch/mouse
+          handlers — a touch starting here simply never bubbles into that div. */}
+      {phase === 'playing' && (
+        <>
+          <div
+            className="rs-touch-controls"
+            style={{
+              position: 'fixed', left: '20px', bottom: '20px', zIndex: 60,
+              width: '112px', height: '112px', borderRadius: '50%',
+              border: '2px solid rgba(0,212,255,0.35)', background: 'rgba(0,20,30,0.35)',
+              touchAction: 'none', alignItems: 'center', justifyContent: 'center',
+            }}
+            onPointerDown={handleJoyPointerDown}
+            onPointerMove={handleJoyPointerMove}
+            onPointerUp={handleJoyPointerUp}
+            onPointerCancel={handleJoyPointerUp}
+          >
+            <div style={{
+              position: 'absolute',
+              left: `calc(50% + ${joyThumb.x}px - 25px)`,
+              top: `calc(50% + ${joyThumb.y}px - 25px)`,
+              width: '50px', height: '50px', borderRadius: '50%',
+              background: 'rgba(0,212,255,0.35)', border: '2px solid rgba(0,212,255,0.8)',
+              boxShadow: '0 0 12px rgba(0,212,255,0.5)',
+              pointerEvents: 'none',
+            }} />
+          </div>
+
+          {/* Ability cluster — scattered arc layout (mirrors a Genshin-style mobile HUD):
+              LASER in the center, BULLET low-and-left of it, BOMB above-right of that,
+              RUBY to bullet's left, and a small SPEED/dash button in the very corner.
+              Each button grays out while its ability is on cooldown. */}
+          <TouchAbilityButton
+            label="LASER" color={(state?.laserCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffcc44'} size={64}
+            onDown={handleTouchLaserDown} onUp={handleTouchLaserUp}
+            className="rs-touch-controls"
+            style={{ position: 'fixed', right: '46px', bottom: '60px', zIndex: 60 }}
+          />
+          <TouchAbilityButton
+            label="BULLET" color={(state?.bulletCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ff9944'} size={44}
+            onDown={handleTouchBullet}
+            className="rs-touch-controls"
+            style={{ position: 'fixed', right: '100px', bottom: '12px', zIndex: 60 }}
+          />
+          <TouchAbilityButton
+            label="BOMB" color={(!state?.bomb && (state?.bombCooldown ?? 0) > 0) ? COOLDOWN_GRAY : BOMB_COLOR} size={44}
+            onDown={handleTouchBomb}
+            className="rs-touch-controls"
+            style={{ position: 'fixed', right: '10px', bottom: '130px', zIndex: 60 }}
+          />
+          {/* RUBY — carry/place toggle, identical to E/F */}
+          <TouchAbilityButton
+            label="RUBY" color={RUBY_COLOR} size={40}
+            onDown={handleTouchRuby}
+            className="rs-touch-controls"
+            style={{ position: 'fixed', right: '170px', bottom: '12px', zIndex: 60 }}
+          />
+          {/* HEAL/TP — teleport-or-heal, identical to Space */}
+          <TouchAbilityButton
+            label="HEAL/TP" color="#ff88aa" size={40}
+            onDown={handleTouchHeal}
+            className="rs-touch-controls"
+            style={{ position: 'fixed', right: '220px', bottom: '12px', zIndex: 60 }}
+          />
+          <TouchAbilityButton
+            label="SPD" color={(state?.speedCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffee44'} size={44}
+            onDown={handleTouchSpeed}
+            className="rs-touch-controls"
+            style={{ position: 'fixed', right: '16px', bottom: '16px', zIndex: 61 }}
+          />
+        </>
+      )}
 
     </div>
   );

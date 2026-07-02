@@ -57,6 +57,17 @@ body {
   min-height: 100dvh;
   overflow-x: hidden;
   position: relative;
+  /* Long-press on canvas/text during gameplay was triggering the browser's native
+     image/selection context menu (Print, "Search image with Google", Save Image, etc). */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+canvas {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
 /* CRT Vignette */

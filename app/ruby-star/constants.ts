@@ -182,7 +182,7 @@ export function chamberOfTile(tileX: number, tileY: number): number {
 
 // ─── Enemy types ─────────────────────────────────────────────────────────────
 
-export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'boss';
+export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'boss' | 'splitter_queen' | 'queen_echo';
 
 export interface EnemyConfig {
   maxHp: number;
@@ -211,7 +211,7 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
   },
   fast: {
     maxHp: 4, speed: 1.78, color: '#ff8844', shieldColor: '#ff8844',
-    bodyFraction: 0.6, scoreValue: 15, damageToPlayer: 8, damageToRuby: 5,
+    bodyFraction: 0.45, scoreValue: 15, damageToPlayer: 8, damageToRuby: 5,
     attackCooldown: 40, attackRange: 2, bombExplodeRange: 0,
   },
   bomber: {
@@ -221,7 +221,7 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
   },
   sniper: {
     maxHp: 5, speed: 0.34, color: '#ffee00', shieldColor: '#ffee00',
-    bodyFraction: 0.64, scoreValue: 20, damageToPlayer: 17, damageToRuby: 17,
+    bodyFraction: 0.64, scoreValue: 20, damageToPlayer: 13, damageToRuby: 13,
     attackCooldown: 130, attackRange: 1, bombExplodeRange: 0,
   },
   healer: {
@@ -255,13 +255,23 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     attackCooldown: 999, attackRange: 0, bombExplodeRange: 0,
   },
   boss: {
-    maxHp: 121, speed: 0.22, color: '#cc0022', shieldColor: '#ff4444',
+    maxHp: 121, speed: 0.4, color: '#cc0022', shieldColor: '#ff4444',
     bodyFraction: 1.55, scoreValue: 500, damageToPlayer: 40, damageToRuby: 35,
     attackCooldown: 45, attackRange: 2, bombExplodeRange: 0,
   },
+  splitter_queen: {
+    maxHp: 55, speed: 0, color: '#cc33ff', shieldColor: '#ee99ff',
+    bodyFraction: 0.95, scoreValue: 400, damageToPlayer: 14, damageToRuby: 10,
+    attackCooldown: 70, attackRange: 8, bombExplodeRange: 0,
+  },
+  queen_echo: {
+    maxHp: 1, speed: 0, color: '#dd88ff', shieldColor: '#dd88ff',
+    bodyFraction: 0.80, scoreValue: 0, damageToPlayer: 8, damageToRuby: 4,
+    attackCooldown: 55, attackRange: 8, bombExplodeRange: 0,
+  },
 };
 
-export const BOSS_SPAWN_INTERVAL  = 300;  // ticks (~5s) between boss spawns
+export const BOSS_SPAWN_INTERVAL  = 720;  // ticks (~12s) between boss spawns (was ~5s, +7s so the next boss doesn't appear too soon after a kill)
 export const BOSS_WARNING_TICKS   = 210;  // ticks of warning before boss appears (~3.5s)
 export const BOSS_METEOR_DMG      = 75;   // meteor deals 75% of boss max HP
 export const BOSS_ATTACK_RANGE    = 3;    // boss can attack from 3 tiles away
@@ -281,6 +291,11 @@ export const SHIELDER_SHIELD_RANGE = 8;  // tiles — shields allies within 8 ti
 
 export const SNIPER_CHAIN_RANGE = 4;  // tiles — chain lightning radius on sniper kill
 export const SNIPER_CHAIN_DMG   = 8;  // damage per chain hit
+
+export const QUEEN_PHASE_INTERVAL  = 480; // ticks (~8s) between chamber phase-jumps
+export const QUEEN_PHASE_TELEGRAPH = 60;  // ticks before a jump where she visibly destabilizes
+export const QUEEN_ATTACK_RANGE    = 16;  // tiles — fires from this distance, only within her own chamber
+export const QUEEN_WINDUP_TICKS    = 40;  // telegraph before firing (queen + echo share this)
 
 // ─── Difficulty tiers ────────────────────────────────────────────────────────
 
@@ -342,7 +357,7 @@ export const WAVE_COOLDOWN       = 240;
 export const SPEED_DURATION     = 120;  // ticks (~2s)
 export const SPEED_DURATION_PWR = 240;
 export const SPEED_MULT         = 2.2;
-export const SPEED_COOLDOWN     = 360; // (6s)
+export const SPEED_COOLDOWN     = 270; // (4.5s) — was 360 (6s), reduced by 1.5s
 
 // 4. Bomb (key B — place / detonate)
 export const BOMB_RADIUS      = 3;   // tiles
@@ -360,8 +375,8 @@ export const STAR_ENERGY_PER_KILL     = 5;
 
 export const RESOURCE_SPAWN_INTERVAL = 600; // ticks (~10s)
 export const RESOURCE_MAX_ON_MAP     = 5;
-export const HEAL_AMOUNT             = 30;
-export const ENERGY_AMOUNT           = 38;
+export const HEAL_AMOUNT             = 33; // was 30, +10%
+export const ENERGY_AMOUNT           = 42; // was 38, +10%
 
 // ─── Ruby Core healing ────────────────────────────────────────────────────────
 
