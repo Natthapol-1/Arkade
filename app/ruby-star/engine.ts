@@ -20,11 +20,16 @@ import {
   CHARGER_CHARGE_SPEED, CHARGER_SIGHT_RANGE, CHARGER_STUN_TICKS,
   SHIELDER_SHIELD_RANGE,
   BOSS_SPAWN_INTERVAL, BOSS_WARNING_TICKS, BOSS_METEOR_DMG, BOSS_ATTACK_RANGE,
-  QUEEN_PHASE_INTERVAL, QUEEN_ATTACK_RANGE, QUEEN_WINDUP_TICKS,
+  KING_SPEED_RAMP_PER_SEC, KING_SPEED_CAP,
+  QUEEN_PHASE_INTERVAL, QUEEN_ATTACK_RANGE, QUEEN_WINDUP_TICKS, QUEEN_PHASE_HEAL_PCT,
   DIFFICULTY_RAMP_TICKS, DIFFICULTY_TIERS,
   ENEMY_CONFIGS, EnemyType,
   generateMap,
 } from './constants';
+
+// Chamber indices are 0=ALPHA(TL), 1=BETA(TR), 2=GAMMA(BL), 3=DELTA(BR) — see constants.ts.
+// Clockwise strike order: ALPHA(TL) -> BETA(TR) -> DELTA(BR) -> GAMMA(BL).
+const METEOR_CLOCKWISE_ORDER = [0, 1, 3, 2];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,6 +192,7 @@ export interface GameState {
   meteoriteTimer: number;   // countdown to next strike
   meteoriteWarning: number; // -1 = no warning; 0-3 = chamber index
   meteoriteStrikeIn: number; // ticks remaining in warning phase
+  meteoriteChamberSeq: number; // index into the clockwise strike order (ALPHA->BETA->DELTA->GAMMA)
 
   // FX
   laserBeams: LaserBeam[];
@@ -472,11 +478,11 @@ export function createInitialState(): GameState {
     playerStepProgress: 0,
     playerHP: PLAYER_MAX_HP,
     playerInvincibleTicks: 0,
-    playerCarryingRuby: true,
+    playerCarryingRuby: false,
 
     rubyHP: RUBY_MAX_HP,
-    rubyTileX: -1,
-    rubyTileY: -1,
+    rubyTileX: TELEPORT_PADS[0][0],
+    rubyTileY: TELEPORT_PADS[0][1],
 
     laserCooldown: 0,
     waveCooldown: 0,
@@ -503,6 +509,7 @@ export function createInitialState(): GameState {
     meteoriteTimer: METEORITE_CYCLE,
     meteoriteWarning: -1,
     meteoriteStrikeIn: 0,
+    meteoriteChamberSeq: 0,
 
     laserBeams: [],
     laserBullets: [],
@@ -747,6 +754,13 @@ function phaseQueenJump(state: GameState, e: Enemy) {
   e.phaseTimer = QUEEN_PHASE_INTERVAL;
   e.windupTicks = 0;
   e.attackTimer = 0;
+
+  // Each jump heals her a small amount — rewards ignoring her in favor of the decoys.
+  if (e.hp < e.maxHp) {
+    e.hp = Math.min(e.maxHp, e.hp + Math.max(1, Math.round(e.maxHp * QUEEN_PHASE_HEAL_PCT)));
+    e.healFlashTicks = 20;
+  }
+
   playSFX_queenTeleport();
 }
 
@@ -792,10 +806,13 @@ function updateEnemies(state: GameState) {
     }
 
     // ── Boss special logic ───────────────────────────────────────────────
-    if (e.type === 'boss') {
+    if (e.type === 'fiery_king') {
       // Boss is immune to push
       e.pushTiles = 0;
       if (e.attackTimer > 0) e.attackTimer--;
+      // phaseTimer is unused for fiery_king otherwise — reused here as "ticks alive since
+      // this king spawned", so speed ramps from base on every fresh spawn, not from run start.
+      e.phaseTimer++;
 
       // Boss always targets the player, no matter which chamber
       const bTgtTX = state.playerTileX;
@@ -805,8 +822,8 @@ function updateEnemies(state: GameState) {
       // Attack if within range
       if (e.attackTimer === 0 && bDist <= BOSS_ATTACK_RANGE) {
         playSFX_bossLaser();
-        damagePlayer(state, ENEMY_CONFIGS.boss.damageToPlayer);
-        e.attackTimer = ENEMY_CONFIGS.boss.attackCooldown;
+        damagePlayer(state, ENEMY_CONFIGS.fiery_king.damageToPlayer);
+        e.attackTimer = ENEMY_CONFIGS.fiery_king.attackCooldown;
         e.shootTicks = 22;
         state.laserBeams.push({
           fromX: e.x, fromY: e.y,
@@ -824,12 +841,16 @@ function updateEnemies(state: GameState) {
         e.path = bfs(state.map, e.targetTileX, e.targetTileY, bTgtTX, bTgtTY);
         e.pathTimer = 8;
       }
-      const bCfg = ENEMY_CONFIGS.boss;
+      const bCfg = ENEMY_CONFIGS.fiery_king;
       if (e.tileX === e.targetTileX && e.tileY === e.targetTileY && e.path.length > 0) {
         const [ntx, nty] = e.path.shift()!;
         if (isFloorTile(state.map, ntx, nty)) { e.targetTileX = ntx; e.targetTileY = nty; e.stepProgress = 0; }
       } else if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
-        e.stepProgress += bCfg.speed;
+        // Gradually speeds up the longer THIS king has been alive — resets to base speed
+        // on every fresh spawn — capped at an absolute top speed.
+        const kingAliveSec = e.phaseTimer / 60;
+        const kingSpeed = Math.min(KING_SPEED_CAP, bCfg.speed * (1 + kingAliveSec * KING_SPEED_RAMP_PER_SEC));
+        e.stepProgress += kingSpeed;
         const bdx = e.targetTileX - e.tileX, bdy = e.targetTileY - e.tileY;
         e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + bdx * Math.min(e.stepProgress, TILE_SIZE);
         e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2 + bdy * Math.min(e.stepProgress, TILE_SIZE);
@@ -1423,7 +1444,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
 
   // Boss-tier full-restore reward — applies no matter how the kill happened (including a
   // meteor strike finishing it off), unlike the score/energy rewards above which meteor kills skip.
-  if (e.type === 'boss' || e.type === 'splitter_queen') {
+  if (e.type === 'fiery_king' || e.type === 'splitter_queen') {
     state.bossesKilled++;
     state.playerHP = PLAYER_MAX_HP;
     state.rubyHP   = RUBY_MAX_HP;
@@ -1445,7 +1466,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
   const finalIdx = state.enemies.indexOf(e);
   if (finalIdx !== -1) state.enemies.splice(finalIdx, 1);
 
-  if (e.type === 'boss' || e.type === 'splitter_queen') playSFX_bossDeath();
+  if (e.type === 'fiery_king' || e.type === 'splitter_queen') playSFX_bossDeath();
   else if (e.type === 'queen_echo') playSFX_decoyDeath();
   else playSFX_alienDeath();
 }
@@ -1529,8 +1550,10 @@ function updateMeteorite(state: GameState) {
       for (let i = state.enemies.length - 1; i >= 0; i--) {
         const e = state.enemies[i];
         if (chamberOfTile(e.tileX, e.tileY) === ch) {
-          if (e.type === 'boss' || e.type === 'splitter_queen') {
-            damageEnemy(state, e, BOSS_METEOR_DMG);
+          if (e.type === 'fiery_king' || e.type === 'splitter_queen') {
+            // Deals BOSS_METEOR_DMG% of the boss's max HP — so anything already at or below
+            // that HP fraction dies outright.
+            damageEnemy(state, e, Math.round(e.maxHp * (BOSS_METEOR_DMG / 100)));
             if (e.hp <= 0) killEnemy(state, i, true);
           } else {
             killEnemy(state, i, true);
@@ -1551,8 +1574,9 @@ function updateMeteorite(state: GameState) {
   } else {
     state.meteoriteTimer--;
     if (state.meteoriteTimer <= 0) {
-      // Pick a random chamber to strike
-      state.meteoriteWarning = Math.floor(Math.random() * 4);
+      // Cycle chambers clockwise: ALPHA(TL) -> BETA(TR) -> DELTA(BR) -> GAMMA(BL) -> repeat
+      state.meteoriteWarning = METEOR_CLOCKWISE_ORDER[state.meteoriteChamberSeq % 4];
+      state.meteoriteChamberSeq++;
       state.meteoriteStrikeIn = METEORITE_WARNING;
     }
   }
@@ -1758,6 +1782,15 @@ export function doTeleport(state: GameState, chamberIdx: number) {
   state.teleportDestOptions = [];
   state.teleportCooldown = 90;
   playSFX_teleport();
+
+  // Carrying the ruby through a teleport auto-places it on the destination pad
+  // and grants a free speed burst (no cooldown interaction) as a reward for the risk.
+  if (state.playerCarryingRuby) {
+    state.rubyTileX = tx;
+    state.rubyTileY = ty;
+    state.playerCarryingRuby = false;
+    grantInstantSpeedBoost(state);
+  }
 }
 
 // Called on left-click — opens teleport screen if player is standing on a pad
@@ -1847,7 +1880,7 @@ export function tick(state: GameState) {
       if (state.bossWarningTicks === 0) {
         // Spawn one random boss-tier enemy at a spawn tile far from player.
         // "hasBoss" covers both boss types — only one boss-tier enemy may exist at a time.
-        const hasBoss = state.enemies.some(e => e.type === 'boss' || e.type === 'splitter_queen');
+        const hasBoss = state.enemies.some(e => e.type === 'fiery_king' || e.type === 'splitter_queen');
         if (!hasBoss) {
           const allSpawns: [number, number][] = [];
           for (let ch = 0; ch < 4; ch++) {
@@ -1859,7 +1892,7 @@ export function tick(state: GameState) {
           }
           if (allSpawns.length > 0) {
             const [tx, ty] = allSpawns[Math.floor(Math.random() * allSpawns.length)];
-            const bossType: EnemyType = Math.random() < 0.5 ? 'boss' : 'splitter_queen';
+            const bossType: EnemyType = Math.random() < 0.5 ? 'fiery_king' : 'splitter_queen';
             const cfg = ENEMY_CONFIGS[bossType];
             const bossHp = cfg.maxHp + state.bossesKilled * 15;
             state.enemies.push({
@@ -1880,7 +1913,7 @@ export function tick(state: GameState) {
     } else {
       state.bossTimer--;
       if (state.bossTimer <= 0) {
-        const hasBoss = state.enemies.some(e => e.type === 'boss' || e.type === 'splitter_queen');
+        const hasBoss = state.enemies.some(e => e.type === 'fiery_king' || e.type === 'splitter_queen');
         if (!hasBoss) state.bossWarningTicks = BOSS_WARNING_TICKS;
         else state.bossTimer = BOSS_SPAWN_INTERVAL; // already has a boss, delay
       }
@@ -1964,6 +1997,39 @@ export function tick(state: GameState) {
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     if (state.enemies[i].hp <= 0) killEnemy(state, i);
   }
+}
+
+// God-mode debug tool: force-spawn a specific boss type at a random valid spawn tile,
+// removing whichever boss-tier enemy currently exists (queen decoys are left alone —
+// they persist independently of their queen per normal rules).
+export function godSpawnBoss(state: GameState, bossType: 'fiery_king' | 'splitter_queen') {
+  state.enemies = state.enemies.filter(e => e.type !== 'fiery_king' && e.type !== 'splitter_queen');
+
+  const allSpawns: [number, number][] = [];
+  for (let ch = 0; ch < 4; ch++) {
+    for (const [tx, ty] of CHAMBER_SPAWN_TILES[ch]) {
+      if (Math.abs(tx - state.playerTileX) + Math.abs(ty - state.playerTileY) > 10) {
+        allSpawns.push([tx, ty]);
+      }
+    }
+  }
+  if (allSpawns.length === 0) return;
+  const [tx, ty] = allSpawns[Math.floor(Math.random() * allSpawns.length)];
+  const cfg = ENEMY_CONFIGS[bossType];
+  const bossHp = cfg.maxHp + state.bossesKilled * 15;
+  state.enemies.push({
+    id: state.nextEnemyId++, type: bossType,
+    x: tx * TILE_SIZE + TILE_SIZE / 2, y: ty * TILE_SIZE + TILE_SIZE / 2,
+    tileX: tx, tileY: ty, targetTileX: tx, targetTileY: ty,
+    stepProgress: 0, hp: bossHp, maxHp: bossHp,
+    path: [], pathTimer: 0, attackTimer: 0, targeting: 'player',
+    pushDirX: 0, pushDirY: 0, pushTiles: 0, flashTicks: 0, healFlashTicks: 0,
+    shootTicks: 0, exploding: false, explodeTick: 0,
+    windupTicks: 0, chargeDirX: 0, chargeDirY: 0, shieldTargetId: -1,
+    phaseTimer: bossType === 'splitter_queen' ? QUEEN_PHASE_INTERVAL : 0,
+  });
+  state.bossWarningTicks = 0;
+  state.bossTimer = BOSS_SPAWN_INTERVAL;
 }
 
 export function useBullet(state: GameState) {

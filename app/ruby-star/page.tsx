@@ -18,7 +18,7 @@ import {
 } from './constants';
 import {
   GameState, createInitialState, tick,
-  useLaser, useBullet, activateWave, useSpeedBoost, useBomb,
+  useLaser, useBullet, activateWave, useSpeedBoost, useBomb, godSpawnBoss,
   toggleCarryRuby, tryActivateTeleport, doTeleport, cancelTeleport,
   healRuby, canHealRuby,
 } from './engine';
@@ -119,7 +119,7 @@ function drawMinimap(
 
   // Boss on minimap — huge pulsing red dot with glowing core and border
   for (const e of state.enemies) {
-    if (e.type === 'boss' || e.type === 'splitter_queen') {
+    if (e.type === 'fiery_king' || e.type === 'splitter_queen') {
       const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.12));
       const bx = MX + e.tileX * S;
       const by = MY + e.tileY * S;
@@ -397,7 +397,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   const explodeScale = (e.type === 'bomber' && e.exploding) ? (1 + 0.5 * (1 - Math.max(0, e.explodeTick) / 60)) : 1;
   // Attack-impact animation: punchy bloat-then-squash the instant a hit actually lands (driven by shootTicks,
   // the same timer that drives the per-type attack-projectile visuals), decaying back to normal size.
-  const impactMax = (e.type === 'sniper' || e.type === 'boss') ? 22 : 14;
+  const impactMax = (e.type === 'sniper' || e.type === 'fiery_king') ? 22 : 14;
   const impactT = e.shootTicks > 0 ? 1 - e.shootTicks / impactMax : 1;
   const impactScale = e.shootTicks > 0 ? 1 + 0.35 * Math.exp(-impactT * 4) * Math.cos(impactT * Math.PI * 2.2) : 1;
   const drawSz = Math.floor(size * attackScale * explodeScale * impactScale);
@@ -426,7 +426,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       : 8;
 
   // ── Boss: fully custom draw ───────────────────────────────────────────
-  if (e.type === 'boss') {
+  if (e.type === 'fiery_king') {
     const bSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
     const bH = bSz / 2;
     const bPad = Math.max(3, Math.floor(bSz * 0.10));
@@ -2196,6 +2196,9 @@ export default function RubyStarPage() {
   const teleportOpenedAtRef = useRef(0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const mouseDownTimeRef = useRef<number>(0);
+  const rightMouseHeldRef = useRef<boolean>(false);
+  const lastAutoFireTickRef = useRef<number>(0);
+  const AUTO_FIRE_INTERVAL = Math.round(BULLET_COOLDOWN * 1.5); // slower than max click-spam rate
 
   // ── Mobile virtual joystick ──────────────────────────────────────────────
   const [joyThumb, setJoyThumb] = useState({ x: 0, y: 0 });
@@ -2352,6 +2355,12 @@ export default function RubyStarPage() {
         state.playerQueuedDirX = 0;
         state.playerQueuedDirY = 0;
       }
+      // Auto-fire bullet while right mouse button is held, throttled slower than the
+      // engine's raw cooldown so it doesn't feel like a machine-gun spray.
+      if (rightMouseHeldRef.current && state.gamePhase === 'playing' && state.bulletCooldown === 0 && t - lastAutoFireTickRef.current >= AUTO_FIRE_INTERVAL) {
+        useBullet(state);
+        lastAutoFireTickRef.current = t;
+      }
       if (state.gamePhase !== 'lost') tick(state);
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
@@ -2465,14 +2474,20 @@ export default function RubyStarPage() {
       rerender();
     } else if (e.button === 2) {
       e.preventDefault();
+      rightMouseHeldRef.current = true;
       useBullet(state);
       rerender();
     }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
+    if (e.button === 2) { rightMouseHeldRef.current = false; return; }
     if (e.button !== 0) return;
     mouseDownTimeRef.current = 0; // cancel any in-progress charge
+  };
+
+  const handleMouseLeave = () => {
+    rightMouseHeldRef.current = false;
   };
 
   // ── Touch swipe ───────────────────────────────────────────────────────────
@@ -2511,6 +2526,8 @@ export default function RubyStarPage() {
     s.godMode = stateRef.current?.godMode ?? false;
     stateRef.current = s;
     tickRef.current = 0;
+    lastAutoFireTickRef.current = 0;
+    rightMouseHeldRef.current = false;
     rerender();
   };
 
@@ -2660,9 +2677,9 @@ export default function RubyStarPage() {
               METEORITE ☄
             </p>
             <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
-              Every ~30 seconds a random chamber is targeted. You have{' '}
+              Every ~30 seconds a chamber is targeted, cycling clockwise (ALPHA → BETA → DELTA → GAMMA → repeat). You have{' '}
               <span style={{ color: 'var(--danger)' }}>5 seconds to escape</span> — watch the minimap and the warning banner!
-              Every enemy in the struck chamber is wiped out (Fiery King and Splitter Queen just take 75 damage instead).
+              Every enemy in the struck chamber is wiped out (Fiery King and Splitter Queen instead lose 75% of their max HP — dying outright if already at or below that).
             </p>
           </div>
 
@@ -2726,6 +2743,22 @@ export default function RubyStarPage() {
               rerender();
             }}>
             Full Energy
+          </button>
+          <button
+            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #cc0022', borderRadius: '4px' }}
+            onClick={() => {
+              if (stateRef.current) godSpawnBoss(stateRef.current, 'fiery_king');
+              rerender();
+            }}>
+            Spawn King
+          </button>
+          <button
+            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #cc33ff', borderRadius: '4px' }}
+            onClick={() => {
+              if (stateRef.current) godSpawnBoss(stateRef.current, 'splitter_queen');
+              rerender();
+            }}>
+            Spawn Queen
           </button>
         </div>
       )}
@@ -2830,6 +2863,7 @@ export default function RubyStarPage() {
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
         onContextMenu={(e) => e.preventDefault()}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}

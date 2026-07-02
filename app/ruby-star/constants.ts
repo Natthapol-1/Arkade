@@ -182,7 +182,7 @@ export function chamberOfTile(tileX: number, tileY: number): number {
 
 // ─── Enemy types ─────────────────────────────────────────────────────────────
 
-export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'boss' | 'splitter_queen' | 'queen_echo';
+export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'fiery_king' | 'splitter_queen' | 'queen_echo';
 
 export interface EnemyConfig {
   maxHp: number;
@@ -254,8 +254,8 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     bodyFraction: 0.74, scoreValue: 20, damageToPlayer: 0, damageToRuby: 0,
     attackCooldown: 999, attackRange: 0, bombExplodeRange: 0,
   },
-  boss: {
-    maxHp: 121, speed: 0.4, color: '#cc0022', shieldColor: '#ff4444',
+  fiery_king: {
+    maxHp: 121, speed: 0.48, color: '#cc0022', shieldColor: '#ff4444',
     bodyFraction: 1.55, scoreValue: 500, damageToPlayer: 40, damageToRuby: 35,
     attackCooldown: 45, attackRange: 2, bombExplodeRange: 0,
   },
@@ -275,6 +275,8 @@ export const BOSS_SPAWN_INTERVAL  = 720;  // ticks (~12s) between boss spawns (w
 export const BOSS_WARNING_TICKS   = 210;  // ticks of warning before boss appears (~3.5s)
 export const BOSS_METEOR_DMG      = 75;   // meteor deals 75% of boss max HP
 export const BOSS_ATTACK_RANGE    = 3;    // boss can attack from 3 tiles away
+export const KING_SPEED_RAMP_PER_SEC = 0.01584; // fraction of base speed gained per second survived
+export const KING_SPEED_CAP          = 1.4;    // absolute speed ramping can never exceed
 
 export const HEALER_HEAL_RADIUS   = 3;  // tiles — heals allies within this range
 export const HEALER_HEAL_AMOUNT   = 2;  // HP restored per interval
@@ -296,6 +298,7 @@ export const QUEEN_PHASE_INTERVAL  = 480; // ticks (~8s) between chamber phase-j
 export const QUEEN_PHASE_TELEGRAPH = 60;  // ticks before a jump where she visibly destabilizes
 export const QUEEN_ATTACK_RANGE    = 16;  // tiles — fires from this distance, only within her own chamber
 export const QUEEN_WINDUP_TICKS    = 40;  // telegraph before firing (queen + echo share this)
+export const QUEEN_PHASE_HEAL_PCT  = 0.1; // fraction of max HP healed on each phase-jump
 
 // ─── Difficulty tiers ────────────────────────────────────────────────────────
 
