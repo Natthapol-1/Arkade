@@ -279,7 +279,7 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
   },
   splitter_queen: {
     maxHp: 50, speed: 0, color: '#cc33ff', shieldColor: '#ee99ff',
-    bodyFraction: 0.95, scoreValue: 400, damageToPlayer: 8, damageToRuby: 10,
+    bodyFraction: 0.95, scoreValue: 400, damageToPlayer: 7, damageToRuby: 10,
     attackCooldown: 70, attackRange: 8, bombExplodeRange: 0,
   },
   queen_echo: {
