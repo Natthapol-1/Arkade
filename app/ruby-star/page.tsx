@@ -20,7 +20,7 @@ import {
   GameState, createInitialState, tick,
   useLaser, useBullet, activateWave, useSpeedBoost, useBomb, godSpawnBoss,
   toggleCarryRuby, tryActivateTeleport, doTeleport, cancelTeleport,
-  healRuby, canHealRuby,
+  healRuby, canHealRuby, isPlayerChilled, playSFX_charge,
 } from './engine';
 
 // ─── Canvas colors ────────────────────────────────────────────────────────────
@@ -63,6 +63,8 @@ function drawMinimap(
       } else if (tile === T_TELEPORT) {
         const ch = chamberOfTile(tx, ty);
         ctx.fillStyle = ch >= 0 ? CHAMBER_COLORS[ch] + '99' : '#ffffff44';
+      } else if (state.frostIceTiles.some(([itx, ity]) => itx === tx && ity === ty)) {
+        ctx.fillStyle = '#aaeeffcc'; // Frost Warden ice hazard tile
       } else {
         const ch = chamberOfTile(tx, ty);
         ctx.fillStyle = ch >= 0 ? CHAMBER_COLORS[ch] + '18' : '#0a0a1a';
@@ -117,25 +119,38 @@ function drawMinimap(
     }
   }
 
-  // Boss on minimap — huge pulsing red dot with glowing core and border
+  // Boss on minimap — huge pulsing dot with glowing core and border
   for (const e of state.enemies) {
-    if (e.type === 'fiery_king' || e.type === 'splitter_queen') {
+    if (e.type === 'fiery_king' || e.type === 'splitter_queen' || e.type === 'storm_reaper' || e.type === 'devourer' || e.type === 'frost_warden') {
       const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.12));
       const bx = MX + e.tileX * S;
       const by = MY + e.tileY * S;
 
-      // Use deep purple theme for the Queen, red for regular Boss
-      const colorGlow = e.type === 'splitter_queen' ? '#8800ff' : '#ff0033';
-      const colorFill = e.type === 'splitter_queen' ? `rgba(136,0,255,${pulse})` : `rgba(255,0,34,${pulse})`;
+      // Deep purple for the Queen, cyan for the Reaper (glow matches her own color), the
+      // Devourer's dot fills toxic green (her veins) but glows violet (her body color), white
+      // glow + light blue fill for the Frost Warden, red for the King
+      const colorGlow = e.type === 'splitter_queen' ? '#8800ff' : e.type === 'storm_reaper' ? '#00d4ff' : e.type === 'devourer' ? '#6b2fa8' : e.type === 'frost_warden' ? '#ffffff' : '#ff0033';
+      const colorFill = e.type === 'splitter_queen' ? `rgba(136,0,255,${pulse})` : e.type === 'storm_reaper' ? `rgba(0,212,255,${pulse})` : e.type === 'devourer' ? `rgba(136,255,68,${pulse})` : e.type === 'frost_warden' ? `rgba(102,204,255,${pulse})` : `rgba(255,0,34,${pulse})`;
+
+      // Devourer gets an explicit painted violet halo behind her green dot — canvas
+      // shadowBlur alone reads too faint to register as purple at this icon size
+      if (e.type === 'devourer') {
+        ctx.globalAlpha = 0.55 * pulse;
+        ctx.fillStyle = '#6b2fa8';
+        ctx.fillRect(bx - 7, by - 7, 16, 16);
+        ctx.globalAlpha = 1;
+      }
 
       ctx.shadowColor = colorGlow; ctx.shadowBlur = Math.floor(15 * pulse);
       ctx.fillStyle = colorFill;
       ctx.fillRect(bx - 3, by - 3, 8, 8);
 
-      ctx.fillStyle = '#ffcc00'; // Keep inner core gold/yellow for both
+      // Inner core is gold for every boss except the Frost Warden, whose icon is white/white-blue
+      // through and through — a gold core there read too similar to the Devourer's violet+gold combo
+      ctx.fillStyle = e.type === 'frost_warden' ? '#ffffff' : '#ffcc00';
       ctx.fillRect(bx - 1, by - 1, 4, 4);
 
-      ctx.strokeStyle = `rgba(255,204,0,${pulse})`;
+      ctx.strokeStyle = e.type === 'frost_warden' ? `rgba(255,255,255,${pulse})` : `rgba(255,204,0,${pulse})`;
       ctx.lineWidth = 1;
       ctx.strokeRect(bx - 4, by - 4, 10, 10);
       ctx.shadowBlur = 0;
@@ -175,9 +190,11 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
     ? 0.8 + 0.2 * (1 - state.bulletCooldown / BULLET_COOLDOWN)
     : 1.0;
 
-  // Gradually shrink to tiny while charging (200ms → 1000ms collapses to 30%)
-  const chargeProgress = (chargingMs >= 200 && state.waveCooldown === 0)
-    ? Math.min(1, (chargingMs - 200) / 800)
+  // Gradually shrink to tiny while charging (200ms → full charge collapses to 30%) — full
+  // charge takes longer while chilled by a Frost Warden sharing the player's chamber
+  const waveChargeMs = isPlayerChilled(state) ? 1500 : 1000;
+  const chargeProgress = (chargingMs >= 200 && state.waveCooldown <= 0)
+    ? Math.min(1, (chargingMs - 200) / (waveChargeMs - 200))
     : 0;
   const chargeShrink = 1 - chargeProgress * 0.70;
   const scaleFactor = Math.min(laserShrink, chargeShrink, bulletShrink);
@@ -237,8 +254,8 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
   ctx.shadowBlur = 0;
 
   // ── Wave charge ring ──────────────────────────────────────────────────
-  if (chargingMs >= 40 && state.waveCooldown === 0) {
-    const progress = Math.min(1, chargingMs / 1000);
+  if (chargingMs >= 40 && state.waveCooldown <= 0) {
+    const progress = Math.min(1, chargingMs / waveChargeMs);
     const ringPad = Math.floor(h * (0.15 + progress * 1.6));
     ctx.globalAlpha = 0.15 + 0.7 * progress;
     ctx.strokeStyle = '#00ccff';
@@ -594,6 +611,567 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.fillStyle = `rgba(255,${150 + Math.floor(80 * flicker3)},0,${0.7 + 0.3 * flicker3})`;
     ctx.fillRect(sx - 3, sy - bH - Math.floor(bSz * 0.30) - 6, 6, 6);
     ctx.shadowBlur = 0;
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // ── Storm Reaper: fully custom draw (sleek angular striker, electric theme —
+  // no crown/tiara since she's a rogue, not royalty like the King/Queen) ──
+  if (e.type === 'storm_reaper') {
+    const rSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const rH = rSz / 2;
+    const pulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.14)); // faster restless pulse than King/Queen
+    const hpPct = e.hp / e.maxHp;
+    const rFlash = e.flashTicks > 0;
+    const bodyColor = rFlash ? '#ffffff' : '#00c8e0';
+
+    // Motion streak — a couple of faded afterimage copies trailing behind her movement,
+    // selling speed the way King's embers sell heat and Queen's motes sell magic.
+    if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
+      const mdx = e.targetTileX - e.tileX, mdy = e.targetTileY - e.tileY;
+      for (let i = 1; i <= 2; i++) {
+        ctx.save();
+        ctx.globalAlpha = 0.14 / i;
+        ctx.fillStyle = '#00eaff';
+        ctx.translate(sx - mdx * i * 8, sy - mdy * i * 8);
+        ctx.rotate(Math.PI / 4);
+        ctx.fillRect(-rH * 0.7, -rH * 0.7, rH * 1.4, rH * 1.4);
+        ctx.restore();
+      }
+    }
+
+    // Ground electric crackle — a pulsing wash beneath her, boss-scale presence like
+    // King's ground-fire glow / Queen's idle aura (she previously had no ambient ground FX)
+    const groundPulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.16));
+    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = Math.floor(18 * groundPulse);
+    ctx.fillStyle = `rgba(0,234,255,${0.22 * groundPulse})`;
+    ctx.fillRect(sx - rH - 6, sy + rH - 4, rSz + 12, 10);
+    ctx.shadowBlur = 0;
+
+    // Outer soft halo — big, always-on aura ring so she reads as boss-scale even at rest
+    ctx.save();
+    ctx.globalAlpha = 0.35 * pulse;
+    ctx.strokeStyle = '#00eaff';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.arc(sx, sy, rH * 1.55, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Outer electric glow
+    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = Math.floor(20 * pulse);
+
+    // Blade fins — angular and sharp, unlike King's blocky spikes or Queen's rounded epaulettes
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.fillStyle = rFlash ? '#ffffff' : '#008fa8';
+    const finLen = rH * (attacking ? 1.6 : 1.25);
+    ctx.beginPath();
+    ctx.moveTo(-rH * 0.5, -rH * 0.3);
+    ctx.lineTo(-finLen, 0);
+    ctx.lineTo(-rH * 0.5, rH * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(rH * 0.5, -rH * 0.3);
+    ctx.lineTo(finLen, 0);
+    ctx.lineTo(rH * 0.5, rH * 0.3);
+    ctx.closePath();
+    ctx.fill();
+
+    // Backswept horn spikes — her equivalent of a crown/tiara silhouette, but angular
+    ctx.fillStyle = rFlash ? '#ffffff' : '#00c8e0';
+    ctx.beginPath();
+    ctx.moveTo(-rH * 0.35, -rH * 0.55);
+    ctx.lineTo(-rH * 0.7, -rH * 1.25);
+    ctx.lineTo(-rH * 0.12, -rH * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(rH * 0.35, -rH * 0.55);
+    ctx.lineTo(rH * 0.7, -rH * 1.25);
+    ctx.lineTo(rH * 0.12, -rH * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Diamond core body (rotated square)
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(-rH * 0.72, -rH * 0.72, rH * 1.44, rH * 1.44);
+    ctx.shadowBlur = 0;
+    if (!rFlash) {
+      ctx.fillStyle = '#003844';
+      ctx.fillRect(-rH * 0.5, -rH * 0.5, rH, rH);
+      // Diagonal circuit-line detail across the inset plate — reads as tech/armor, not skin
+      ctx.strokeStyle = '#00eaff88'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-rH * 0.5, 0); ctx.lineTo(0, -rH * 0.5);
+      ctx.moveTo(0, rH * 0.5); ctx.lineTo(rH * 0.5, 0);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Glowing white slit eyes
+    if (!rFlash) {
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+      ctx.fillRect(sx - rH * 0.28, sy - rH * 0.12, rH * 0.16, rH * 0.24);
+      ctx.fillRect(sx + rH * 0.12, sy - rH * 0.12, rH * 0.16, rH * 0.24);
+      ctx.shadowBlur = 0;
+    }
+
+    // Crackling electric arcs orbiting her at a distance — jagged zigzag bolts
+    const arcCount = 5;
+    for (let i = 0; i < arcCount; i++) {
+      const ang = tickN * 0.1 + (Math.PI * 2 * i) / arcCount;
+      const orbitR = rH + 12;
+      const ax = sx + Math.cos(ang) * orbitR;
+      const ay = sy + Math.sin(ang) * orbitR;
+      ctx.strokeStyle = `rgba(180,255,255,${0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.3 + i))})`;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = '#aefcff'; ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(ax - 3, ay - 3);
+      ctx.lineTo(ax + 2, ay);
+      ctx.lineTo(ax - 2, ay + 2);
+      ctx.lineTo(ax + 3, ay + 5);
+      ctx.stroke();
+    }
+
+    // Close-in body sparks — quick jittering micro-bolts crackling right off her silhouette,
+    // denser and closer than the orbiting arcs, refreshed every frame for a "live wire" feel
+    for (let i = 0; i < 4; i++) {
+      const sparkAng = Math.random() * Math.PI * 2;
+      const r1 = rH * (0.5 + Math.random() * 0.3);
+      const r2 = r1 + 4 + Math.random() * 5;
+      ctx.strokeStyle = `rgba(255,255,255,${0.4 + Math.random() * 0.4})`;
+      ctx.lineWidth = 1;
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.moveTo(sx + Math.cos(sparkAng) * r1, sy + Math.sin(sparkAng) * r1);
+      ctx.lineTo(sx + Math.cos(sparkAng) * r2, sy + Math.sin(sparkAng) * r2);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // HP bar above her
+    const rBarW = rSz + 10;
+    const rBarH = 4;
+    const rBarX = sx - Math.floor(rBarW / 2);
+    const rBarY = sy - rH - 16;
+    ctx.fillStyle = '#003340';
+    ctx.fillRect(rBarX, rBarY, rBarW, rBarH);
+    ctx.fillStyle = hpPct > 0.5 ? '#00eaff' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
+    ctx.fillRect(rBarX, rBarY, Math.floor(rBarW * hpPct), rBarH);
+    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
+    ctx.strokeRect(rBarX, rBarY, rBarW, rBarH);
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // ── Devourer: fully custom draw (blocky, matching the rest of the game's pixel-art
+  // language — grows via literal fused blocks stuck to her body, not organic curves) ──
+  if (e.type === 'devourer') {
+    const stacks = e.chargeDirX; // absorb-stack counter, reused from the charger's unused field
+    const stackGrowth = 1 + stacks * 0.06;
+    const vSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale * stackGrowth);
+    const vH = vSz / 2;
+    const vPad = Math.max(3, Math.floor(vSz * 0.10));
+    const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09));
+    const hpPct = e.hp / e.maxHp;
+    const vFlash = e.flashTicks > 0;
+    const vHealFlash = e.healFlashTicks > 0; // pulses brightly right when she absorbs something
+    const bodyColor = vFlash ? '#ffffff' : vHealFlash ? '#c8a0ff' : '#6b2fa8';
+
+    // Big absorb shockwave — blocky expanding square ring, the moment she eats
+    if (vHealFlash) {
+      const shockProgress = 1 - e.healFlashTicks / 26; // 0 -> 1
+      ctx.save();
+      ctx.globalAlpha = 1 - shockProgress;
+      ctx.shadowColor = '#c8ff88'; ctx.shadowBlur = 24;
+      const ringSz1 = vSz * (1 + shockProgress * 2.2);
+      ctx.strokeStyle = '#88ff44'; ctx.lineWidth = 5;
+      ctx.strokeRect(sx - ringSz1 / 2, sy - ringSz1 / 2, ringSz1, ringSz1);
+      const ringSz2 = vSz * (0.7 + shockProgress * 1.8);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+      ctx.strokeRect(sx - ringSz2 / 2, sy - ringSz2 / 2, ringSz2, ringSz2);
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    }
+
+    // Always-on violet aura ring — matches her minimap glow, gives her the same idle
+    // presence the other three bosses have (King's ground-fire, Queen's motes, Reaper's halo)
+    ctx.save();
+    ctx.globalAlpha = 0.35 * pulse;
+    ctx.strokeStyle = '#6b2fa8';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#6b2fa8'; ctx.shadowBlur = 18;
+    ctx.strokeRect(sx - vH * 1.5, sy - vH * 1.5, vH * 3, vH * 3);
+    ctx.restore();
+
+    // Orbiting spore particles — blocky squares drifting around her, the persistent
+    // "consuming aura" tell she was missing (King has embers, Queen has motes, Reaper has arcs)
+    const sporeCount = 5;
+    for (let i = 0; i < sporeCount; i++) {
+      const ang = tickN * 0.025 + (Math.PI * 2 * i) / sporeCount;
+      const orbitR = vH + 10 + 3 * Math.sin(tickN * 0.06 + i);
+      const spx = sx + Math.cos(ang) * orbitR;
+      const spy = sy + Math.sin(ang) * orbitR;
+      const sporeAlpha = 0.5 + 0.4 * Math.abs(Math.sin(tickN * 0.1 + i * 1.3));
+      ctx.fillStyle = i % 2 === 0 ? `rgba(136,255,68,${sporeAlpha})` : `rgba(107,47,168,${sporeAlpha})`;
+      ctx.shadowColor = '#88ff44'; ctx.shadowBlur = 5;
+      ctx.fillRect(spx - 2, spy - 2, 4, 4);
+    }
+    ctx.shadowBlur = 0;
+
+    // Ground corruption pool — a sickly wash beneath her, bigger with more stacks
+    ctx.shadowColor = '#88ff44'; ctx.shadowBlur = Math.floor(16 * pulse);
+    ctx.fillStyle = `rgba(107,47,168,${0.22 * pulse})`;
+    ctx.fillRect(sx - vH - 6, sy + vH - 4, vSz + 12, 10);
+    ctx.shadowBlur = 0;
+
+    // Blocky side + top spikes (same construction as the King's shoulder spikes) —
+    // grow a little longer with more stacks
+    const spikeW = Math.max(4, Math.floor(vSz * 0.16));
+    const spikeH = Math.max(6, Math.floor(vSz * (0.22 + Math.min(stacks, 6) * 0.025)));
+    ctx.fillStyle = vFlash ? '#ffffff' : '#4a1a5c';
+    ctx.fillRect(sx - vH - spikeW, sy - Math.floor(spikeH * 0.5), spikeW, spikeH);
+    ctx.fillRect(sx + vH, sy - Math.floor(spikeH * 0.5), spikeW, spikeH);
+    ctx.fillRect(sx - Math.floor(spikeW / 2), sy - vH - spikeH, spikeW, spikeH);
+
+    // Main blocky body
+    ctx.shadowColor = '#88ff44'; ctx.shadowBlur = Math.floor(18 * pulse);
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(sx - vH, sy - vH, vSz, vSz);
+    ctx.shadowBlur = 0;
+
+    if (!vFlash) {
+      // Inner dark armor plate inset, like the King's
+      ctx.fillStyle = '#2a0a3a';
+      ctx.fillRect(sx - vH + vPad, sy - vH + vPad, vSz - vPad * 2, vSz - vPad * 2);
+
+      // Fused chunks — small square blocks stuck around her edges, one per absorb stack
+      // (capped at 8 positions), the "consumed ally fragments" tell
+      ctx.fillStyle = '#4a1a5c';
+      const chunkPositions: [number, number][] = [[-1, -1], [1, -1], [-1, 1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]];
+      const chunkCount = Math.min(stacks, chunkPositions.length);
+      for (let i = 0; i < chunkCount; i++) {
+        const [ox, oy] = chunkPositions[i];
+        const csz = 6;
+        ctx.fillRect(sx + ox * vH * 0.95 - csz / 2, sy + oy * vH * 0.95 - csz / 2, csz, csz);
+      }
+
+      // Circuit-line veins — blocky right-angle segments, not smooth radiating lines
+      ctx.strokeStyle = `rgba(136,255,68,${0.5 + 0.4 * pulse})`;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = '#88ff44'; ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(sx - vH * 0.5, sy); ctx.lineTo(sx, sy); ctx.lineTo(sx, sy - vH * 0.5);
+      ctx.moveTo(sx + vH * 0.5, sy); ctx.lineTo(sx, sy); ctx.lineTo(sx, sy + vH * 0.5);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Blocky square eye
+      ctx.fillStyle = '#c8ff88';
+      ctx.shadowColor = '#c8ff88'; ctx.shadowBlur = 8;
+      ctx.fillRect(sx - vH * 0.18, sy - vH * 0.35, vH * 0.36, vH * 0.26);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#1a3300';
+      ctx.fillRect(sx - vH * 0.08, sy - vH * 0.28, vH * 0.16, vH * 0.14);
+
+      // Jagged blocky maw beneath the eye — widens open right before/during a bite
+      const mawOpen = attacking ? 0.55 : 0.18;
+      ctx.fillStyle = '#1a0526';
+      ctx.fillRect(sx - vH * 0.45, sy + vH * 0.1, vH * 0.9, vH * mawOpen + 4);
+      ctx.fillStyle = '#c8ff88';
+      for (const txp of [-0.32, -0.1, 0.1, 0.32]) {
+        ctx.fillRect(sx + txp * vH - 2, sy + vH * 0.1, 4, 6);
+      }
+    }
+
+    // Absorb-stack counter, small text above the HP bar
+    ctx.font = '9px monospace';
+    ctx.fillStyle = '#c8ff88';
+    ctx.textAlign = 'center';
+    ctx.fillText(`x${stacks}`, sx, sy - vH - 20);
+    ctx.textAlign = 'left';
+
+    // HP bar above her
+    const vBarW = vSz + 10;
+    const vBarH = 4;
+    const vBarX = sx - Math.floor(vBarW / 2);
+    const vBarY = sy - vH - 14;
+    ctx.fillStyle = '#2a0a3a';
+    ctx.fillRect(vBarX, vBarY, vBarW, vBarH);
+    ctx.fillStyle = hpPct > 0.5 ? '#88ff44' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
+    ctx.fillRect(vBarX, vBarY, Math.floor(vBarW * hpPct), vBarH);
+    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
+    ctx.strokeRect(vBarX, vBarY, vBarW, vBarH);
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // ── Frost Warden: fully custom draw (icy blocky theme — crystalline crown, frosty aura,
+  // matches the game's rectangle-based sprite style like the rest of the bosses) ──
+  if (e.type === 'frost_warden') {
+    const wSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const wH = wSz / 2;
+    const wPad = Math.max(3, Math.floor(wSz * 0.10));
+    const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.08));
+    const hpPct = e.hp / e.maxHp;
+    const wFlash = e.flashTicks > 0;
+    const bodyColor = wFlash ? '#ffffff' : '#aaeeff';
+
+    // Always-on white aura ring — the idle presence tell the other bosses have
+    ctx.save();
+    ctx.globalAlpha = 0.35 * pulse;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 18;
+    ctx.strokeRect(sx - wH * 1.55, sy - wH * 1.55, wH * 3.1, wH * 3.1);
+    ctx.restore();
+
+    // Frosty ground mist — pale blue wash beneath her
+    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = Math.floor(16 * pulse);
+    ctx.fillStyle = `rgba(170,238,255,${0.2 * pulse})`;
+    ctx.fillRect(sx - wH - 6, sy + wH - 4, wSz + 12, 10);
+    ctx.shadowBlur = 0;
+
+    // Orbiting ice shards — angular crystal shapes, not just dots, riding a wider orbit
+    const shardCount = 6;
+    for (let i = 0; i < shardCount; i++) {
+      const ang = tickN * 0.02 + (Math.PI * 2 * i) / shardCount;
+      const orbitR = wH + 18 + 5 * Math.sin(tickN * 0.05 + i);
+      const mx = sx + Math.cos(ang) * orbitR;
+      const my = sy + Math.sin(ang) * orbitR * 0.65;
+      const shardAlpha = 0.5 + 0.4 * Math.abs(Math.sin(tickN * 0.1 + i));
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.rotate(ang + tickN * 0.04);
+      ctx.fillStyle = `rgba(255,255,255,${shardAlpha})`;
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 5;
+      ctx.beginPath();
+      ctx.moveTo(0, -5); ctx.lineTo(3, 0); ctx.lineTo(0, 5); ctx.lineTo(-3, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.shadowBlur = 0;
+
+    // Continuous frost breath — small drifting mist puffs rising off her, like the
+    // Devourer's drips but rising instead of falling
+    if (Math.random() < 0.35) {
+      const puffAng = -Math.PI / 2 + (Math.random() - 0.5) * 1.4;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(sx + Math.cos(puffAng) * wH * 0.5, sy + Math.sin(puffAng) * wH * 0.9 - 6, 2 + Math.random() * 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Heavy snowfall — a wide field of small falling flakes constantly drifting down around
+    // her, index-phased off tickN so it's dense and continuous without needing particle state
+    const snowCount = 28;
+    const snowField = wH * 2.6;
+    for (let i = 0; i < snowCount; i++) {
+      const seedX = ((i * 53 + 7) % 97) / 97 - 0.5; // stable pseudo-random x per flake
+      const speed = 0.4 + (i % 5) * 0.15;
+      const fallCycle = 140 + (i % 7) * 10;
+      const fallT = ((tickN * speed + i * 31) % fallCycle) / fallCycle; // 0 -> 1 falling
+      const sway = Math.sin(tickN * 0.05 + i) * 4;
+      const fx = sx + seedX * snowField + sway;
+      const fy = sy - wH * 1.8 + fallT * wH * 3.6;
+      const fadeIn = Math.min(1, fallT * 6);
+      const fadeOut = Math.min(1, (1 - fallT) * 6);
+      ctx.globalAlpha = Math.min(fadeIn, fadeOut) * 0.85;
+      ctx.fillStyle = i % 4 === 0 ? '#ffffff' : '#cceeff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 3;
+      const flakeSz = 1.5 + (i % 3);
+      ctx.fillRect(fx - flakeSz / 2, fy - flakeSz / 2, flakeSz, flakeSz);
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Icicle side spikes (mirrors King's shoulder-spike construction, angular icy tone)
+    const spikeW = Math.max(4, Math.floor(wSz * 0.16));
+    const spikeH = Math.max(6, Math.floor(wSz * 0.28));
+    ctx.fillStyle = wFlash ? '#ffffff' : '#eaffff';
+    ctx.fillRect(sx - wH - spikeW, sy - Math.floor(spikeH * 0.5), spikeW, spikeH);
+    ctx.fillRect(sx + wH, sy - Math.floor(spikeH * 0.5), spikeW, spikeH);
+
+    // Main blocky body
+    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = Math.floor(18 * pulse);
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(sx - wH, sy - wH, wSz, wSz);
+    ctx.shadowBlur = 0;
+
+    if (!wFlash) {
+      // Inner frosted plate
+      ctx.fillStyle = '#dff7ff';
+      ctx.fillRect(sx - wH + wPad, sy - wH + wPad, wSz - wPad * 2, wSz - wPad * 2);
+
+      // Frost-crack lines across the plate — blocky right-angle segments like the Devourer's
+      // circuit veins, but icy, selling "she's made of ice, not flesh"
+      ctx.strokeStyle = `rgba(0,136,170,${0.5 + 0.3 * pulse})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sx - wH * 0.5, sy - wH * 0.3); ctx.lineTo(sx - wH * 0.15, sy - wH * 0.3); ctx.lineTo(sx - wH * 0.15, sy + wH * 0.2);
+      ctx.moveTo(sx + wH * 0.5, sy - wH * 0.3); ctx.lineTo(sx + wH * 0.15, sy - wH * 0.3); ctx.lineTo(sx + wH * 0.15, sy + wH * 0.2);
+      ctx.stroke();
+
+      // Crystalline crown — 5 angular icicle spikes on top (bigger/denser than before), her
+      // "royal" tell distinct from the King's gold crown and Queen's tiara
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+      for (const cx2 of [-0.42, -0.2, 0, 0.2, 0.42]) {
+        const spH = cx2 === 0 ? wH * 0.65 : Math.abs(cx2) === 0.2 ? wH * 0.5 : wH * 0.32;
+        ctx.beginPath();
+        ctx.moveTo(sx + cx2 * wSz - 3, sy - wH);
+        ctx.lineTo(sx + cx2 * wSz, sy - wH - spH);
+        ctx.lineTo(sx + cx2 * wSz + 3, sy - wH);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+
+      // Blocky glowing eyes
+      ctx.fillStyle = '#0088aa';
+      ctx.shadowColor = '#0088aa'; ctx.shadowBlur = 6;
+      ctx.fillRect(sx - wH * 0.3, sy - wH * 0.1, wH * 0.18, wH * 0.22);
+      ctx.fillRect(sx + wH * 0.12, sy - wH * 0.1, wH * 0.18, wH * 0.22);
+      ctx.shadowBlur = 0;
+    }
+
+    // Ice shield — a slowly-rotating double hexagonal crystal barrier encasing her, drawn
+    // OVER her fully-built body (not before it) so every layer is actually visible instead
+    // of being painted over by her opaque body fill.
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(tickN * 0.008);
+    const shieldR = wH * 1.3;
+    const hexPoints: [number, number][] = [];
+    for (let i = 0; i < 6; i++) {
+      const hAng = (Math.PI * 2 * i) / 6 - Math.PI / 2;
+      hexPoints.push([Math.cos(hAng) * shieldR, Math.sin(hAng) * shieldR]);
+    }
+    // Outermost hazy glow layer (opacity dialed down — the elaborate shape reads fine
+    // without being as bright/loud as the first pass)
+    ctx.globalAlpha = 0.14 + 0.08 * pulse;
+    ctx.strokeStyle = '#aaeeff';
+    ctx.lineWidth = 18;
+    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = 24;
+    ctx.beginPath();
+    hexPoints.forEach(([hx, hy], i) => i === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy));
+    ctx.closePath();
+    ctx.stroke();
+    // Thick mid layer
+    ctx.globalAlpha = 0.25 + 0.14 * pulse;
+    ctx.strokeStyle = '#66ccff';
+    ctx.lineWidth = 10;
+    ctx.shadowBlur = 16;
+    ctx.stroke();
+    // Bright core layer
+    ctx.globalAlpha = 0.4 + 0.17 * pulse;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 5;
+    ctx.shadowBlur = 10;
+    ctx.stroke();
+    // Gem-cut facet lines from each vertex to center — sells "crystal", not just a ring
+    ctx.globalAlpha = 0.17 + 0.08 * pulse;
+    ctx.strokeStyle = '#cceeff';
+    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    for (const [hx, hy] of hexPoints) { ctx.moveTo(0, 0); ctx.lineTo(hx, hy); }
+    ctx.stroke();
+    // Counter-rotating inner hexagon layer for depth
+    ctx.rotate(-tickN * 0.016);
+    ctx.globalAlpha = 0.2 + 0.11 * pulse;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const hAng = (Math.PI * 2 * i) / 6 - Math.PI / 2;
+      const hx = Math.cos(hAng) * shieldR * 0.6, hy = Math.sin(hAng) * shieldR * 0.6;
+      if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.rotate(tickN * 0.016);
+    // Corner glints on the outer shield vertices
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.5;
+    ctx.shadowBlur = 6;
+    for (const [hx, hy] of hexPoints) {
+      ctx.fillRect(hx - 2.5, hy - 2.5, 5, 5);
+    }
+    ctx.restore();
+    ctx.shadowBlur = 0;
+
+    // Saturn-style ring — a thick, tilted, blocky halo encircling her (chunky rect segments
+    // along a flattened ellipse, not a smooth stroke, to match the pixel-art construction)
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(0.25); // fixed tilt, like Saturn's rings
+    const ringRx = wH * 2.0, ringRy = wH * 0.55;
+    const ringSegs = 20;
+    const ringPulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.05));
+    for (let i = 0; i < ringSegs; i++) {
+      const rAng = tickN * 0.012 + (Math.PI * 2 * i) / ringSegs;
+      const rx = Math.cos(rAng) * ringRx, ry = Math.sin(rAng) * ringRy;
+      const segW = 10, segH = 6;
+      ctx.save();
+      ctx.translate(rx, ry);
+      ctx.rotate(rAng + Math.PI / 2);
+      ctx.globalAlpha = (0.5 + 0.35 * ringPulse) * (i % 2 === 0 ? 1 : 0.7);
+      ctx.fillStyle = i % 3 === 0 ? '#ffffff' : '#aaeeff';
+      ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = 8;
+      ctx.fillRect(-segW / 2, -segH / 2, segW, segH);
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.shadowBlur = 0;
+
+    // Ice-shard particles orbiting along the shield's edge — denser now, with trailing streaks
+    const shieldSparkCount = 12;
+    for (let i = 0; i < shieldSparkCount; i++) {
+      const sAng = tickN * 0.022 + (Math.PI * 2 * i) / shieldSparkCount;
+      const orbR = shieldR * (1.05 + 0.06 * Math.sin(tickN * 0.05 + i));
+      const sx2 = sx + Math.cos(sAng) * orbR;
+      const sy2 = sy + Math.sin(sAng) * orbR;
+      const sparkAlpha = 0.5 + 0.4 * Math.abs(Math.sin(tickN * 0.12 + i * 1.6));
+      // trailing streak toward where the spark came from
+      const trailAng = sAng - 0.15;
+      const tx2 = sx + Math.cos(trailAng) * orbR, ty2 = sy + Math.sin(trailAng) * orbR;
+      ctx.strokeStyle = `rgba(170,238,255,${sparkAlpha * 0.5})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(tx2, ty2); ctx.lineTo(sx2, sy2); ctx.stroke();
+      ctx.fillStyle = i % 3 === 0 ? '#ffffff' : `rgba(255,255,255,${sparkAlpha})`;
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;
+      ctx.fillRect(sx2 - 2, sy2 - 2, 4, 4);
+    }
+    ctx.shadowBlur = 0;
+
+    // HP bar above her
+    const wBarW = wSz + 10;
+    const wBarH = 4;
+    const wBarX = sx - Math.floor(wBarW / 2);
+    const wBarY = sy - wH - 16;
+    ctx.fillStyle = '#0a2a33';
+    ctx.fillRect(wBarX, wBarY, wBarW, wBarH);
+    ctx.fillStyle = hpPct > 0.5 ? '#aaeeff' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
+    ctx.fillRect(wBarX, wBarY, Math.floor(wBarW * hpPct), wBarH);
+    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
+    ctx.strokeRect(wBarX, wBarY, wBarW, wBarH);
 
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     return;
@@ -1298,6 +1876,59 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.shadowBlur = 0;
   }
 
+  // ── Frost Warden icy shield overlay — a hexagonal ice-crystal barrier on whichever
+  // ally she granted it to, distinct from the shielder's teal square+corners look.
+  // Double stroke (glow + bright core) plus corner glints, not just one thin line.
+  if (e.icyShieldHP > 0) {
+    const shPulse = 0.6 + 0.3 * Math.abs(Math.sin(tickN * 0.15));
+
+    // Orbiting ice-shard particles
+    const shSparkCount = 4;
+    for (let i = 0; i < shSparkCount; i++) {
+      const spAng = tickN * 0.03 + (Math.PI * 2 * i) / shSparkCount;
+      const spR = half + 10;
+      const spx = sx + Math.cos(spAng) * spR;
+      const spy = sy + Math.sin(spAng) * spR;
+      const spAlpha = 0.5 + 0.4 * Math.abs(Math.sin(tickN * 0.1 + i * 1.7));
+      ctx.fillStyle = `rgba(255,255,255,${spAlpha})`;
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 5;
+      ctx.fillRect(spx - 1.5, spy - 1.5, 3, 3);
+    }
+    ctx.shadowBlur = 0;
+
+    ctx.save();
+    ctx.translate(sx, sy);
+    const shR = half + 6;
+    const shHexPoints: [number, number][] = [];
+    for (let i = 0; i < 6; i++) {
+      const hAng = (Math.PI * 2 * i) / 6 - Math.PI / 2;
+      shHexPoints.push([Math.cos(hAng) * shR, Math.sin(hAng) * shR]);
+    }
+    // Outer glow layer — thicker border
+    ctx.globalAlpha = 0.35 + 0.2 * shPulse;
+    ctx.strokeStyle = '#aaeeff';
+    ctx.lineWidth = 8;
+    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = 12;
+    ctx.beginPath();
+    shHexPoints.forEach(([hx, hy], i) => i === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy));
+    ctx.closePath();
+    ctx.stroke();
+    // Bright core layer
+    ctx.globalAlpha = 0.65 + 0.3 * shPulse;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 6;
+    ctx.stroke();
+    // Corner glints
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.8;
+    for (const [hx, hy] of shHexPoints) {
+      ctx.fillRect(hx - 1.5, hy - 1.5, 3, 3);
+    }
+    ctx.restore();
+    ctx.shadowBlur = 0;
+  }
+
   // ── Healer pulsing aura ring ─────────────────────────────────────────
   if (e.type === 'healer') {
     const healProgress = 1 - e.attackTimer / HEALER_HEAL_INTERVAL; // 0→1 toward next heal
@@ -1513,6 +2144,41 @@ function drawGame(
         drawPixelDiamond(ctx, sx + TILE_SIZE / 2, sy + TILE_SIZE / 2, diaSize, tcol);
         ctx.shadowBlur = 0;
       }
+
+      // Frost Warden ice tile — blocky icy tint + crack pattern, freezes the player on step
+      if (state.frostIceTiles.some(([itx, ity]) => itx === tx && ity === ty)) {
+        const icePulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.06));
+        ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = Math.floor(10 * icePulse);
+        ctx.fillStyle = `rgba(170,238,255,${0.4 * icePulse})`;
+        ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = `rgba(255,255,255,${0.7 * icePulse})`;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(sx + 2, sy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx + TILE_SIZE * 0.2, sy + TILE_SIZE * 0.5); ctx.lineTo(sx + TILE_SIZE * 0.8, sy + TILE_SIZE * 0.5);
+        ctx.moveTo(sx + TILE_SIZE * 0.5, sy + TILE_SIZE * 0.2); ctx.lineTo(sx + TILE_SIZE * 0.5, sy + TILE_SIZE * 0.8);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Frost Warden chill field — persistent icy wash + frosty border over whichever chamber
+  // she currently occupies, so the chill debuff is visible, not just felt
+  const frostWarden = state.enemies.find(e => e.type === 'frost_warden');
+  if (frostWarden) {
+    const fwChamber = chamberOfTile(frostWarden.tileX, frostWarden.tileY);
+    if (fwChamber >= 0) {
+      const [r1, c1, r2, c2] = CHAMBER_BOUNDS[fwChamber];
+      const frostPulse = 0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.03));
+      ctx.fillStyle = `rgba(170,238,255,${0.06 + 0.05 * frostPulse})`;
+      ctx.fillRect(c1 * TILE_SIZE - camX, r1 * TILE_SIZE - camY,
+        (c2 - c1 + 1) * TILE_SIZE, (r2 - r1 + 1) * TILE_SIZE);
+      ctx.strokeStyle = `rgba(255,255,255,${0.25 + 0.2 * frostPulse})`;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(c1 * TILE_SIZE - camX + 1, r1 * TILE_SIZE - camY + 1,
+        (c2 - c1 + 1) * TILE_SIZE - 2, (r2 - r1 + 1) * TILE_SIZE - 2);
     }
   }
 
@@ -1870,6 +2536,23 @@ function drawGame(
   const psy = state.playerY - camY;
   drawPlayer(ctx, psx, psy, state, tickN, chargingMs);
 
+  // Frozen by a Frost Warden ice tile — blocky ice-block overlay encasing the player
+  if (state.playerFrozenTicks > 0) {
+    const fSz = Math.floor(TILE_SIZE * 0.9);
+    const fH = fSz / 2;
+    const fPulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.2));
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = Math.floor(16 * fPulse);
+    ctx.fillStyle = '#cceeff';
+    ctx.fillRect(psx - fH, psy - fH, fSz, fSz);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(psx - fH, psy - fH, fSz, fSz);
+    ctx.restore();
+  }
+
   // Laser bullets
   for (const b of state.laserBullets || []) {
     const shadowCol = b.powered ? '#ffaa00' : '#00ffff';
@@ -1952,25 +2635,85 @@ function drawGame(
     ctx.shadowBlur = 0; ctx.globalAlpha = 1;
   }
 
+  // Storm Reaper's melee strike — a big double electric slash (X-cut), not a laser beam
+  for (const slash of state.slashEffects) {
+    const progress = slash.ticks / slash.maxTicks; // 1 -> 0
+    const sxp = slash.x - camX, syp = slash.y - camY;
+    const radius = TILE_SIZE * (0.9 + 0.65 * (1 - progress)); // swipes outward as it fades
+    const arcSpan = 1.5; // radians of the crescent
+
+    ctx.save();
+    ctx.translate(sxp, syp);
+    ctx.globalAlpha = progress;
+
+    // Impact flash — bright burst at the moment of the hit, gone within a couple ticks
+    if (progress > 0.82) {
+      const flashT = (progress - 0.82) / 0.18; // 1 -> 0 fast
+      ctx.globalAlpha = flashT;
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 30;
+      ctx.beginPath();
+      ctx.arc(0, 0, TILE_SIZE * 0.7 * flashT, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = progress;
+    }
+
+    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = 20;
+
+    // Two crossed crescents (X-slash) for a bigger, more dramatic hit than a single swipe
+    for (const rot of [slash.angle - 0.35, slash.angle + 0.35]) {
+      ctx.save();
+      ctx.rotate(rot);
+      ctx.strokeStyle = '#00c8e0'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, -arcSpan / 2, arcSpan / 2);
+      ctx.stroke();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, -arcSpan / 2, arcSpan / 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Forking electric bolts jutting off the slash — denser spray than before
+    ctx.save();
+    ctx.rotate(slash.angle);
+    ctx.strokeStyle = '#aefcff'; ctx.lineWidth = 1.5;
+    for (const t of [-0.7, -0.45, -0.2, 0.05, 0.3, 0.55]) {
+      const bx = Math.cos(t) * radius, by = Math.sin(t) * radius;
+      const forkLen = 10 + Math.random() * 6;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + Math.cos(t) * forkLen + (Math.random() - 0.5) * 10, by + Math.sin(t) * forkLen + (Math.random() - 0.5) * 10);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
   // Laser beams — player=cyan, powered=gold, sniper=red, boss=dark red
   for (const beam of state.laserBeams) {
     const isEnemy = !!beam.color;
     const isBossLaser = beam.color === '#cc0022';
     const isQueenLaser = beam.color === '#cc33ff' || beam.color === '#dd88ff';
+    const isDevourerLaser = beam.color === '#6b2fa8';
+    const isFrostLaser = beam.color === '#aaeeff';
     const maxTicks = isEnemy ? 22 : 18;
     const alpha = beam.ticks / maxTicks;
-    const shadowCol = isBossLaser ? '#ff6600' : isQueenLaser ? '#dd44ff' : isEnemy ? '#ff2200' : beam.powered ? '#ffaa00' : '#00ffff';
-    const strokeOut = isBossLaser ? '#cc2200' : isQueenLaser ? '#cc33ff' : isEnemy ? '#ff4400' : beam.powered ? '#ffcc00' : '#44ddff';
-    const strokeIn = isBossLaser ? '#ff8800' : isQueenLaser ? '#ee99ff' : isEnemy ? '#ff8844' : beam.powered ? '#ffee88' : '#aaffff';
-    const coreCol = isBossLaser ? '#ffee88' : '#ffffff';
+    const shadowCol = isBossLaser ? '#ff6600' : isQueenLaser ? '#dd44ff' : isDevourerLaser ? '#88ff44' : isFrostLaser ? '#aaeeff' : isEnemy ? '#ff2200' : beam.powered ? '#ffaa00' : '#00ffff';
+    const strokeOut = isBossLaser ? '#cc2200' : isQueenLaser ? '#cc33ff' : isDevourerLaser ? '#6b2fa8' : isFrostLaser ? '#66ccff' : isEnemy ? '#ff4400' : beam.powered ? '#ffcc00' : '#44ddff';
+    const strokeIn = isBossLaser ? '#ff8800' : isQueenLaser ? '#ee99ff' : isDevourerLaser ? '#88ff44' : isFrostLaser ? '#cceeff' : isEnemy ? '#ff8844' : beam.powered ? '#ffee88' : '#aaffff';
+    const coreCol = isBossLaser ? '#ffee88' : isDevourerLaser ? '#c8ff88' : '#ffffff';
 
     // Boss laser flickers like a guttering flame column; Queen laser shimmers like arcane current
     const fireFlicker = isBossLaser ? 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.7)) : 1;
     const queenShimmer = isQueenLaser ? 0.75 + 0.25 * Math.abs(Math.sin(tickN * 0.35)) : 1;
 
-    const outerW = isBossLaser ? Math.floor(TILE_SIZE * 1.2 * fireFlicker) : isEnemy ? Math.max(4, Math.floor(TILE_SIZE * 0.25)) : TILE_SIZE;
-    const innerW = isBossLaser ? Math.floor(TILE_SIZE * 0.6 * fireFlicker) : Math.max(4, Math.floor(TILE_SIZE * 0.35));
-    const coreW = isBossLaser ? 4 : 2;
+    const outerW = isBossLaser ? Math.floor(TILE_SIZE * 1.2 * fireFlicker) : isDevourerLaser ? Math.floor(TILE_SIZE * 0.5) : isFrostLaser ? Math.floor(TILE_SIZE * 0.7) : isEnemy ? Math.max(4, Math.floor(TILE_SIZE * 0.25)) : TILE_SIZE;
+    const innerW = isBossLaser ? Math.floor(TILE_SIZE * 0.6 * fireFlicker) : isDevourerLaser ? Math.floor(TILE_SIZE * 0.3) : isFrostLaser ? Math.floor(TILE_SIZE * 0.4) : Math.max(4, Math.floor(TILE_SIZE * 0.35));
+    const coreW = isBossLaser ? 4 : isDevourerLaser ? 3 : isFrostLaser ? 4 : 2;
 
     ctx.lineCap = 'square';
     ctx.globalAlpha = alpha * 0.45 * fireFlicker * queenShimmer;
@@ -2070,6 +2813,59 @@ function drawGame(
         ctx.fillStyle = life < 0.4 ? '#ffee00' : life < 0.7 ? '#ff8800' : '#ff3300';
         ctx.fillRect(px - eSz / 2, py - eSz / 2, eSz, eSz);
       }
+    }
+
+    // Frost Warden ice-laser — a dense scatter of drifting ice-crystal shards riding the
+    // whole beam, matching her shield's shard-orbit effect rather than embers or magic dust
+    if (isFrostLaser) {
+      const fdx = beam.endX - beam.fromX, fdy = beam.endY - beam.fromY;
+      const flen2 = Math.sqrt(fdx * fdx + fdy * fdy) || 1;
+      const fnx = -fdy / flen2, fny = fdx / flen2;
+      const shardCount = 24;
+      for (let s = 0; s < shardCount; s++) {
+        const t = (s + 0.5) / shardCount + Math.sin(s * 2.9) * 0.02;
+        const cycle = 14 + (s % 4) * 3;
+        const phase = (tickN * 0.7 + s * 5.7) % cycle;
+        const life = phase / cycle;
+        const jitter = Math.sin(tickN * 0.25 + s * 2.1) * 10;
+        const px = beam.fromX + fdx * t - camX + fnx * jitter;
+        const py = beam.fromY + fdy * t - camY + fny * jitter;
+        const fAlpha = alpha * Math.sin(life * Math.PI);
+        const fSz = Math.max(1, 4 - Math.floor(life * 2));
+        ctx.globalAlpha = fAlpha;
+        ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+        ctx.fillStyle = s % 3 === 0 ? '#ffffff' : s % 3 === 1 ? '#aaeeff' : '#66ccff';
+        ctx.fillRect(px - fSz / 2, py - fSz / 2, fSz, fSz);
+      }
+    }
+
+    // Devourer sound-wave — several traveling concentric arcs pulsing along the beam path,
+    // reading as an audio waveform/shout rather than a solid bolt like the King/Queen's
+    if (isDevourerLaser) {
+      const sdx = beam.endX - beam.fromX, sdy = beam.endY - beam.fromY;
+      const slen = Math.sqrt(sdx * sdx + sdy * sdy) || 1;
+      const snx = -sdy / slen, sny = sdx / slen;
+      const ringCount = 6;
+      for (let r = 0; r < ringCount; r++) {
+        const t = ((tickN * 0.06 + r / ringCount) % 1);
+        ctx.globalAlpha = alpha * Math.sin(t * Math.PI);
+        ctx.strokeStyle = '#c8ff88';
+        ctx.lineWidth = 4;
+        ctx.shadowColor = '#88ff44'; ctx.shadowBlur = 16;
+        ctx.beginPath();
+        const segs = 14;
+        let started = false;
+        for (let i = 0; i <= segs; i++) {
+          const segT = t - 0.13 + (i / segs) * 0.26; // a short wavy arc segment riding along the beam
+          if (segT < 0 || segT > 1) continue;
+          const wob = Math.sin(i / segs * Math.PI) * 18;
+          const px = beam.fromX + sdx * segT - camX + snx * wob;
+          const py = beam.fromY + sdy * segT - camY + sny * wob;
+          if (!started) { ctx.moveTo(px, py); started = true; } else { ctx.lineTo(px, py); }
+        }
+        ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
     }
 
     ctx.shadowBlur = 0;
@@ -2197,8 +2993,6 @@ export default function RubyStarPage() {
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const mouseDownTimeRef = useRef<number>(0);
   const rightMouseHeldRef = useRef<boolean>(false);
-  const lastAutoFireTickRef = useRef<number>(0);
-  const AUTO_FIRE_INTERVAL = Math.round(BULLET_COOLDOWN * 1.5); // slower than max click-spam rate
 
   // ── Mobile virtual joystick ──────────────────────────────────────────────
   const [joyThumb, setJoyThumb] = useState({ x: 0, y: 0 });
@@ -2314,54 +3108,70 @@ export default function RubyStarPage() {
     if (showRules) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
-    let lastTime = 0;
     const TARGET_MS = 1000 / 60;
-    function loop(ts: number) {
-      rafRef.current = requestAnimationFrame(loop);
-      if (ts - lastTime < TARGET_MS * 0.8) return;
-      lastTime = ts;
-      const state = stateRef.current;
-      if (!state) return;
+    let lastTime = 0;
+    let accumulator = 0;
+
+    // Runs exactly one 60Hz game tick's worth of logic — pulled out of loop() so it can be
+    // invoked 0, 1, or several times per rendered frame depending on real elapsed time,
+    // instead of being tied to however often requestAnimationFrame happens to fire.
+    function runOneTick(state: GameState) {
       tickRef.current++;
-      const t = tickRef.current;
       const chargingMsNow = mouseDownTimeRef.current > 0 ? Date.now() - mouseDownTimeRef.current : 0;
-      // Auto-fire wave when hold reaches 1000ms (only if wave not on cooldown)
-      if (chargingMsNow >= 1000 && state.gamePhase === 'playing' && state.waveCooldown === 0) {
+      // Full charge takes longer while chilled by a Frost Warden sharing the player's chamber
+      const waveChargeMsNow = isPlayerChilled(state) ? 1500 : 1000;
+      // Auto-fire wave once the hold reaches full charge (only if wave not on cooldown)
+      if (chargingMsNow >= waveChargeMsNow && state.gamePhase === 'playing' && state.waveCooldown <= 0) {
         activateWave(state);
         mouseDownTimeRef.current = Date.now();
       }
-      // Charge build-up sound — rising tone every ~120ms while charging
-      if (chargingMsNow >= 200 && state.waveCooldown === 0 && state.gamePhase === 'playing') {
+      // Charge build-up sound — the same simple tone already used for the LASER's charge
+      // hits, played once every ~120ms while charging. A custom rising-pitch oscillator was
+      // tried twice here and regressed to sounding "slowed" even when not chilled both times
+      // (likely from creating a fresh AudioContext on every single tick instead of reusing
+      // one) — not worth re-chasing, this simple version is proven correct.
+      if (chargingMsNow >= 200 && state.waveCooldown <= 0 && state.gamePhase === 'playing') {
         const chargeSlot = Math.floor(chargingMsNow / 120);
         const prevChargeSlot = Math.floor((chargingMsNow - 16) / 120);
-        if (chargeSlot !== prevChargeSlot) {
-          const progress = Math.min(1, chargingMsNow / 1000);
-          const freq = 180 + progress * 720; // rises from 180Hz to 900Hz
-          try {
-            const actx = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const osc = actx.createOscillator();
-            const gain = actx.createGain();
-            osc.type = 'square';
-            osc.frequency.value = freq;
-            gain.gain.setValueAtTime(0.25, actx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.09);
-            osc.connect(gain); gain.connect(actx.destination);
-            osc.start(); osc.stop(actx.currentTime + 0.1);
-          } catch { }
-        }
+        if (chargeSlot !== prevChargeSlot) playSFX_charge();
       }
       // Lock movement while ACTIVELY charging (not during cooldown)
-      if (chargingMsNow >= 200 && state.waveCooldown === 0) {
+      if (chargingMsNow >= 200 && state.waveCooldown <= 0) {
         state.playerQueuedDirX = 0;
         state.playerQueuedDirY = 0;
       }
-      // Auto-fire bullet while right mouse button is held, throttled slower than the
-      // engine's raw cooldown so it doesn't feel like a machine-gun spray.
-      if (rightMouseHeldRef.current && state.gamePhase === 'playing' && state.bulletCooldown === 0 && t - lastAutoFireTickRef.current >= AUTO_FIRE_INTERVAL) {
+      // Auto-fire bullet while right mouse button is held — fires at exactly the same rate
+      // as spam-clicking, since useBullet is already self-gated by the raw bulletCooldown.
+      if (rightMouseHeldRef.current && state.gamePhase === 'playing' && state.bulletCooldown <= 0) {
         useBullet(state);
-        lastAutoFireTickRef.current = t;
       }
       if (state.gamePhase !== 'lost') tick(state);
+    }
+
+    function loop(ts: number) {
+      rafRef.current = requestAnimationFrame(loop);
+      const state = stateRef.current;
+      if (!state) return;
+
+      if (lastTime === 0) lastTime = ts;
+      let delta = ts - lastTime;
+      lastTime = ts;
+      // Cap a single frame's catch-up so a backgrounded tab / debugger pause doesn't dump
+      // a huge burst of ticks the instant the tab regains focus.
+      if (delta > TARGET_MS * 5) delta = TARGET_MS * 5;
+      accumulator += delta;
+
+      // Fixed-timestep: run exactly as many 60Hz ticks as real time has actually elapsed,
+      // regardless of the display's refresh rate — the previous "skip if too soon" heuristic
+      // (ts - lastTime < TARGET_MS * 0.8) wasn't a clean divisor of every refresh rate (144Hz
+      // in particular), so ticks — and everything timed in ticks: boss spawns, cooldowns,
+      // ice-tile freezes, all of it — ran up to ~20% faster than intended on those displays.
+      while (accumulator >= TARGET_MS) {
+        accumulator -= TARGET_MS;
+        runOneTick(state);
+      }
+
+      const t = tickRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
@@ -2526,7 +3336,6 @@ export default function RubyStarPage() {
     s.godMode = stateRef.current?.godMode ?? false;
     stateRef.current = s;
     tickRef.current = 0;
-    lastAutoFireTickRef.current = 0;
     rightMouseHeldRef.current = false;
     rerender();
   };
@@ -2679,7 +3488,7 @@ export default function RubyStarPage() {
             <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
               Every ~30 seconds a chamber is targeted, cycling clockwise (ALPHA → BETA → DELTA → GAMMA → repeat). You have{' '}
               <span style={{ color: 'var(--danger)' }}>5 seconds to escape</span> — watch the minimap and the warning banner!
-              Every enemy in the struck chamber is wiped out (Fiery King and Shadow Queen instead lose 75% of their max HP — dying outright if already at or below that).
+              Every enemy in the struck chamber is wiped out (all boss types instead lose 75% of their max HP — dying outright if already at or below that, except the Soul Devourer who a meteor alone can never finish off below 5% HP).
             </p>
           </div>
 
@@ -2710,8 +3519,11 @@ export default function RubyStarPage() {
               <span style={{ color: '#ee8822' }}>■ SPLITTER</span> — Splits into 2 Mini Splitters on death. Tanky stacked-box design.<br />
               <span style={{ color: '#cc6611' }}>■ MINI SPLITTER</span> — Spawned from Splitter death. Small and fast.<br />
               <span style={{ color: '#44ddff' }}>■ SHIELDER</span> — Shields the most-injured ally, halving all damage it takes. Kill grants ~2.5s invincibility.<br />
-              <span style={{ color: '#cc0022' }}>■ FIERY KING</span> — High HP, high damage.<br />
-              <span style={{ color: '#cc33ff' }}>■ SHADOW QUEEN</span> — Can teleport and leaves a decoy behind that deals damage.
+              <span style={{ color: '#cc0022' }}>■ FIERY KING</span> — High HP, high damage, speeds up the longer he's alive.<br />
+              <span style={{ color: '#cc33ff' }}>■ SHADOW QUEEN</span> — Teleports between chambers and leaves a decoy behind that keeps attacking.<br />
+              <span style={{ color: '#00eaff' }}>■ STORM REAPER</span> — Fast, only hunts you (never the ruby), can seal a hallway shut to trap you.<br />
+              <span style={{ color: '#6b2fa8' }}>■ SOUL DEVOURER</span> — Eats nearby enemies to grow bigger, tankier, and stronger — don't let her feast.<br />
+              <span style={{ color: '#aaeeff' }}>■ FROST WARDEN</span> — Never attacks directly. Chills her chamber (slows you and your attack speed), scatters freezing ice tiles, and shields nearby allies.
             </p>
           </div>
         </div>
@@ -2750,7 +3562,7 @@ export default function RubyStarPage() {
               if (stateRef.current) godSpawnBoss(stateRef.current, 'fiery_king');
               rerender();
             }}>
-            Spawn King
+            Spawn Fiery King
           </button>
           <button
             style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #cc33ff', borderRadius: '4px' }}
@@ -2759,6 +3571,30 @@ export default function RubyStarPage() {
               rerender();
             }}>
             Spawn Shadow Queen
+          </button>
+          <button
+            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #00eaff', borderRadius: '4px' }}
+            onClick={() => {
+              if (stateRef.current) godSpawnBoss(stateRef.current, 'storm_reaper');
+              rerender();
+            }}>
+            Spawn Storm Reaper
+          </button>
+          <button
+            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #6b2fa8', borderRadius: '4px' }}
+            onClick={() => {
+              if (stateRef.current) godSpawnBoss(stateRef.current, 'devourer');
+              rerender();
+            }}>
+            Spawn Soul Devourer
+          </button>
+          <button
+            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #aaeeff', borderRadius: '4px' }}
+            onClick={() => {
+              if (stateRef.current) godSpawnBoss(stateRef.current, 'frost_warden');
+              rerender();
+            }}>
+            Spawn Frost Warden
           </button>
         </div>
       )}
@@ -3043,7 +3879,7 @@ export default function RubyStarPage() {
           />
           {/* HEAL/TP — teleport-or-heal, identical to Space */}
           <TouchAbilityButton
-            label={<>HEAL<br/>TP</>} color="#ff88aa" size={60}
+            label={<>HEAL<br />TP</>} color="#ff88aa" size={60}
             onDown={handleTouchHeal}
             className="rs-touch-controls"
             style={{ position: 'fixed', right: '252px', bottom: '16px', zIndex: 60 }}

@@ -180,9 +180,27 @@ export function chamberOfTile(tileX: number, tileY: number): number {
   return -1;
 }
 
+// Hallway bounds [row1, col1, row2, col2] inclusive — must match generateMap's fillFloor calls.
+// 0: top (ALPHA<->BETA), 1: bottom (GAMMA<->DELTA), 2: left (ALPHA<->GAMMA), 3: right (BETA<->DELTA)
+export const HALLWAY_BOUNDS: readonly [number, number, number, number][] = [
+  [9, 20, 11, 30],
+  [38, 20, 40, 30],
+  [20, 9, 30, 11],
+  [20, 38, 30, 40],
+];
+
+// Returns which hallway index a tile belongs to (-1 if none / inside a chamber)
+export function hallwayOfTile(tileX: number, tileY: number): number {
+  for (let i = 0; i < HALLWAY_BOUNDS.length; i++) {
+    const [r1, c1, r2, c2] = HALLWAY_BOUNDS[i];
+    if (tileY >= r1 && tileY <= r2 && tileX >= c1 && tileX <= c2) return i;
+  }
+  return -1;
+}
+
 // ─── Enemy types ─────────────────────────────────────────────────────────────
 
-export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'fiery_king' | 'splitter_queen' | 'queen_echo';
+export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'fiery_king' | 'splitter_queen' | 'queen_echo' | 'storm_reaper' | 'devourer' | 'frost_warden';
 
 export interface EnemyConfig {
   maxHp: number;
@@ -266,13 +284,33 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
   },
   queen_echo: {
     maxHp: 1, speed: 0, color: '#dd88ff', shieldColor: '#dd88ff',
-    bodyFraction: 0.80, scoreValue: 0, damageToPlayer: 8, damageToRuby: 4,
+    bodyFraction: 0.80, scoreValue: 0, damageToPlayer: 7, damageToRuby: 4,
     attackCooldown: 55, attackRange: 8, bombExplodeRange: 0,
+  },
+  storm_reaper: {
+    maxHp: 60, speed: 4.0, color: '#00eaff', shieldColor: '#aefcff',
+    bodyFraction: 1.1, scoreValue: 450, damageToPlayer: 20, damageToRuby: 0,
+    attackCooldown: 24, attackRange: 1, bombExplodeRange: 0, // 40 / 1.7 ≈ 24 — attacks 1.7x faster
+  },
+  devourer: {
+    maxHp: 60, speed: 0.5, color: '#6b2fa8', shieldColor: '#b088e0',
+    bodyFraction: 0.95, scoreValue: 480, damageToPlayer: 12, damageToRuby: 14,
+    attackCooldown: 55, attackRange: 1, bombExplodeRange: 0,
+  },
+  frost_warden: {
+    // Pure field-controller — no direct attack, so damageToPlayer/damageToRuby/attackCooldown/
+    // attackRange are unused (kept only because EnemyConfig requires every field).
+    maxHp: 100, speed: 0, color: '#aaeeff', shieldColor: '#ffffff',
+    bodyFraction: 0.9, scoreValue: 460, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 65, attackRange: 10, bombExplodeRange: 0,
   },
 };
 
-export const BOSS_SPAWN_INTERVAL  = 720;  // ticks (~12s) between boss spawns (was ~5s, +7s so the next boss doesn't appear too soon after a kill)
+export const BOSS_SPAWN_INTERVAL  = 1590; // ticks (~26.5s) + BOSS_WARNING_TICKS (~3.5s) = ~30s total gap between boss spawns
 export const BOSS_WARNING_TICKS   = 210;  // ticks of warning before boss appears (~3.5s)
+// First boss timer starts counting only once difficultyLevel reaches 1 (~10s in), then this
+// many ticks, then BOSS_WARNING_TICKS more — sized so the very first boss appears at ~60s total.
+export const BOSS_FIRST_SPAWN_TIMER = 2790;
 export const BOSS_METEOR_DMG      = 75;   // meteor deals 75% of boss max HP
 export const BOSS_ATTACK_RANGE    = 3;    // boss can attack from 3 tiles away
 export const KING_SPEED_RAMP_PER_SEC = 0.01584; // fraction of base speed gained per second survived
@@ -298,7 +336,27 @@ export const QUEEN_PHASE_INTERVAL  = 480; // ticks (~8s) between chamber phase-j
 export const QUEEN_PHASE_TELEGRAPH = 60;  // ticks before a jump where she visibly destabilizes
 export const QUEEN_ATTACK_RANGE    = 16;  // tiles — fires from this distance, only within her own chamber
 export const QUEEN_WINDUP_TICKS    = 40;  // telegraph before firing (queen + echo share this)
-export const QUEEN_PHASE_HEAL_PCT  = 0.1; // fraction of max HP healed on each phase-jump
+export const QUEEN_PHASE_HEAL_PCT  = 0.07; // fraction of max HP healed on each phase-jump
+
+export const REAPER_SEAL_DURATION  = 240; // ticks (~4s) a sealed hallway stays walled off
+export const REAPER_SEAL_COOLDOWN  = 480; // ticks (~8s) before she can seal another hallway
+
+export const DEVOURER_ABSORB_RANGE    = 5;   // tiles — how far she'll reach to consume a nearby ally
+export const DEVOURER_ABSORB_COOLDOWN = 540; // ticks (~9s) between absorb attempts — reaching all 20 stacks takes ~3 minutes minimum
+export const DEVOURER_MAX_STACKS      = 20;  // hard cap — compounding growth makes her genuinely terrifying if left unchecked this long
+export const DEVOURER_STACK_HP_PCT    = 0.12; // fraction of max HP gained (and healed) per absorb
+// Damage multiplier at full stacks (base 12 dmg -> 90 at 20 stacks = 7.5x), scaled by
+// (stacks/DEVOURER_MAX_STACKS)^2 so growth accelerates — small early on, big near the cap.
+export const DEVOURER_STACK_DMG_MAX_MULT = 7.5;
+export const DEVOURER_STACK_SPEED_PCT = 0.04; // fraction of speed lost per absorb — bigger, slower
+
+export const FROST_CHILL_SPEED_MULT  = 0.65; // player move-speed multiplier while sharing her chamber
+export const FROST_CHILL_TICK_RATE   = 0.5;  // LASER/BULLET/WAVE cooldowns tick down at this rate while chilled (half attack speed)
+export const FROST_ICE_TILE_COUNT    = 7;    // ice tiles scattered in whichever chamber she currently occupies
+export const FROST_FREEZE_DURATION   = 90;   // ticks (~1.5s) fully immobilized after stepping on ice
+export const FROST_RELOCATE_INTERVAL = 1800; // ticks (~30s) between chamber relocations (re-scatters ice tiles)
+export const FROST_SHIELD_HP         = 10;   // absorb capacity of the icy shield granted per cast
+export const FROST_SHIELD_CAST_DELAY = 600;  // ticks (~10s) — recurring interval between ice-laser shield casts
 
 // ─── Difficulty tiers ────────────────────────────────────────────────────────
 
@@ -329,7 +387,6 @@ export const PLAYER_MAX_HP       = 100;
 export const RUBY_MAX_HP         = 100;
 export const PLAYER_BASE_SPEED   = 4.5;  // px/tick  (scaled with TILE_SIZE 48)
 export const PLAYER_CARRY_MULT   = 0.4; // speed multiplier when carrying ruby
-export const PLAYER_INVINCIBLE_TICKS = 90;
 
 // ─── Abilities ────────────────────────────────────────────────────────────────
 
@@ -340,7 +397,7 @@ export const LASER_DMG       = 2.1;
 export const LASER_DMG_PWR   = 6.3;
 export const LASER_COOLDOWN  = 40;  // ticks (~0.67s) — frequent clicks, low damage
 
-export const BULLET_COOLDOWN = 8;
+export const BULLET_COOLDOWN = 11;
 export const BULLET_DMG      = 0.35;
 export const BULLET_DMG_PWR  = 1.05;
 export const BULLET_SPEED    = 0.45;
@@ -363,7 +420,7 @@ export const SPEED_MULT         = 2.2;
 export const SPEED_COOLDOWN     = 270; // (4.5s) — was 360 (6s), reduced by 1.5s
 
 // 4. Bomb (key B — place / detonate)
-export const BOMB_RADIUS      = 3;   // tiles
+export const BOMB_RADIUS      = 4;   // tiles
 export const BOMB_RADIUS_PWR  = 5;
 export const BOMB_DMG         = 45;
 export const BOMB_DMG_PWR     = 90;
