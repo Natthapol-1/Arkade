@@ -34,7 +34,7 @@ import {
 
 // Chamber indices are 0=ALPHA(TL), 1=BETA(TR), 2=GAMMA(BL), 3=DELTA(BR) — see constants.ts.
 // Clockwise strike order: ALPHA(TL) -> BETA(TR) -> DELTA(BR) -> GAMMA(BL).
-const METEOR_CLOCKWISE_ORDER = [0, 1, 3, 2];
+export const METEOR_CLOCKWISE_ORDER = [0, 1, 3, 2];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,6 +173,7 @@ export interface GameState {
   playerInvincibleTicks: number;
   playerCarryingRuby: boolean;
   playerFrozenTicks: number; // Frost Warden ice-tile freeze — fully immobilized while > 0
+  playerChilledPrev: boolean; // whether player was in a Frost Warden's chamber last tick — edge-triggers the enter-field SFX
 
   // Ruby
   rubyHP: number;
@@ -363,7 +364,7 @@ function playSFX_decoyDeath() {
 
 function playSFX_alienShoot() {
   try {
-    const a = new Audio('/sounds/alienShootLaser.wav'); a.volume = 0.29; a.play().catch(() => {});
+    const a = new Audio('/sounds/alienShootLaser.wav'); a.volume = 0.2; a.play().catch(() => {});
   } catch { }
 }
 
@@ -439,10 +440,7 @@ export function playSFX_rubyToggle() {
 }
 
 export function playSFX_teleport() {
-  try {
-    const a = new Audio('/sounds/swap.mp3'); a.volume = 0.5; a.play().catch(() => {});
-    const b = new Audio('/sounds/freeze.mp3'); b.volume = 0.4; b.play().catch(() => {});
-  } catch { }
+  playSFX_pickup();
 }
 
 function playSFX_queenTeleport() {
@@ -481,6 +479,13 @@ function playSFX_hallwaySeal() {
 function playSFX_frostFreeze() {
   try {
     const a = new Audio('/sounds/freeze.mp3'); a.volume = 1.0; a.play().catch(() => {});
+  } catch { }
+}
+
+function playSFX_frostFieldEnter() {
+  try {
+    const a = new Audio('/sounds/swap.mp3'); a.volume = 0.5; a.play().catch(() => {});
+    const b = new Audio('/sounds/freeze.mp3'); b.volume = 0.5; b.play().catch(() => {});
   } catch { }
 }
 
@@ -553,6 +558,7 @@ export function createInitialState(): GameState {
     playerInvincibleTicks: 0,
     playerCarryingRuby: false,
     playerFrozenTicks: 0,
+    playerChilledPrev: false,
 
     rubyHP: RUBY_MAX_HP,
     rubyTileX: TELEPORT_PADS[0][0],
@@ -1809,8 +1815,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
   const e = state.enemies[idx];
   spawnDeathParticles(state, e);
 
-  // Echoes never grant score/energy/kill-effects — only the real Queen dying counts.
-  const skipRewards = fromMeteor || e.type === 'queen_echo';
+  const skipRewards = fromMeteor;
   if (!skipRewards) {
     state.killScore += ENEMY_CONFIGS[e.type].scoreValue;
     const wasMax = state.starEnergy >= STAR_ENERGY_MAX;
@@ -1820,7 +1825,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
 
     // Passive sustain — every kill heals a small flat amount, stacking on top of any
     // type-specific reward below (e.g. a healer kill grants this +24 more, not instead of).
-    state.playerHP = Math.min(PLAYER_MAX_HP, state.playerHP + 3);
+    state.playerHP = Math.min(PLAYER_MAX_HP, state.playerHP + 5);
 
     // ── Kill effects by type ─────────────────────────────────────────────
     if (e.type === 'bomber') {
@@ -2245,7 +2250,7 @@ export function doTeleport(state: GameState, chamberIdx: number) {
   state.playerChamber = chamberIdx;
   state.gamePhase = 'playing';
   state.teleportDestOptions = [];
-  state.teleportCooldown = 90;
+  state.teleportCooldown = 0;
   playSFX_teleport();
 
   // Carrying the ruby through a teleport auto-places it on the destination pad.
@@ -2293,7 +2298,7 @@ export function healRuby(state: GameState): boolean {
   if (!canHealRuby(state)) return false;
   if (state.rubyHealCooldown > 0) return false;
   if (state.rubyHP < RUBY_MAX_HP) state.rubyHP = Math.min(RUBY_MAX_HP, state.rubyHP + RUBY_HEAL_AMOUNT);
-  state.playerHP = Math.min(PLAYER_MAX_HP, state.playerHP + 2);
+  state.playerHP = Math.min(PLAYER_MAX_HP, state.playerHP + 3);
   state.rubyHealCooldown = RUBY_HEAL_COOLDOWN;
   state.healJiggleTicks = 18;
   try { const a = new Audio('/sounds/deghost.wav'); a.volume = 0.32; a.play().catch(() => {}); } catch {}
@@ -2303,7 +2308,7 @@ export function healRuby(state: GameState): boolean {
 export function cancelTeleport(state: GameState) {
   state.gamePhase = 'playing';
   state.teleportDestOptions = [];
-  state.teleportCooldown = 90;
+  state.teleportCooldown = 0;
 }
 
 // ─── Main tick ───────────────────────────────────────────────────────────────
@@ -2326,7 +2331,10 @@ export function tick(state: GameState) {
 
   // Cooldown tickers — LASER/BULLET/WAVE ("attack speed") tick down at half rate while
   // chilled by a Frost Warden sharing the player's chamber.
-  const chillRate = isPlayerChilled(state) ? FROST_CHILL_TICK_RATE : 1;
+  const chilledNow = isPlayerChilled(state);
+  if (chilledNow && !state.playerChilledPrev) playSFX_frostFieldEnter();
+  state.playerChilledPrev = chilledNow;
+  const chillRate = chilledNow ? FROST_CHILL_TICK_RATE : 1;
   if (state.laserCooldown > 0) state.laserCooldown -= chillRate;
   if (state.bulletCooldown > 0) state.bulletCooldown -= chillRate;
   if (state.waveCooldown > 0) state.waveCooldown -= chillRate;

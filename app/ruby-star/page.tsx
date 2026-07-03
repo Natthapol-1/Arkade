@@ -13,7 +13,7 @@ import {
   PLAYER_MAX_HP, RUBY_MAX_HP,
   LASER_COOLDOWN,
   STAR_ENERGY_MAX,
-  METEORITE_WARNING, BOMB_RADIUS, BOMB_RADIUS_PWR, BULLET_COOLDOWN, BULLET_SPEED,
+  METEORITE_WARNING, METEORITE_CYCLE, BOMB_RADIUS, BOMB_RADIUS_PWR, BULLET_COOLDOWN, BULLET_SPEED,
   HEALER_HEAL_INTERVAL, QUEEN_WINDUP_TICKS, QUEEN_PHASE_TELEGRAPH,
 } from './constants';
 import {
@@ -21,6 +21,7 @@ import {
   useLaser, useBullet, activateWave, useSpeedBoost, useBomb, godSpawnBoss,
   toggleCarryRuby, tryActivateTeleport, doTeleport, cancelTeleport,
   healRuby, canHealRuby, isPlayerChilled, playSFX_charge,
+  METEOR_CLOCKWISE_ORDER,
 } from './engine';
 
 // ─── Canvas colors ────────────────────────────────────────────────────────────
@@ -81,12 +82,6 @@ function drawMinimap(
       ctx.fillStyle = 'rgba(255,80,0,0.45)';
       ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
     }
-  }
-
-  // Resources
-  for (const r of state.resources) {
-    ctx.fillStyle = r.type === 'health' ? '#ff4455' : '#44aaff';
-    ctx.fillRect(MX + r.tileX * S - 1, MY + r.tileY * S - 1, 3, 3);
   }
 
   // Bomb
@@ -3675,6 +3670,20 @@ export default function RubyStarPage() {
               +{state?.killScore ?? 0}
             </span>
           </div>
+
+          {/* Bomb cooldown */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <span style={{ fontSize: 'var(--font-stat)', color: BOMB_COLOR, fontWeight: 700, letterSpacing: '0.1em' }}>BOMB</span>
+            {state?.bomb ? (
+              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: BOMB_COLOR, animation: 'pulseGlow 0.6s ease-in-out infinite' }}>ARMED</span>
+            ) : (state?.bombCooldown ?? 0) > 0 ? (
+              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: COOLDOWN_GRAY }}>
+                {Math.ceil((state?.bombCooldown ?? 0) / 60)}s
+              </span>
+            ) : (
+              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: BOMB_COLOR }}>READY</span>
+            )}
+          </div>
         </div>
 
         {/* Right controls */}
@@ -3780,6 +3789,35 @@ export default function RubyStarPage() {
             <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.9rem', color: '#ffcc00' }}>
               {Math.ceil((state?.bossWarningTicks ?? 0) / 60)}s
             </span>
+          </div>
+        )}
+
+        {phase === 'playing' && (state?.meteoriteWarning ?? -1) < 0 && state && (
+          <div style={{
+            position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(5,0,0,0.7)', border: '1px solid #884400',
+            borderRadius: '6px', padding: '5px 14px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
+            pointerEvents: 'none',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.6rem', color: '#cc7733' }}>
+                ☄ NEXT: {CHAMBER_LABELS[METEOR_CLOCKWISE_ORDER[state.meteoriteChamberSeq % 4]]}
+              </span>
+              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.6rem', color: '#996633' }}>
+                {Math.max(0, Math.ceil(state.meteoriteTimer / 60))}s
+              </span>
+            </div>
+            <div style={{
+              width: '100px', height: '4px', borderRadius: '2px',
+              background: 'rgba(255,255,255,0.12)', overflow: 'hidden',
+            }}>
+              <div style={{
+                height: '100%',
+                width: `${Math.max(0, Math.min(100, (state.meteoriteTimer / METEORITE_CYCLE) * 100))}%`,
+                background: '#cc7733', transition: 'width 0.1s linear',
+              }} />
+            </div>
           </div>
         )}
 
