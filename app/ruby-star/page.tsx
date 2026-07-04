@@ -702,21 +702,38 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     if (!rFlash) {
       ctx.fillStyle = '#003844';
       ctx.fillRect(-rH * 0.5, -rH * 0.5, rH, rH);
-      // Diagonal circuit-line detail across the inset plate — reads as tech/armor, not skin
+      // Cracked exoskeleton veins across the inset plate — jagged, irregular fractures
+      // instead of a straight tech-circuit diagonal, so the plate reads as carapace, not armor plating
       ctx.strokeStyle = '#00eaff88'; ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.moveTo(-rH * 0.5, 0); ctx.lineTo(0, -rH * 0.5);
-      ctx.moveTo(0, rH * 0.5); ctx.lineTo(rH * 0.5, 0);
+      ctx.moveTo(-rH * 0.5, -rH * 0.1); ctx.lineTo(-rH * 0.15, -rH * 0.4); ctx.lineTo(rH * 0.05, -rH * 0.5);
+      ctx.moveTo(rH * 0.5, rH * 0.15); ctx.lineTo(rH * 0.1, rH * 0.35); ctx.lineTo(-rH * 0.05, rH * 0.5);
       ctx.stroke();
     }
     ctx.restore();
 
-    // Glowing white slit eyes
+    // Alien eyes — one larger insectoid eye plus a smaller off-center companion, both
+    // plain axis-aligned blocks (matching the Devourer's "blocky square eye" convention)
+    // rather than a symmetrical mechanical slit pair
     if (!rFlash) {
       ctx.fillStyle = '#ffffff';
       ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
-      ctx.fillRect(sx - rH * 0.28, sy - rH * 0.12, rH * 0.16, rH * 0.24);
-      ctx.fillRect(sx + rH * 0.12, sy - rH * 0.12, rH * 0.16, rH * 0.24);
+      ctx.fillRect(sx - rH * 0.34, sy - rH * 0.18, rH * 0.28, rH * 0.22);
+      ctx.fillRect(sx + rH * 0.1, sy - rH * 0.06, rH * 0.15, rH * 0.13);
+      ctx.shadowBlur = 0;
+    }
+
+    // Chitinous mandible maw — uneven rectangular teeth stubs (same construction as the
+    // King's/Devourer's teeth) sitting directly on her body, the creature "face" tell she
+    // was missing, so she reads as a hunting alien rather than a geometric drone
+    if (!rFlash) {
+      const mH = rH * 0.34;
+      const mY = sy + rH * 0.14;
+      ctx.fillStyle = '#aefcff';
+      ctx.shadowColor = '#aefcff'; ctx.shadowBlur = 5;
+      for (const [tOff, tFrac, tW] of [[-0.26, 0.3, 0.08], [-0.1, 0.5, 0.06], [0.06, 0.36, 0.09], [0.22, 0.55, 0.07]] as [number, number, number][]) {
+        ctx.fillRect(sx + tOff * rSz - (tW * rSz) / 2, mY, tW * rSz, mH * tFrac);
+      }
       ctx.shadowBlur = 0;
     }
 
@@ -1022,26 +1039,52 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.moveTo(sx + wH * 0.5, sy - wH * 0.3); ctx.lineTo(sx + wH * 0.15, sy - wH * 0.3); ctx.lineTo(sx + wH * 0.15, sy + wH * 0.2);
       ctx.stroke();
 
-      // Crystalline crown — 5 angular icicle spikes on top (bigger/denser than before), her
-      // "royal" tell distinct from the King's gold crown and Queen's tiara
+      // Jagged frozen horns — uneven, outward-leaning icicle growths instead of a
+      // symmetric royal crown, so she reads as a frozen alien organism, not ice royalty
       ctx.fillStyle = '#ffffff';
       ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
-      for (const cx2 of [-0.42, -0.2, 0, 0.2, 0.42]) {
-        const spH = cx2 === 0 ? wH * 0.65 : Math.abs(cx2) === 0.2 ? wH * 0.5 : wH * 0.32;
+      for (const [cx2, spH, lean] of [[-0.44, 0.34, -0.5], [-0.22, 0.58, -0.15], [0.02, 0.68, 0.08], [0.24, 0.44, 0.3], [0.44, 0.26, 0.55]] as [number, number, number][]) {
         ctx.beginPath();
         ctx.moveTo(sx + cx2 * wSz - 3, sy - wH);
-        ctx.lineTo(sx + cx2 * wSz, sy - wH - spH);
+        ctx.lineTo(sx + cx2 * wSz + lean * wH * 0.4, sy - wH - wH * spH);
         ctx.lineTo(sx + cx2 * wSz + 3, sy - wH);
         ctx.closePath();
         ctx.fill();
       }
       ctx.shadowBlur = 0;
 
-      // Blocky glowing eyes
+      // Single cyclopean ice eye — one large faceted diamond eye instead of a pair, so
+      // she reads as one unnatural frozen orb rather than a normal face
+      const eyeSz = wH * 0.55;
+      const eyeCy = sy - wH * 0.08;
+      ctx.save();
+      ctx.translate(sx, eyeCy);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 10;
+      ctx.fillRect(-eyeSz / 2, -eyeSz / 2, eyeSz, eyeSz);
+      ctx.shadowBlur = 0;
+      const pupilSz = eyeSz * 0.42;
       ctx.fillStyle = '#0088aa';
-      ctx.shadowColor = '#0088aa'; ctx.shadowBlur = 6;
-      ctx.fillRect(sx - wH * 0.3, sy - wH * 0.1, wH * 0.18, wH * 0.22);
-      ctx.fillRect(sx + wH * 0.12, sy - wH * 0.1, wH * 0.18, wH * 0.22);
+      ctx.shadowColor = '#0088aa'; ctx.shadowBlur = 8;
+      ctx.fillRect(-pupilSz / 2, -pupilSz / 2, pupilSz, pupilSz);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+
+      // Jagged ice-crack "mouth" — a zigzag fissure splitting her face open below the eye,
+      // instead of a toothed maw or a plain bar
+      const crackY = sy + wH * 0.32;
+      const crackW = wSz * 0.55;
+      ctx.strokeStyle = '#0088aa';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#66ccff'; ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(sx - crackW / 2, crackY);
+      ctx.lineTo(sx - crackW * 0.18, crackY + wH * 0.08);
+      ctx.lineTo(sx + crackW * 0.05, crackY - wH * 0.05);
+      ctx.lineTo(sx + crackW * 0.22, crackY + wH * 0.1);
+      ctx.lineTo(sx + crackW / 2, crackY);
+      ctx.stroke();
       ctx.shadowBlur = 0;
     }
 
@@ -1155,6 +1198,34 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.fillRect(sx2 - 2, sy2 - 2, 4, 4);
     }
     ctx.shadowBlur = 0;
+
+    // Snowflake antennae — 6 thin blocky arms radiating outward in every direction, each
+    // with a forked pair of side branches near the tip, so her whole silhouette reads as
+    // a snowflake rather than just a crystal creature with a crown
+    const antennaLen = wH * 1.9;
+    const antennaBase = ringRx + 4; // start just past the Saturn ring so they read as separate spikes
+    const antennaW = Math.max(2, Math.floor(wSz * 0.05));
+    for (let i = 0; i < 6; i++) {
+      const ang = (Math.PI * 2 * i) / 6;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(ang);
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;
+      ctx.fillRect(-antennaW / 2, -(antennaBase + antennaLen), antennaW, antennaLen);
+      // Forked side branches partway along the arm — the classic dendrite look
+      const branchDist = antennaBase + antennaLen * 0.55;
+      const branchLen = antennaLen * 0.3;
+      for (const side of [1, -1]) {
+        ctx.save();
+        ctx.translate(0, -branchDist);
+        ctx.rotate(side * Math.PI / 4);
+        ctx.fillRect(-antennaW * 0.4, -branchLen, antennaW * 0.8, branchLen);
+        ctx.restore();
+      }
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
 
     // HP bar above her
     const wBarW = wSz + 10;
@@ -1284,11 +1355,25 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.fillRect(ex1 + 1, eyeY + 1, pSz, pSz); ctx.fillRect(ex2 + 1, eyeY + 1, pSz, pSz);
       ctx.shadowBlur = 0;
 
-      // Thin, closed regal mouth (no teeth, unlike the King)
+      // Third eye — central eye below the main pair, sitting where her nose would be,
+      // same construction as the other two
+      const eyeGap = Math.max(4, Math.floor(qSz * 0.12));
+      const eSz3 = Math.max(4, Math.floor(eSz * 0.9));
+      const pSz3 = Math.max(2, Math.floor(eSz3 * 0.55));
+      const eye3Y = eyeY + eSz + eyeGap;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx - Math.floor(eSz3 / 2), eye3Y, eSz3, eSz3);
+      ctx.fillStyle = attacking ? '#ffcc00' : '#ee44ff';
+      ctx.shadowColor = attacking ? '#ffcc00' : '#ee44ff'; ctx.shadowBlur = attacking ? 12 : 6;
+      ctx.fillRect(sx - Math.floor(eSz3 / 2) + 1, eye3Y + 1, pSz3, pSz3);
+      ctx.shadowBlur = 0;
+
+      // Thin, closed regal mouth (no teeth, unlike the King), pushed down below the third eye
       const mW = Math.max(6, Math.floor(qSz * 0.42));
       const mH = Math.max(1, Math.floor(qSz * 0.05));
+      const mouthGap = Math.max(3, Math.floor(qSz * 0.08));
       ctx.fillStyle = '#4a0066';
-      ctx.fillRect(sx - Math.floor(mW / 2), eyeY + eSz + Math.max(3, Math.floor(qSz * 0.12)), mW, mH);
+      ctx.fillRect(sx - Math.floor(mW / 2), eye3Y + eSz3 + mouthGap, mW, mH);
     }
 
     // HP bar above her
@@ -1444,6 +1529,18 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.fillStyle = '#ee44ff';
       ctx.shadowColor = '#ee44ff'; ctx.shadowBlur = 5;
       ctx.fillRect(ex1 + 1, eyeY + 1, pSz, pSz); ctx.fillRect(ex2 + 1, eyeY + 1, pSz, pSz);
+      ctx.shadowBlur = 0;
+
+      // Third eye — same enlarged central eye as the real Queen's, below the main pair
+      const eyeGap = Math.max(4, Math.floor(qSz * 0.12));
+      const eSz3 = Math.max(4, Math.floor(eSz * 0.9));
+      const pSz3 = Math.max(2, Math.floor(eSz3 * 0.55));
+      const eye3Y = eyeY + eSz + eyeGap;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx - Math.floor(eSz3 / 2), eye3Y, eSz3, eSz3);
+      ctx.fillStyle = '#ee44ff';
+      ctx.shadowColor = '#ee44ff'; ctx.shadowBlur = 5;
+      ctx.fillRect(sx - Math.floor(eSz3 / 2) + 1, eye3Y + 1, pSz3, pSz3);
       ctx.shadowBlur = 0;
     }
 
