@@ -2016,9 +2016,9 @@ function updateMeteorite(state: GameState) {
         if (chamberOfTile(e.tileX, e.tileY) === ch) {
           if (e.type === 'devourer') {
             // Same 75%-of-max-HP hit as the other bosses, but a meteor alone can never finish
-            // her off — floored at 5% of her (current, post-absorb) max HP, no kill check.
+            // her off — floored at 3% of her (current, post-absorb) max HP, no kill check.
             damageEnemy(state, e, Math.round(e.maxHp * (BOSS_METEOR_DMG / 100)));
-            const floor = Math.ceil(e.maxHp * 0.05);
+            const floor = Math.ceil(e.maxHp * 0.03);
             if (e.hp < floor) e.hp = floor;
           } else if (e.type === 'fiery_king' || e.type === 'splitter_queen' || e.type === 'storm_reaper' || e.type === 'frost_warden') {
             // Deals BOSS_METEOR_DMG% of the boss's max HP — so anything already at or below
