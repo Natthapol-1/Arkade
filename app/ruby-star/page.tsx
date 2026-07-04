@@ -1030,15 +1030,6 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.fillStyle = '#dff7ff';
       ctx.fillRect(sx - wH + wPad, sy - wH + wPad, wSz - wPad * 2, wSz - wPad * 2);
 
-      // Frost-crack lines across the plate — blocky right-angle segments like the Devourer's
-      // circuit veins, but icy, selling "she's made of ice, not flesh"
-      ctx.strokeStyle = `rgba(0,136,170,${0.5 + 0.3 * pulse})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(sx - wH * 0.5, sy - wH * 0.3); ctx.lineTo(sx - wH * 0.15, sy - wH * 0.3); ctx.lineTo(sx - wH * 0.15, sy + wH * 0.2);
-      ctx.moveTo(sx + wH * 0.5, sy - wH * 0.3); ctx.lineTo(sx + wH * 0.15, sy - wH * 0.3); ctx.lineTo(sx + wH * 0.15, sy + wH * 0.2);
-      ctx.stroke();
-
       // Jagged frozen horns — uneven, outward-leaning icicle growths instead of a
       // symmetric royal crown, so she reads as a frozen alien organism, not ice royalty
       ctx.fillStyle = '#ffffff';
@@ -1053,39 +1044,44 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       }
       ctx.shadowBlur = 0;
 
-      // Single cyclopean ice eye — one large faceted diamond eye instead of a pair, so
-      // she reads as one unnatural frozen orb rather than a normal face
-      const eyeSz = wH * 0.55;
-      const eyeCy = sy - wH * 0.08;
+      // Single big spiral eye — one continuous blocky square spiral (right-angle turns
+      // only, like the classic pixel-art spiral) instead of a smooth stroked curve or a
+      // cluster of dots. Deep icy navy, not black or white — matches her cold palette
+      // (same dark tone as the mouth below) while still reading clearly against her pale
+      // icy-white body/plate.
+      const eyeCy = sy - wH * 0.15;
       ctx.save();
       ctx.translate(sx, eyeCy);
-      ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 10;
-      ctx.fillRect(-eyeSz / 2, -eyeSz / 2, eyeSz, eyeSz);
-      ctx.shadowBlur = 0;
-      const pupilSz = eyeSz * 0.42;
-      ctx.fillStyle = '#0088aa';
-      ctx.shadowColor = '#0088aa'; ctx.shadowBlur = 8;
-      ctx.fillRect(-pupilSz / 2, -pupilSz / 2, pupilSz, pupilSz);
-      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#003844';
+      ctx.lineWidth = Math.max(2, wH * 0.12);
+      const spiralUnit = wH * 0.15;
+      const spiralDirs: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+      let spx = 0, spy = 0, dirIdx = 0, segLen = 1, turnCount = 0;
+      ctx.beginPath();
+      ctx.moveTo(spx, spy);
+      for (let i = 0; i < 8; i++) {
+        spx += spiralDirs[dirIdx][0] * segLen * spiralUnit;
+        spy += spiralDirs[dirIdx][1] * segLen * spiralUnit;
+        ctx.lineTo(spx, spy);
+        dirIdx = (dirIdx + 1) % 4;
+        turnCount++;
+        if (turnCount === 2) { segLen++; turnCount = 0; }
+      }
+      ctx.stroke();
       ctx.restore();
 
-      // Jagged ice-crack "mouth" — a zigzag fissure splitting her face open below the eye,
-      // instead of a toothed maw or a plain bar
-      const crackY = sy + wH * 0.32;
-      const crackW = wSz * 0.55;
-      ctx.strokeStyle = '#0088aa';
-      ctx.lineWidth = 2;
-      ctx.shadowColor = '#66ccff'; ctx.shadowBlur = 6;
-      ctx.beginPath();
-      ctx.moveTo(sx - crackW / 2, crackY);
-      ctx.lineTo(sx - crackW * 0.18, crackY + wH * 0.08);
-      ctx.lineTo(sx + crackW * 0.05, crackY - wH * 0.05);
-      ctx.lineTo(sx + crackW * 0.22, crackY + wH * 0.1);
-      ctx.lineTo(sx + crackW / 2, crackY);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+      // Mouth — three x's in a row, literal text glyphs instead of a jagged maw or crack
+      // line. Same deep icy navy as the eye for a coherent face. Font-weight alone barely
+      // fattens a monospace glyph on canvas, so stroke the outline before filling to make
+      // it read as genuinely thicker, not just bigger.
+      ctx.font = `bold ${Math.max(10, Math.floor(wH * 0.55))}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = Math.max(2, wH * 0.05);
+      ctx.strokeStyle = '#003844';
+      ctx.strokeText('x x x', sx, sy + wH * 0.55);
+      ctx.fillStyle = '#003844';
+      ctx.fillText('x x x', sx, sy + wH * 0.55);
+      ctx.textAlign = 'left';
     }
 
     // Ice shield — a slowly-rotating double hexagonal crystal barrier encasing her, drawn
@@ -1199,30 +1195,23 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     }
     ctx.shadowBlur = 0;
 
-    // Snowflake antennae — 6 thin blocky arms radiating outward in every direction, each
-    // with a forked pair of side branches near the tip, so her whole silhouette reads as
-    // a snowflake rather than just a crystal creature with a crown
-    const antennaLen = wH * 1.9;
-    const antennaBase = ringRx + 4; // start just past the Saturn ring so they read as separate spikes
-    const antennaW = Math.max(2, Math.floor(wSz * 0.05));
+    // Antennae — 6 stalks radiating in every direction, same construction as a regular
+    // enemy's single centered antenna (thin colored stalk + separate small white dot tip),
+    // not a forked snowflake branch
+    const antH = wH * 0.6;
+    const antW = Math.max(3, wSz * 0.06);
+    const antDotSz = Math.max(2, wSz * 0.08);
     for (let i = 0; i < 6; i++) {
       const ang = (Math.PI * 2 * i) / 6;
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(ang);
+      ctx.fillStyle = '#aaeeff';
+      ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = 4;
+      ctx.fillRect(-antW / 2, -(wH + antH), antW, antH);
+      ctx.shadowBlur = 6;
       ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;
-      ctx.fillRect(-antennaW / 2, -(antennaBase + antennaLen), antennaW, antennaLen);
-      // Forked side branches partway along the arm — the classic dendrite look
-      const branchDist = antennaBase + antennaLen * 0.55;
-      const branchLen = antennaLen * 0.3;
-      for (const side of [1, -1]) {
-        ctx.save();
-        ctx.translate(0, -branchDist);
-        ctx.rotate(side * Math.PI / 4);
-        ctx.fillRect(-antennaW * 0.4, -branchLen, antennaW * 0.8, branchLen);
-        ctx.restore();
-      }
+      ctx.fillRect(-antDotSz / 2, -(wH + antH) - antDotSz, antDotSz, antDotSz);
       ctx.shadowBlur = 0;
       ctx.restore();
     }
