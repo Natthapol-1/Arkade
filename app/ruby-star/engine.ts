@@ -1,5 +1,6 @@
-import { createAmbientEvents, updateAmbientEvents, isEclipseActive, type AmbientEventState } from './events';
-export { AMBIENT_EVENTS, STAR_FALL_TICKS, triggerAmbientEvent } from './events';
+import { stopAmbientEventSounds, pauseAmbientEventSounds, resumeAmbientEventSounds } from './event-audio';
+import { createAmbientEvents, updateAmbientEvents, isEclipseActive, hitSupernova, SUPERNOVA_PLAYER_RADIUS, SUPERNOVA_FULL_DAMAGE_RADIUS, type AmbientEventState } from './events';
+export { AMBIENT_EVENTS, STAR_FALL_TICKS, SUPERNOVA_CHARGE_TICKS, SUPERNOVA_BLAST_TICKS, triggerAmbientEvent } from './events';
 export type { AmbientEventKind } from './events';
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
@@ -34,7 +35,7 @@ import {
   THORN_WINDUP, THORN_FIRST_DELAY, THORN_RADIUS, THORN_LIFETIME, THORN_MAX_PATCHES, getThornFieldBounds,
   THORN_POISON_TICKS, THORN_POISON_INTERVAL, THORN_POISON_DAMAGE, THORN_CONTACT_DAMAGE, THORN_CONTACT_INTERVAL, THORN_SLOW_MULT, THORN_FLEE_RANGE,
   SEA_DIVE_DAMAGE_MULTIPLIER, SEA_DIVE_SPEED, SEA_DIVE_FLEE_RANGE, SEA_DIVE_ENTER_HP, SEA_DIVE_EXIT_HP, SEA_MINIMAP_INTERVAL, SEA_MINIMAP_REVEAL,
-  SEA_ALLY_HEAL_RADIUS, SEA_ALLY_HEAL_AMOUNT, SEA_ALLY_HEAL_INTERVAL, SEA_ALLY_PASSIVE_HEAL, SEA_HEALING_DEBUFF_TICKS, SEA_HEALING_DEBUFF_MULTIPLIER, SEA_FEED_HEAL_RATIO, SEA_FEED_HEAL_CAP,
+  SEA_ALLY_HEAL_RADIUS, SEA_ALLY_HEAL_AMOUNT, SEA_ALLY_HEAL_INTERVAL, SEA_ALLY_PASSIVE_HEAL, SEA_FEED_HEAL_RATIO, SEA_FEED_HEAL_CAP, SEA_HEALING_BLOCK_TICKS,
   SEA_SONG_WINDUP, SEA_SONG_FIRST_DELAY, SEA_SONG_SPEED, SEA_SONG_HIT_RADIUS, SEA_SONG_BLAST_RADIUS, SEA_SONG_BLAST_TICKS, SEA_SONG_BLAST_DAMAGE_CENTER, SEA_SONG_BLAST_DAMAGE_EDGE,
   KING_SPEED_RAMP_PER_SEC, KING_SPEED_CAP,
   KING_UNTOUCHED_TICKS, KING_ARENA_WINDUP, KING_ARENA_DAMAGE, KING_ARENA_DAMAGE_MAX, KING_RAMP_SECONDS, KING_ARENA_FX_TICKS,
@@ -101,9 +102,15 @@ function offerConstellation(state: GameState) {
   state.constellationDelayTicks = 60;
 }
 
+export const CONSTELLATION_REVEAL_TICKS = 96;
+
 export function chooseConstellation(state: GameState, kind: Constellation): boolean {
   if (state.gamePhase !== 'constellation' || !state.constellationChoices.includes(kind) || state.constellations.includes(kind)) return false;
   state.constellations.push(kind);
+  state.constellationReveal = { kind, ticks: CONSTELLATION_REVEAL_TICKS };
+  try {
+    const sound = new Audio('/sounds/constellation-chosen.wav'); sound.volume = .6; sound.play().catch(() => {});
+  } catch { }
   state.constellationChoices = [];
   state.playerQueuedDirX = state.playerQueuedDirY = 0;
   state.gamePhase = 'playing';
@@ -137,6 +144,7 @@ export interface SeaChanterAbilities {
   mode: 'hunting' | 'diving';
   diveElapsedTicks: number;
   diveFleeing: boolean;
+  healingBlockedUntilTick: number;
   songCooldown: number;
   songWindupTicks: number;
   songAimX: number;
@@ -429,11 +437,11 @@ export interface GameState {
   constellations: Constellation[];
   constellationChoices: Constellation[];
   constellationDelayTicks: number;
+  constellationReveal: { kind: Constellation; ticks: number } | null;
   bossesKilled: number;     // tracks how many bosses have been killed (each +15 HP)
   bossPool: BossType[];     // natural spawns draw every boss once before reshuffling
   lastNaturalBoss: BossType | null;
 
-  seaHealingDebuffTicks: number;
   healJiggleTicks: number;  // >0 while player jiggle animation plays after heal
 }
 
@@ -605,6 +613,23 @@ function playSFX_bossLaser() {
 export function playSFX_bomb() {
   try {
     const a = new Audio('/sounds/bombExplode.wav'); a.volume = 0.832 * ATTACK_SFX_VOLUME; a.play().catch(() => {});
+  } catch { }
+}
+
+export function playSFX_supernova() {
+  for (const [file, volume] of [['bombExplode.wav', 1], ['meteorExplode.mp3', .85]] as const) {
+    try {
+      const sound = new Audio('/sounds/' + file); sound.volume = volume; sound.play().catch(() => {});
+    } catch { }
+  }
+  playTone(65, .8, .3, 'sawtooth');
+}
+
+function announceAscension(state: GameState) {
+  state.ascensionBannerTicks = 360;
+  if (state.gamePhase === 'lost') return;
+  try {
+    const sound = new Audio('/sounds/ascension-unlock.mp3'); sound.volume = .7; sound.play().catch(() => {});
   } catch { }
 }
 
@@ -783,7 +808,7 @@ export function playSFX_gameOver() {
       const t = ctx.currentTime + i * 0.2;
       const o = ctx.createOscillator(); const g = ctx.createGain();
       o.type = 'sawtooth'; o.frequency.value = f;
-      g.gain.setValueAtTime(0.19, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      g.gain.setValueAtTime(0.32, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
       o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + 0.38);
     });
   } catch { }
@@ -909,11 +934,11 @@ export function createInitialState(): GameState {
     constellations: [],
     constellationChoices: [],
     constellationDelayTicks: 0,
+    constellationReveal: null,
     bossesKilled: 0,
     bossPool: [],
     lastNaturalBoss: null,
     healJiggleTicks: 0,
-    seaHealingDebuffTicks: 0,
   };
 }
 
@@ -990,12 +1015,15 @@ function damageEnemy(state: GameState, e: Enemy, amount: number, source: 'player
   if (isSeaChanterDiving(e)) actual *= SEA_DIVE_DAMAGE_MULTIPLIER;
   e.hp -= actual;
   const hpLost = Math.min(Math.max(0, previousHP), Math.max(0, actual));
+  if (hpLost > 0 && isSeaChanterDiving(e)) {
+    e.sea!.healingBlockedUntilTick = state.gameTick + SEA_HEALING_BLOCK_TICKS;
+  }
   if (source === 'player' && hpLost > 0) {
     if (wasSeaHunting && e.hp > 0) {
       healSeaAllies(state, e, SEA_ALLY_HEAL_AMOUNT);
     } else if (!isBossType(e.type) && e.type !== 'queen_echo') {
       for (const chanter of state.enemies) {
-        if (!isSeaChanterDiving(chanter) || chanter.hp <= 0) continue;
+        if (!isSeaChanterDiving(chanter) || chanter.hp <= 0 || state.gameTick < chanter.sea!.healingBlockedUntilTick) continue;
         chanter.hp = Math.min(chanter.maxHp, chanter.hp + Math.min(SEA_FEED_HEAL_CAP, hpLost * SEA_FEED_HEAL_RATIO));
         chanter.sea!.healPulseTicks = 24;
         playSeaHealing(chanter);
@@ -1030,6 +1058,7 @@ function endGame(state: GameState) {
   stopSingularitySound();
   stopSeaSounds();
   state.gamePhase = 'lost';
+  stopAmbientEventSounds();
   playSFX_gameOver();
 }
 
@@ -1456,7 +1485,7 @@ function updateThornHazards(state: GameState) {
 }
 
 function createSeaChanterAbilities(): SeaChanterAbilities {
-  return { mode: 'hunting', diveElapsedTicks: 0, diveFleeing: false, songCooldown: SEA_SONG_FIRST_DELAY, songWindupTicks: 0,
+  return { mode: 'hunting', diveElapsedTicks: 0, diveFleeing: false, healingBlockedUntilTick: 0, songCooldown: SEA_SONG_FIRST_DELAY, songWindupTicks: 0,
     songAimX: 0, songAimY: 0, allyHealCooldown: SEA_ALLY_HEAL_INTERVAL, supportPulseTicks: 0, healPulseTicks: 0, healSoundCooldown: 0, resurfaceTicks: 0, resurfaceX: 0, resurfaceY: 0 };
 }
 
@@ -1523,10 +1552,6 @@ function updateSeaChanter(state: GameState, e: Enemy) {
     if (sea.allyHealCooldown <= 0) {
       sea.supportPulseTicks = 24;
       healSeaAllies(state, e, SEA_ALLY_PASSIVE_HEAL);
-      if (tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= SEA_ALLY_HEAL_RADIUS) {
-        state.seaHealingDebuffTicks = SEA_HEALING_DEBUFF_TICKS;
-        playSeaHealing(e);
-      }
       sea.allyHealCooldown = SEA_ALLY_HEAL_INTERVAL;
     }
   }
@@ -1813,6 +1838,7 @@ function updateSingularity(state: GameState) {
   }
   if(field.damageTimer<=0){
     field.damageTimer=60;
+    hitSupernova(state, (x, y) => Math.hypot(x - field.x, y - field.y) <= SPECIAL_SINGULARITY_RADIUS);
     const strength=(field.stacks/DEVOURER_MAX_STACKS)**2;
     for(const enemy of targets)damageEnemy(state,enemy,isBossType(enemy.type)?enemy.maxHp*(.003+strength*.017):1.5+strength*6.5,'special');
     for(const enemy of targets){const index=state.enemies.indexOf(enemy);if(index>=0&&enemy.hp<=0)killEnemy(state,index);}
@@ -1851,6 +1877,7 @@ function updateCelestialField(state: GameState) {
   updateGaiaFieldSound(state);
   if(--field.damageTimer>0)return;
   field.damageTimer=60;
+  hitSupernova(state, (x, y) => x >= field.x - SPECIAL_WEAVER_RADIUS && x < field.x + SPECIAL_WEAVER_RADIUS && y >= field.y - SPECIAL_WEAVER_RADIUS && y < field.y + SPECIAL_WEAVER_RADIUS);
   const targets=state.enemies.filter(e=>e.hp>0&&inCelestialField(state,e));
   for(const target of targets)damageEnemy(state,target,isBossType(target.type)?target.maxHp*SPECIAL_WEAVER_BOSS_DAMAGE:SPECIAL_WEAVER_NORMAL_DAMAGE,'special');
   for(const target of targets){const index=state.enemies.indexOf(target);if(index>=0&&target.hp<=0)killEnemy(state,index);}
@@ -2786,8 +2813,7 @@ function showRewardEffect(state: GameState, target: RewardEffect['target'], kind
 
 function healPlayer(state: GameState, amount: number, showEffect = true) {
   const before = state.playerHP;
-  const multiplier = state.seaHealingDebuffTicks > 0 ? SEA_HEALING_DEBUFF_MULTIPLIER : 1;
-  state.playerHP = Math.min(PLAYER_MAX_HP, Math.round((state.playerHP + amount * multiplier) * 10) / 10);
+  state.playerHP = Math.min(PLAYER_MAX_HP, Math.round((state.playerHP + amount) * 10) / 10);
   if (showEffect && state.playerHP > before) showRewardEffect(state, 'player', 'heal');
 }
 
@@ -2799,7 +2825,7 @@ function healCore(state: GameState, amount: number) {
 
 function killEnemy(state: GameState, idx: number, fromMeteor = false) {
   if (state.enemies[idx]?.type === 'thorn_weaver') clearThornHazards(state);
-  if (state.enemies[idx]?.type === 'sea_chanter') { stopSeaSounds(); state.seaHealingDebuffTicks = 0; }
+  if (state.enemies[idx]?.type === 'sea_chanter') { stopSeaSounds(); }
   const e = state.enemies[idx];
   spawnDeathParticles(state, e);
 
@@ -2891,7 +2917,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
   if (isBossType(e.type)) {
     state.bossesKilled++;
     offerConstellation(state);
-    if (state.bossesKilled === SPECIAL_UNLOCK_KILLS) state.ascensionBannerTicks = 360;
+    if (state.bossesKilled === SPECIAL_UNLOCK_KILLS) announceAscension(state);
     if (state.bossesKilled >= SPECIAL_UNLOCK_KILLS && e.type in SPECIAL_SKILLS) {
       state.specialSkill = e.type as SpecialSkill;
       state.specialDevourerStacks=e.type==='devourer'?Math.min(DEVOURER_MAX_STACKS,Math.max(0,e.chargeDirX)):0;
@@ -3132,6 +3158,7 @@ export function useLaser(state: GameState) {
     for (let r = 0; r < range; r++) {
       if (!isFloorTile(state.map, tx, ty)) break;
       endTx = tx; endTy = ty;
+      hitSupernova(state, (x, y) => Math.floor(x / TILE_SIZE) === tx && Math.floor(y / TILE_SIZE) === ty);
       for (let i = state.enemies.length - 1; i >= 0; i--) {
         const e = state.enemies[i];
         if (e.tileX === tx && e.tileY === ty) {
@@ -3186,6 +3213,7 @@ function fireWave(state: GameState) {
     radius: 0, maxRadius: radius * TILE_SIZE, ticks: 30, powered
   });
 
+  hitSupernova(state, (x, y) => Math.hypot(x / TILE_SIZE - .5 - state.playerTileX, y / TILE_SIZE - .5 - state.playerTileY) <= radius);
   let waveHit = false;
   for (let i = state.enemies.length - 1; i >= 0; i--) {
     const e = state.enemies[i];
@@ -3243,6 +3271,7 @@ export function useBomb(state: GameState) {
     const dmg = (powered ? BOMB_DMG_PWR : BOMB_DMG) * (1 + 0.2 * constellationBonus(state, 'bombDamage'));
 
     const bx = state.bomb.tileX, by = state.bomb.tileY;
+    hitSupernova(state, (x, y) => Math.hypot(x / TILE_SIZE - .5 - bx, y / TILE_SIZE - .5 - by) <= radius);
     playSFX_bomb();
     state.bombBlasts.push({
       cx: bx * TILE_SIZE + TILE_SIZE / 2,
@@ -3390,18 +3419,51 @@ function takeNextNaturalBoss(state: GameState): BossType {
   return next;
 }
 
+// Environmental damage cannot feed Chanter or chain player electricity.
+function detonateSupernova(state: GameState) {
+  const point = state.ambientEvents.active!.points[0];
+  const x = (point.x + .5) * TILE_SIZE, y = (point.y + .5) * TILE_SIZE;
+  const distance = Math.hypot(state.playerX - x, state.playerY - y) / TILE_SIZE;
+  const originChamber = chamberOfTile(point.x, point.y);
+  const playerChamber = chamberOfTile(Math.floor(state.playerX / TILE_SIZE), Math.floor(state.playerY / TILE_SIZE));
+  if (distance < SUPERNOVA_PLAYER_RADIUS && playerChamber !== (originChamber ^ 3)) {
+    const strength = Math.min(1, (SUPERNOVA_PLAYER_RADIUS - distance) / (SUPERNOVA_PLAYER_RADIUS - SUPERNOVA_FULL_DAMAGE_RADIUS));
+    damagePlayer(state, Math.ceil(100 * strength ** 3));
+  }
+  const playerDied = (state as GameState).gamePhase === 'lost';
+  const victims = state.enemies.filter(enemy => enemy.hp > 0);
+  for (const enemy of victims) {
+    const d = Math.hypot(enemy.x - x, enemy.y - y) / TILE_SIZE;
+    const strength = Math.max(0, 1 - d / 65) ** 2;
+    damageEnemy(state, enemy, isBossType(enemy.type) ? enemy.maxHp * (.05 + .55 * strength) : 5 + 95 * strength, 'enemy');
+  }
+  for (const enemy of victims) {
+    const index = state.enemies.indexOf(enemy);
+    if (index >= 0 && enemy.hp <= 0) killEnemy(state, index, true);
+  }
+  if (playerDied) state.playerHP = 0; // Boss restoration cannot revive a fatal simultaneous blast.
+  state.screenShakeTicks = Math.max(state.screenShakeTicks, 30);
+  state.screenShakeAmt = Math.max(state.screenShakeAmt, 16);
+  playSFX_supernova();
+}
+
 // ─── Main tick ───────────────────────────────────────────────────────────────
 
 export function tick(state: GameState) {
-  if (state.gamePhase !== 'playing') { stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
+  if (state.gamePhase !== 'playing') { pauseAmbientEventSounds(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
 
+  resumeAmbientEventSounds();
   if (state.constellationDelayTicks > 0 && --state.constellationDelayTicks === 0 && state.constellationChoices.length) {
     state.gamePhase = 'constellation';
+    try {
+      const sound = new Audio('/sounds/constellation-choice.wav'); sound.volume = .6; sound.play().catch(() => {});
+    } catch { }
     state.playerQueuedDirX = state.playerQueuedDirY = 0;
     stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound();
     return;
   }
   state.gameTick++;
+  if (state.constellationReveal && --state.constellationReveal.ticks <= 0) state.constellationReveal = null;
   if (state.meteoriteImpact && --state.meteoriteImpact.ticks <= 0) state.meteoriteImpact = null;
   if(state.lunarDecoy){
     if(state.lunarDecoy.flashTicks>0)state.lunarDecoy.flashTicks--;
@@ -3409,7 +3471,6 @@ export function tick(state: GameState) {
   }
   if (state.ascensionBannerTicks > 0) state.ascensionBannerTicks--;
   state.specialEffects = state.specialEffects.filter(fx => --fx.ticks > 0);
-  if (state.seaHealingDebuffTicks > 0) state.seaHealingDebuffTicks--;
   if (state.kingArenaPulseTicks > 0) state.kingArenaPulseTicks--;
   if (state.bossSpawnTicks > 0) state.bossSpawnTicks--;
 
@@ -3525,7 +3586,10 @@ export function tick(state: GameState) {
   }
 
   // Minor events use the real player position before any Lunar AI substitution.
-  if (updateAmbientEvents(state)) {
+  const ambientResult = updateAmbientEvents(state);
+  if (ambientResult === 'supernova') detonateSupernova(state);
+  if ((state as GameState).gamePhase === 'lost') return;
+  if (ambientResult === true) {
     healPlayer(state, 20); healCore(state, 20);
     state.starEnergy = STAR_ENERGY_MAX;
     grantInstantSpeedBoost(state, false);
@@ -3619,7 +3683,7 @@ export function godSetNoBossSpawns(state: GameState, enabled: boolean) {
   state.noBossSpawns=enabled;
   if(enabled){
     state.enemies=state.enemies.filter(e=>!isBossType(e.type)&&e.type!=='queen_echo');
-    clearThornHazards(state);stopSeaSounds();state.seaSongWaves=[];state.seaSongBursts=[];state.seaHealingDebuffTicks=0;
+    clearThornHazards(state);stopSeaSounds();state.seaSongWaves=[];state.seaSongBursts=[];
     state.prayerWaves=[];state.frostIceTiles=[];state.playerFrozenTicks=0;state.kingArenaPulseTicks=0;state.slashEffects=[];
     const bossColors=new Set(['#cc0022','#cc33ff','#dd88ff','#6b2fa8','#aaeeff','#ffdd22']);
     state.laserBeams=state.laserBeams.filter(beam=>!bossColors.has(beam.color??''));
@@ -3642,15 +3706,17 @@ export function godAdvanceStage(state: GameState) {
   if (state.gamePhase !== 'playing' || state.constellationChoices.length) return;
   state.bossesKilled++;
   state.difficultyLevel = Math.max(state.difficultyLevel, Math.min(DIFFICULTY_TIERS.length - 1, 3 + state.bossesKilled));
-  if (state.bossesKilled === SPECIAL_UNLOCK_KILLS) state.ascensionBannerTicks = 360;
+  if (state.bossesKilled === SPECIAL_UNLOCK_KILLS) announceAscension(state);
   offerConstellation(state);
 }
 
 export function godEnterAscension(state: GameState) {
   if(state.gamePhase!=='playing')return;
+  const firstUnlock = state.bossesKilled < SPECIAL_UNLOCK_KILLS;
   state.bossesKilled=Math.max(state.bossesKilled,SPECIAL_UNLOCK_KILLS);
   state.difficultyLevel=DIFFICULTY_TIERS.length-1;state.difficultyTimer=0;
   state.noMobs=false;state.spawnTimer=0;state.ascensionBannerTicks=360;
+  if (firstUnlock) announceAscension(state);
 }
 
 export function godSpawnBoss(state: GameState, bossType: BossType) {
@@ -3659,7 +3725,6 @@ export function godSpawnBoss(state: GameState, bossType: BossType) {
   state.enemies = state.enemies.filter(e => !isBossType(e.type));
   state.seaSongWaves = [];
   state.seaSongBursts = [];
-  state.seaHealingDebuffTicks = 0;
   stopSeaSounds();
   if (state.hallwaySeal !== -1) {
     setHallwayWalled(state, state.hallwaySeal, false);
@@ -3756,6 +3821,7 @@ export function useSpecialSkill(state: GameState): boolean {
     showRewardEffect(state, 'player', 'shield'); showRewardEffect(state, 'ruby', 'shield');
     return true;
   }
+  hitSupernova(state, (x, y) => kind === 'fiery_king' || Math.hypot(x - state.playerX, y - state.playerY) <= SPECIAL_REAPER_RADIUS);
   const cfg = SPECIAL_SKILLS[kind];
   const targets = state.enemies.filter(e => e.hp > 0 &&
     (kind === 'fiery_king' || Math.hypot(e.x - state.playerX, e.y - state.playerY) <= SPECIAL_REAPER_RADIUS));

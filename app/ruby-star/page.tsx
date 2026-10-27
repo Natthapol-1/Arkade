@@ -1,11 +1,13 @@
 'use client';
 
+import { stopAmbientEventSounds, pauseAmbientEventSounds } from './event-audio';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import BackButton from '@/components/BackButton';
 import PixelArrow from '@/components/PixelArrow';
 import RulesModal from '@/components/RulesModal';
 import RubyStarGuide from './RubyStarGuide';
 import ConstellationChoice from './ConstellationChoice';
+import ConstellationAfterglow from './ConstellationAfterglow';
 import BombStatus from './BombStatus';
 import HudIcon from './HudIcon';
 import BGMController, { BGMControllerHandle } from '@/components/BGMController';
@@ -27,7 +29,7 @@ import {
 } from './constants';
 import {
   GameState, createInitialState, tick, CONSTELLATIONS, chooseConstellation, getBombRadius,
-  AMBIENT_EVENTS, STAR_FALL_TICKS, triggerAmbientEvent, AmbientEventKind,
+  AMBIENT_EVENTS, STAR_FALL_TICKS, SUPERNOVA_CHARGE_TICKS, SUPERNOVA_BLAST_TICKS, triggerAmbientEvent, AmbientEventKind,
   useLaser, useBullet, activateWave, useSpeedBoost, useBomb, useSpecialSkill, godSpawnBoss, godSetNoMobs, godSetNoBossSpawns, godAdvanceStage,
   toggleCarryRuby, tryActivateTeleport, doTeleport, cancelTeleport,
   healRuby, canHealRuby, isPlayerChilled, isMovementReversed, isSeaChanterDiving, isEnemyVisibleOnMinimap, startChargeSound, stopChargeSound, stopPoisonSound, stopSingularitySound, stopGaiaFieldSound,
@@ -57,6 +59,13 @@ function drawAmbientMinimap(ctx: CanvasRenderingContext2D, state: GameState, mx:
   ctx.save(); ctx.strokeStyle = AMBIENT_EVENTS[event.kind].color; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 2;
   for (const point of event.points) {
     const x = mx + (point.x + .5) * scale, y = my + (point.y + .5) * scale;
+    if (event.kind === 'supernova') {
+      const px=Math.round(x),py=Math.round(y);
+      ctx.shadowColor='#ff956f';ctx.shadowBlur=5;ctx.fillStyle='#ffaf7a';
+      ctx.fillRect(px-4,py-3,8,6);ctx.fillRect(px-3,py-4,6,8);ctx.shadowBlur=0;
+      ctx.fillStyle='#66283e';ctx.fillRect(px-2,py-2,4,4);ctx.fillStyle='#fff3cf';ctx.fillRect(px-1,py-1,2,2);
+      ctx.fillStyle='#ffca94';ctx.fillRect(px-1,py-7,2,2);ctx.fillRect(px-1,py+5,2,2);ctx.fillRect(px-7,py-1,2,2);ctx.fillRect(px+5,py-1,2,2);continue;
+    }
     if (event.kind === 'shootingStar') {
       ctx.shadowColor = '#ffc95c'; ctx.shadowBlur = 3;
       drawStellarStar(ctx, x, y, 1, '#ffe49b');
@@ -85,6 +94,220 @@ function drawEventSquare(ctx: CanvasRenderingContext2D, x: number, y: number, si
   ctx.closePath(); ctx.fill();
 }
 
+function drawSupernovaCore(ctx: CanvasRenderingContext2D, x: number, y: number, half: number, age: number) {
+  const h = Math.max(6, Math.round(half / 2) * 2), notch = Math.max(2, Math.round(h / 6));
+  ctx.shadowColor = '#ff885b'; ctx.shadowBlur = 18;
+  drawEventSquare(ctx, x, y, h * 2, notch, '#ffad72');ctx.shadowBlur = 0;
+  drawEventSquare(ctx, x, y, h * 1.65, notch, '#8e3545');
+  drawEventSquare(ctx, x, y, h * 1.3, Math.max(2, notch - 1), '#321c36');
+  // Detached, asymmetric stellar prominences surround a dark fusion chamber.
+  for (let side = 0; side < 4; side++) {
+    ctx.save();ctx.translate(x,y);ctx.rotate(side*Math.PI/2);
+    const reach = Math.round((.28 + .12 * Math.sin(age * .065 + side * 1.7)) * h / 2) * 2;
+    ctx.fillStyle = side % 2 ? '#ffd79a' : '#ff805f';ctx.fillRect(-h*.25,-h-reach,h*.5,reach);
+    ctx.fillStyle = '#ffedc2';ctx.fillRect(-h*.12,-h-reach-6,h*.24,4);ctx.restore();
+  }
+  ctx.shadowColor='#fff0bd';ctx.shadowBlur=9;ctx.fillStyle='#ffd38d';ctx.fillRect(x-h*.35,y-h*.35,h*.7,h*.7);
+  ctx.shadowBlur=0;ctx.fillStyle='#fff9e1';ctx.fillRect(x-h*.17,y-h*.17,h*.34,h*.34);
+}
+
+function drawSupernovaBirth(ctx: CanvasRenderingContext2D, x: number, y: number, age: number, warning: boolean) {
+  const snap = (v: number) => Math.round(v / 4) * 4;
+  ctx.save();
+  if (warning) {
+    const t = Math.min(1,age/180);
+    // Eight broken stellar currents bend inward along snapped, angular paths.
+    for (let lane=0;lane<8;lane++) for(let chip=0;chip<8;chip++) {
+      const life=((age*(1+t*1.4)+lane*19+chip*24)%190)/190;
+      const angle=lane*Math.PI/4+(1-life)*.5, radius=24+(1-life)**1.6*(180+t*110);
+      const px=x+snap(Math.cos(angle)*radius),py=y+snap(Math.sin(angle)*radius);
+      ctx.globalAlpha=(.2+t*.65)*Math.sin(life*Math.PI);ctx.fillStyle=chip%3?'#a6d8ff':'#ffc68d';
+      ctx.fillRect(px,py,chip%2?8:16,chip%2?16:8);
+      if(chip%3===0){ctx.globalAlpha*=.35;ctx.fillRect(px-8,py-8,24,24);}
+    }
+    for(let frame=0;frame<3;frame++) {
+      const life=((age+frame*50)%150)/150, half=snap(30+(1-life)**2*180);
+      ctx.globalAlpha=.28*life;drawEventSquare(ctx,x,y,half*2,Math.max(4,snap(half*.15)),'#29405c');
+      ctx.globalAlpha=.45*life;ctx.strokeStyle=frame%2?'#ffb789':'#a6d8ff';ctx.lineWidth=3;ctx.stroke();
+    }
+    ctx.globalAlpha=1;drawSupernovaCore(ctx,x,y,8+t*t*20,age);
+    // A narrow fusion seam brightens once as the seed finishes forming.
+    ctx.globalAlpha=t**4*.65;ctx.fillStyle='#fff2c9';ctx.fillRect(x-2,y-snap(70+t*60),4,snap(140+t*120));
+  } else {
+    const t=Math.min(1,age/72),fade=(1-t)**1.5;
+    for(let front=0;front<3;front++) {
+      const travel=Math.max(0,t-front*.12),half=snap(35+Math.sqrt(travel)*(front?150:240));
+      ctx.globalAlpha=0;drawEventSquare(ctx,x,y,half*2,Math.max(4,snap(half*.16)),'#ffc68d');
+      ctx.globalAlpha=fade*(front?.45:.8);ctx.strokeStyle=front%2?'#a6e2ff':'#ffd7a2';ctx.lineWidth=front?4:8;ctx.stroke();
+    }
+    for(let i=0;i<24;i++) {
+      const angle=i*Math.PI/12,d=snap(44+Math.sqrt(t)*(90+i%4*42));
+      ctx.globalAlpha=fade;drawEnergyPixelRay(ctx,x+snap(Math.cos(angle)*d),y+snap(Math.sin(angle)*d),Math.round(Math.cos(angle)),Math.round(Math.sin(angle)),i%3?'#ffbe84':'#dcf3ff',2);
+    }
+    ctx.globalAlpha=fade*.7;ctx.fillStyle='#fff1cb';ctx.fillRect(x-3,y-snap(230*fade),6,snap(460*fade));
+    ctx.fillRect(x-snap(230*fade),y-3,snap(460*fade),6);
+  }
+  ctx.restore();
+}
+
+function drawSupernova(ctx: CanvasRenderingContext2D, state: GameState, x: number, y: number) {
+  const event = state.ambientEvents.active!;
+  const snap = (v: number) => Math.round(v / 4) * 4;
+  const age = event.age;
+  if (event.blastTicks !== undefined) {
+    const t = (SUPERNOVA_BLAST_TICKS - event.blastTicks) / SUPERNOVA_BLAST_TICKS;
+    // Broad stepped fronts cross the entire station, with a hot stellar core.
+    for (let front = 0; front < 4; front++) {
+      const travel = Math.max(0, t - front * .045), radius = snap(28 + Math.sqrt(travel) * TILE_SIZE * 72);
+      ctx.globalAlpha = 0;
+      drawEventSquare(ctx, x, y, radius * 2, Math.max(8, snap(radius * .12)), '#ffdbab');
+      ctx.globalAlpha = (1 - t) * (front ? .4 : .85);
+      ctx.strokeStyle = front % 2 ? '#ffa180' : '#fff3cf'; ctx.lineWidth = front ? 8 : 16;ctx.stroke();
+    }
+    for (let i = 0; i < 48; i++) {
+      const angle = i * Math.PI / 24, distance = snap(30 + Math.sqrt(t) * (260 + i % 7 * 150));
+      ctx.globalAlpha = (1 - t) ** 1.5; ctx.fillStyle = i % 3 ? '#ffb27b' : '#fff3cd';
+      ctx.fillRect(x + snap(Math.cos(angle) * distance), y + snap(Math.sin(angle) * distance), i % 2 ? 8 : 16, i % 2 ? 16 : 8);
+    }
+    const core = snap(140 * (1 - t) ** 2);
+    ctx.globalAlpha = (1 - t) ** 2; ctx.shadowColor = '#ff9f6e'; ctx.shadowBlur = 24;
+    if (core > 8) { drawEventSquare(ctx, x, y, core * 2, 12, '#ff976e'); drawEventSquare(ctx, x, y, core, 8, '#fff2ce'); }
+  } else {
+    const charging = event.chargeTicks !== undefined;
+    if (!charging && age < 72) drawSupernovaBirth(ctx,x,y,age,false);
+    const compression = charging ? 1 - event.chargeTicks! / SUPERNOVA_CHARGE_TICKS : 0;
+    const pixel = Math.max(2, Math.round(11 - compression * 9));
+    for (let i = 0; i < 16; i++) {
+      const dx = Math.round(Math.cos(i * Math.PI / 8)), dy = Math.round(Math.sin(i * Math.PI / 8));
+      const life = ((age * (charging ? 3 : 1) + i * 13) % 90) / 90;
+      const distance = snap(pixel * 5 + (charging ? 1 - life : life) * (charging ? 140 : 50));
+      ctx.globalAlpha = .7 * (charging ? life : 1 - life);
+      drawEnergyPixelRay(ctx, x + dx * distance, y + dy * distance, dx, dy, i % 2 ? '#a4e7ff' : '#ffb67e', charging ? 1.8 : 1.2);
+    }
+    ctx.globalAlpha = 1;
+    const ignition = !charging && age < 72 ? Math.sin(age / 72 * Math.PI) * 12 : 0;
+    drawSupernovaCore(ctx,x,y,pixel*4+ignition,age);
+    if (charging) {
+      // A single contracting frame reinforces compression without strobing.
+      const half = snap(70 - compression * 48);
+      ctx.globalAlpha = .4 + compression * .5;ctx.strokeStyle = '#bbebff';ctx.lineWidth = 4;ctx.strokeRect(x-half,y-half,half*2,half*2);
+    }
+  }
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+}
+
+function drawSupernovaSky(ctx: CanvasRenderingContext2D, state: GameState, width: number, height: number) {
+  const event = state.ambientEvents.active;
+  if (event?.kind !== 'supernova') return;
+  if (event.blastTicks === undefined) {
+    if(event.chargeTicks === undefined && event.age < 48){ctx.save();ctx.globalAlpha=.13*(1-event.age/48)**2;ctx.fillStyle='#ffdbac';ctx.fillRect(0,0,width,height);ctx.restore();}
+    return;
+  }
+  const age = SUPERNOVA_BLAST_TICKS - event.blastTicks, fade = event.blastTicks / SUPERNOVA_BLAST_TICKS;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, 1 - age / 20) * .62 + fade * .10;
+  ctx.fillStyle = age < 12 ? '#fff3d5' : '#e97265';ctx.fillRect(0,0,width,height);
+  // Far chambers still see the stellar release as long rushing light fragments.
+  for (let i = 0; i < 56; i++) {
+    const x = Math.round(((i * 137 + age * (i % 2 ? 10 : -10)) % (width + 160) + width + 160) % (width + 160) - 80);
+    const y = Math.round((i * 239 % 991) / 991 * height);
+    ctx.globalAlpha = fade * fade * (i % 3 ? .4 : .7);ctx.fillStyle = i % 3 ? '#ffc396' : '#fff4cf';
+    ctx.fillRect(x,y,24 + i % 4 * 12,3 + i % 2 * 3);
+  }
+  ctx.globalAlpha = fade * .65;ctx.strokeStyle = '#ffbc91';ctx.lineWidth = 4;ctx.strokeRect(3,3,width-6,height-6);ctx.restore();
+}
+
+function drawBlackholeSky(ctx: CanvasRenderingContext2D, state: GameState, width: number, height: number, sourceX: number, sourceY: number) {
+  const event=state.ambientEvents.active;if(event?.kind!=='blackhole')return;
+  const age=event.age,ending=1-Math.min(1,event.ticks/36),entry=Math.max(0,1-age/45);
+  const fade=Math.min(1,event.ticks/16),pull=Math.max(0,1-((age+44)%45)/24);
+  const x=Math.max(-width,Math.min(width*2,sourceX)),y=Math.max(-height,Math.min(height*2,sourceY));
+  ctx.save();
+  ctx.globalAlpha=fade*(.055+entry*.12+ending*.08);ctx.fillStyle='#583b88';ctx.fillRect(0,0,width,height);
+  // Converging streaks are visible from every chamber, pointing at the actual well.
+  for(let i=0;i<44;i++){
+    const side=i%4,along=(i*137%997)/997;
+    const sx=side===0?-48:side===1?width+48:along*width,sy=side===2?-48:side===3?height+48:along*height;
+    const life=((age*(1+ending*2)+i*17)%115)/115,travel=life*life;
+    const px=Math.round(sx+(x-sx)*travel),py=Math.round(sy+(y-sy)*travel);
+    const dx=Math.sign(x-sx),dy=Math.sign(y-sy);
+    ctx.globalAlpha=fade*(.15+pull*.25+entry*.3)*Math.sin(life*Math.PI);
+    drawEnergyPixelRay(ctx,px,py,dx,dy,i%4?'#bd91ed':'#e5d9ff',1+life);
+  }
+  // The field edge strains inward with each gravity pulse.
+  for(let band=0;band<3;band++){
+    const inset=4+band*7+Math.round(pull*5);ctx.globalAlpha=fade*(.11+pull*.19)*(1-band*.22);ctx.strokeStyle=band%2?'#89a6ef':'#d3abff';ctx.lineWidth=band?2:4;
+    ctx.strokeRect(inset,inset,width-inset*2,height-inset*2);
+  }
+  ctx.restore();
+}
+
+function drawBlackholeWarning(ctx: CanvasRenderingContext2D, x: number, y: number, age: number) {
+  const t=Math.min(1,age/180),snap=(v:number)=>Math.round(v/4)*4;
+  ctx.save();
+  // Space tears into four right-angle gravity lanes around a widening dark aperture.
+  for(let side=0;side<4;side++) {
+    ctx.save();ctx.translate(x,y);ctx.rotate(side*Math.PI/2);
+    for(let band=0;band<3;band++) {
+      const life=((age*(1+t)+band*57+side*19)%170)/170,r=snap(135+(1-life)*220);
+      ctx.globalAlpha=(.25+t*.5)*life;ctx.strokeStyle=band%2?'#b98aff':'#e8cbff';ctx.lineWidth=band?3:5;
+      ctx.beginPath();ctx.moveTo(-r,-r*.35);ctx.lineTo(-r,-r);ctx.lineTo(-r*.3,-r);ctx.lineTo(-r*.3,-r+20);ctx.lineTo(r*.2,-r+20);ctx.stroke();
+    }
+    for(let chip=0;chip<14;chip++) {
+      const life=((age*(1+t)+chip*17+side*11)%180)/180,r=snap(110+(1-life)**2*320),offset=snap(Math.sin(chip*2.4+life*2)*r*.55);
+      ctx.globalAlpha=Math.sin(life*Math.PI)*(.3+t*.6);ctx.fillStyle=chip%4?'#9e6de0':'#eedbff';
+      ctx.fillRect(-r,offset,8+snap(life*24),chip%3?4:8);
+    }
+    ctx.restore();
+  }
+  const half=snap(14+112*t*t);
+  ctx.globalAlpha=.4+t*.6;ctx.shadowColor='#a96aff';ctx.shadowBlur=18;
+  drawEventSquare(ctx,x,y,half*2,Math.max(4,snap(half*.09)),'#8651bc');ctx.shadowBlur=0;
+  drawEventSquare(ctx,x,y,Math.max(8,half*2-10),Math.max(2,snap(half*.08)),'#090513');
+  ctx.globalAlpha=.3+t*.55;ctx.strokeStyle='#d8b1ff';ctx.lineWidth=3;ctx.stroke();
+  // Tiny fragments are stretched across the lip, then disappear into darkness.
+  for(let i=0;i<12;i++) {
+    const life=((age*2+i*15)%180)/180,side=i%4,offset=snap((i/12-.5)*half*1.6),r=half+snap((1-life)*40);
+    const px=x+(side===0?-r:side===2?r:offset),py=y+(side===1?-r:side===3?r:offset);
+    ctx.globalAlpha=(1-life)*t;ctx.fillStyle='#f0dbff';ctx.fillRect(px,py,side%2?4:12,side%2?12:4);
+  }
+  ctx.restore();
+}
+
+function drawShootingStarWarning(ctx: CanvasRenderingContext2D, x: number, y: number, age: number, visibility = 1) {
+  const t=Math.min(1,age/180),snap=(v:number)=>Math.round(v/2)*2;
+  ctx.save();
+  // Keep the original grounded landing marker; enrich it with stellar light.
+  ctx.globalAlpha=(.08+t*.1)*visibility;ctx.fillStyle='#f3c969';ctx.fillRect(x-28,y-28,56,56);
+  ctx.globalAlpha=(.2+t*.25)*visibility;ctx.strokeStyle='#e6c98a';ctx.lineWidth=2;ctx.strokeRect(x-30,y-30,60,60);
+  // Finish closing at impact, including the 36-tick flight after the warning.
+  const approach = Math.min(1, age / (180 + STAR_FALL_TICKS));
+  const radius = 30 + Math.round((1 - approach) * 82);
+  ctx.shadowColor='#ffd47d';ctx.shadowBlur=8;ctx.fillStyle='#ffe7af';ctx.globalAlpha=(.45+t*.45)*visibility;
+  for(const dx of [-1,1])for(const dy of [-1,1]){
+    const px=x+dx*radius,py=y+dy*radius;
+    ctx.fillRect(px-(dx>0?16:0),py,16,4);ctx.fillRect(px,py-(dy>0?16:0),4,16);
+  }
+  ctx.shadowBlur=0;
+  // Square glints orbit the landing site; separated rays share the energy aura's rhythm.
+  for(let i=0;i<12;i++){
+    const life=((age+i*17)%100)/100,angle=i*Math.PI/6+age*.006;
+    const distance=38+snap((1-life)*44),px=x+snap(Math.cos(angle)*distance),py=y+snap(Math.sin(angle)*distance*.7-life*12);
+    ctx.globalAlpha=(Math.sin(life*Math.PI)*(.35+t*.55))*visibility;ctx.shadowColor=i%3?'#ffd47d':'#a6ddff';ctx.shadowBlur=i%3?4:0;
+    drawStellarStar(ctx,px,py,i%4?1:1.5,i%3?'#ffe6a4':'#bdeaff');
+  }
+  ctx.shadowBlur=0;
+  for(const [i,[dx,dy]]of [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]].entries()){
+    const life=((age*1.3+i*11)%70)/70,d=snap(15+life*28);
+    ctx.globalAlpha=((1-life)*(.2+t*.45))*visibility;drawEnergyPixelRay(ctx,x+dx*d,y+dy*d,dx,dy,i%2?'#addfff':'#ffe6a6',.8);
+  }
+  const pulse=.75+.25*Math.sin(age*.065);
+  ctx.globalAlpha=(.6+t*.35)*visibility;ctx.shadowColor='#ffcf72';ctx.shadowBlur=12+6*pulse;
+  drawStellarStar(ctx,x,y,3,'#ffd783');ctx.shadowBlur=0;
+  drawStellarStar(ctx,x,y,1.7,'#fff4d4');ctx.fillStyle='#fffdf0';ctx.fillRect(x-2,y-2,4,4);
+  ctx.restore();
+}
+
 function drawAmbientEvents(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, width: number, height: number) {
   const event = state.ambientEvents.warning || state.ambientEvents.active;
   if (!event || event.kind === 'eclipse') return;
@@ -92,31 +315,36 @@ function drawAmbientEvents(ctx: CanvasRenderingContext2D, state: GameState, camX
   const age = state.ambientEvents.active?.age ?? 180 - state.ambientEvents.warning!.ticks;
   const color = AMBIENT_EVENTS[event.kind].color;
   const snap = (v: number) => Math.round(v / 4) * 4;
-  const fade = warning ? 1 : Math.min(1, age / 18, event.ticks / 36);
+  const fade = warning ? 1 : event.kind === 'blackhole' ? Math.min(1,.8+age/72,event.ticks/12) : Math.min(1, age / 18, event.ticks / 36);
   ctx.save();
   for (let index = 0; index < event.points.length; index++) {
     const point = event.points[index], x = Math.round((point.x + .5) * TILE_SIZE - camX), y = Math.round((point.y + .5) * TILE_SIZE - camY);
     ctx.fillStyle = color; ctx.strokeStyle = color;
-    if (warning) {
-      const progress = age / 180, half = event.kind === 'blackhole' ? 128 : 32;
-      ctx.globalAlpha = .18 + progress * .3; ctx.lineWidth = 4;
-      ctx.strokeRect(x - half, y - half, half * 2, half * 2);
-      // Detached luminous corners gather toward the future event.
-      const radius = half + snap((1 - progress) * 90);
-      ctx.globalAlpha = .55 + progress * .35;
-      for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
-        const px = x + dx * radius, py = y + dy * radius;
-        ctx.fillRect(px - (dx > 0 ? 16 : 0), py, 16, 4);
-        ctx.fillRect(px, py - (dy > 0 ? 16 : 0), 4, 16);
+    if (warning && event.kind === 'blackhole') { drawBlackholeWarning(ctx,x,y,age); continue; }
+    if (warning && event.kind === 'shootingStar') { drawShootingStarWarning(ctx,x,y,age); continue; }
+    if (warning && event.kind === 'supernova') { drawSupernovaBirth(ctx,x,y,age,true); continue; }
+    if (event.kind === 'supernova') {
+      drawSupernova(ctx, state, x, y);
+    } else if (event.kind === 'blackhole') {
+      const entry=Math.max(0,1-age/60),collapse=1-Math.min(1,event.ticks/36);
+      // Delayed stepped fronts slam inward as the aperture tears fully open.
+      for(let front=0;front<4;front++){
+        const travel=Math.min(1,Math.max(0,(age-front*7)/52));
+        if(age<front*7||travel>=1)continue;
+        const half=snap(128+(1-travel)**1.5*(900+front*180));
+        ctx.globalAlpha=0;drawEventSquare(ctx,x,y,half*2,Math.max(12,snap(half*.12)),'#b88aed');
+        ctx.globalAlpha=fade*(1-travel)*.65;ctx.strokeStyle=front%2?'#c5d5ff':'#e2c4ff';ctx.lineWidth=front?5:10;ctx.stroke();
       }
-      for (let i = 0; i < 8; i++) {
-        const angle = i * Math.PI / 4, d = half + ((180 - age + i * 19) % 60) * 2;
-        ctx.globalAlpha = .4; drawEnergyPixelRay(ctx, x + snap(Math.cos(angle) * d), y + snap(Math.sin(angle) * d), Math.round(Math.cos(angle)), Math.round(Math.sin(angle)), color, 1.4);
+      for(let lane=0;lane<8;lane++){
+        const angle=lane*Math.PI/4,dx=Math.cos(angle),dy=Math.sin(angle);
+        for(let chip=0;chip<12;chip++){
+          const life=((age*(1.8+collapse*3)+chip*17+lane*11)%200)/200,d=110+(1-life)**2*1450;
+          const px=x+snap(dx*d),py=y+snap(dy*d);
+          if(px<-60||py<-60||px>width+60||py>height+60)continue;
+          ctx.globalAlpha=fade*Math.sin(life*Math.PI)*(.25+entry*.25+collapse*.3);
+          drawEnergyPixelRay(ctx,px,py,-Math.sign(dx),-Math.sign(dy),chip%3?'#a98ce6':'#e9ddff',1.5+life*1.4);
+        }
       }
-      ctx.globalAlpha = 1;
-      continue;
-    }
-    if (event.kind === 'blackhole') {
       // A broad, inward-moving gravity field surrounds a much larger central void.
       for (let i = 0; i < 144; i++) {
         const life = ((age * 1.4 + i * 23) % 180) / 180, angle = i * 2.4 + life * .6;
@@ -131,17 +359,36 @@ function drawAmbientEvents(ctx: CanvasRenderingContext2D, state: GameState, camX
         ctx.globalAlpha = fade * (.05 + life * .14); ctx.strokeStyle = '#a66ae8'; ctx.lineWidth = 4;
         ctx.strokeRect(x - half, y - half, half * 2, half * 2);
       }
-      ctx.globalAlpha = fade; ctx.shadowColor = '#bd72ff'; ctx.shadowBlur = 18;
+      const pullPulse = Math.max(0, 1 - ((age + 44) % 45) / 18);
+      const breathing = Math.sin(age * .09) * .012;
+      ctx.save();ctx.translate(x,y);
+      const collapseScale=event.ticks<36?Math.max(.06,(event.ticks/36)**.7):1;
+      const arrival=1+entry*.14;
+      ctx.scale((1 - pullPulse * .08 + breathing)*collapseScale*arrival, (1 - pullPulse * .08 - breathing)*collapseScale*arrival);
+      ctx.translate(-x,-y);
+      ctx.globalAlpha = fade; ctx.shadowColor = '#bd72ff'; ctx.shadowBlur = 18+entry*12;
       drawEventSquare(ctx, x, y, 256, 12, '#b075ed');
       ctx.shadowBlur = 0;
       drawEventSquare(ctx, x, y, 232, 10, '#1b0c2e');
       // A stepped stellar mantle and dark hot core echo the Solar suit construction.
       drawEventSquare(ctx, x, y, 176, 12, '#47205f');
       drawEventSquare(ctx, x, y, 152, 10, '#7b3b9f');
-      drawEventSquare(ctx, x, y, 128, 8, '#c17bec');
-      drawEventSquare(ctx, x, y, 104, 8, '#edb8ff');
-      drawEventSquare(ctx, x, y, 80, 6, '#77358f');
-      drawEventSquare(ctx, x, y, 56, 4, '#190b28');
+      const contraction = snap(pullPulse * 12);
+      ctx.shadowColor = '#d49bff'; ctx.shadowBlur = 6 + pullPulse * 12;
+      drawEventSquare(ctx, x, y, 128 - contraction, 8, '#c17bec');
+      ctx.shadowBlur = 0;
+      drawEventSquare(ctx, x, y, 104 - contraction, 8, pullPulse > .5 ? '#f9e2ff' : '#edb8ff');
+      drawEventSquare(ctx, x, y, 80 - contraction, 6, '#77358f');
+      drawEventSquare(ctx, x, y, 56 - contraction, 4, '#190b28');
+      // Small accretion fragments spiral inward and vanish inside the core.
+      for (let chip = 0; chip < 8; chip++) {
+        const life = ((age + chip * 6) % 45) / 45;
+        const angle = chip * Math.PI / 4 + life * .7, distance = 8 + (1 - life) * 40;
+        ctx.globalAlpha = fade * (1 - life) * .85; ctx.fillStyle = chip % 3 ? '#b77be8' : '#f5dcff';
+        const size = life < .55 ? 4 : 2;
+        ctx.fillRect(x + snap(Math.cos(angle) * distance), y + snap(Math.sin(angle) * distance), size, size);
+      }
+      ctx.globalAlpha = fade;
       ctx.fillStyle = '#ffe9ff'; ctx.fillRect(x - 48, y - 48, 24, 8); ctx.fillRect(x - 48, y - 40, 8, 16);
       ctx.fillStyle = '#bc7cdc'; ctx.fillRect(x + 20, y + 32, 20, 8);
       for (let i = 0; i < 20; i++) {
@@ -151,8 +398,11 @@ function drawAmbientEvents(ctx: CanvasRenderingContext2D, state: GameState, camX
         ctx.globalAlpha = fade * (i % 3 ? .6 : 1); ctx.fillStyle = i % 3 ? '#ae76dd' : '#ffe0ff';
         ctx.fillRect(px, py, side % 2 ? 8 : 16, side % 2 ? 16 : 8);
       }
+      ctx.restore();
     } else if (event.kind === 'shootingStar') {
       if (age < STAR_FALL_TICKS) {
+        // Carry the final warning through descent until the comet is on screen.
+        drawShootingStarWarning(ctx,x,y,180+age,1-age/STAR_FALL_TICKS*.25);
         const t = age / STAR_FALL_TICKS, remaining = 1 - t * t;
         const sx = x + snap(remaining * 240), sy = y - snap(remaining * 450);
         const pixel = Math.round(3 + t * 4);
@@ -178,6 +428,7 @@ function drawAmbientEvents(ctx: CanvasRenderingContext2D, state: GameState, camX
         ctx.globalAlpha = .15 + t * .2; ctx.lineWidth = 3; ctx.strokeStyle = '#ffe1a1'; ctx.strokeRect(x - 24, y - 24, 48, 48);
       } else {
         const landingAge = age - STAR_FALL_TICKS;
+        if (landingAge < 6) drawShootingStarWarning(ctx,x,y,180+age,.75*(1-landingAge/6));
         if (landingAge < 42) {
           const t = landingAge / 42;
           for (let front = 0; front < 2; front++) {
@@ -230,6 +481,25 @@ function drawEclipseShadow(ctx: CanvasRenderingContext2D, state: GameState, widt
   ctx.save();
   // Shade all world layers after rendering, leaving HUD and minimap outside the shadow.
   ctx.globalAlpha = strength * .22; ctx.fillStyle = '#4a3e9c'; ctx.fillRect(0, 0, width, height);
+  const age=state.ambientEvents.active?.age ?? 180-event.ticks;
+  const progress=state.ambientEvents.active?age/360:age/180*.12;
+  const moonX=Math.round(width*(.76+progress*.05)),moonY=Math.round(height*.25),size=Math.round(Math.min(width,height)*.55/8)*8;
+  ctx.shadowBlur=0;ctx.globalAlpha=strength*.055;
+  drawEventSquare(ctx,moonX,moonY,size,Math.max(8,size*.08),'#bdc7ff');
+  ctx.globalAlpha=strength*.22;ctx.strokeStyle='#b5c4ff';ctx.lineWidth=3;ctx.stroke();
+  ctx.globalAlpha=strength*.1;drawEventSquare(ctx,moonX+Math.round(size*.14),moonY-Math.round(size*.09),size,Math.max(8,size*.08),'#171b41');
+  // A broad broken shadow band sweeps across the station, with a cool illuminated edge.
+  for(let row=0;row<height;row+=24){
+    const left=Math.round(width*(progress*.8-.25)+row*.4),span=Math.round(width*.28);
+    ctx.globalAlpha=strength*.07;ctx.fillStyle='#111b3c';ctx.fillRect(left,row,span,24);
+    ctx.globalAlpha=strength*.11;ctx.fillStyle='#a8baff';ctx.fillRect(left+span,row,4,20);
+  }
+  for(let i=0;i<32;i++){
+    const px=Math.round((i*137%997)/997*width),py=Math.round((i*239%991)/991*height);
+    const glint=.25+.75*Math.sin(age*.025+i*1.8)**2;
+    ctx.globalAlpha=strength*glint*(i%4?.23:.4);ctx.fillStyle=i%3?'#b9c8ff':'#e2e9ff';
+    ctx.fillRect(px-2,py,5,1);ctx.fillRect(px,py-2,1,5);
+  }
   ctx.globalAlpha = strength * .55; ctx.strokeStyle = '#b1abff'; ctx.lineWidth = 4; ctx.strokeRect(4, 4, width - 8, height - 8);
   ctx.globalAlpha = strength * .35; ctx.fillStyle = '#a5a8df';
   for (let i = 0; i < 16; i++) {
@@ -741,22 +1011,6 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
       ctx.fillRect(ax - 5, ay - 2, 10, 4);
       ctx.fillRect(ax + direction * 5 - 2, ay - 6, 4, 12);
       ctx.fillRect(ax + direction * 9 - 2, ay - 2, 4, 4);
-    }
-    ctx.restore();
-  }
-
-  // Timed healing reduction applied by Sea Chanter's nearby support pulse.
-  if (state.seaHealingDebuffTicks > 0) {
-    ctx.save();
-    const ix = Math.round(sx + TILE_SIZE * 0.8), iy = Math.round(sy);
-    ctx.globalAlpha = 0.65 + 0.25 * Math.abs(Math.sin(tickN * 0.08));
-    ctx.shadowColor = '#3998d6'; ctx.shadowBlur = 6;
-    ctx.fillStyle = '#3998d6';
-    ctx.fillRect(ix - 3, iy - 9, 6, 18); ctx.fillRect(ix - 9, iy - 3, 18, 6);
-    ctx.shadowBlur = 0;
-    for (let i = 0; i < 6; i++) {
-      ctx.fillStyle = '#102c50'; ctx.fillRect(ix - 10 + i * 3, iy + 5 - i * 3, 6, 6);
-      ctx.fillStyle = '#c7e9ff'; ctx.fillRect(ix - 9 + i * 3, iy + 6 - i * 3, 3, 3);
     }
     ctx.restore();
   }
@@ -3630,6 +3884,11 @@ function drawGame(
 
   let camX = state.playerX - viewW / 2;
   let camY = state.playerY - viewH / 2;
+  const gravityEvent=state.ambientEvents.active;
+  if(gravityEvent?.kind==='blackhole'){
+    const tremor=Math.max(0,1-gravityEvent.age/36,1-gravityEvent.ticks/30)*4;
+    camX+=Math.round(Math.sin(gravityEvent.age*2.3)*tremor);camY+=Math.round(Math.cos(gravityEvent.age*2.9)*tremor);
+  }
   if (state.screenShakeTicks > 0) {
     const shakeStr = state.screenShakeAmt * (state.screenShakeTicks / 22);
     camX += Math.round((Math.random() - 0.5) * shakeStr * 2);
@@ -3876,7 +4135,7 @@ function drawGame(
   if(state.lunarDecoy){
     const decoy=state.lunarDecoy,x=decoy.x-camX,y=decoy.y-camY;
     ctx.save();ctx.globalAlpha=decoy.flashTicks>0?.95:decoy.invulnerableTicks>0?.5+.2*Math.abs(Math.sin(tickN*.7)):.8;
-    drawPlayer(ctx,x,y,{...state,specialSkill:'splitter_queen',playerCastTicks:0,playerCastKind:null,runnerEnergyFlashTicks:0,starEnergy:0,poweredTicks:0,speedActiveTicks:0,playerCarryingRuby:false,playerShieldHP:0,laserCooldown:0,bulletCooldown:0,electricBuffTicks:0,thornPoisonTicks:0,seaHealingDebuffTicks:0},tickN);
+    drawPlayer(ctx,x,y,{...state,specialSkill:'splitter_queen',playerCastTicks:0,playerCastKind:null,runnerEnergyFlashTicks:0,starEnergy:0,poweredTicks:0,speedActiveTicks:0,playerCarryingRuby:false,playerShieldHP:0,laserCooldown:0,bulletCooldown:0,electricBuffTicks:0,thornPoisonTicks:0},tickN);
     ctx.restore();ctx.save();ctx.shadowBlur=0;ctx.fillStyle='#39214e';ctx.fillRect(x-23,y-35,46,4);ctx.fillStyle='#b278f3';ctx.fillRect(x-23,y-35,46*decoy.hitsLeft/decoy.maxHits,4);ctx.restore();
   }
 
@@ -3986,6 +4245,11 @@ function drawGame(
   }
 
   drawEclipseShadow(ctx, state, canvasW, canvasH);
+  drawSupernovaSky(ctx, state, canvasW, canvasH);
+  if(state.ambientEvents.active?.kind==='blackhole'){
+    const origin=state.ambientEvents.active.points[0];
+    drawBlackholeSky(ctx,state,canvasW,canvasH,((origin.x+.5)*TILE_SIZE-camX)*worldZoom,((origin.y+.5)*TILE_SIZE-camY)*worldZoom);
+  }
 
   // Minimap — drawn in true pixel space, with its own independent (smaller) mobile sizing
   drawMinimap(ctx, state, canvasW, tickN, isMobileTouch);
@@ -4177,19 +4441,20 @@ export default function RubyStarPage() {
 
   useEffect(() => {
     const cancelCharge = () => { mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); };
-    const onVisibility = () => { if (document.hidden) { cancelCharge(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); } };
+    const onVisibility = () => { if (document.hidden) { cancelCharge(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); pauseAmbientEventSounds(); } };
     window.addEventListener('blur', cancelCharge);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       window.removeEventListener('blur', cancelCharge);
       document.removeEventListener('visibilitychange', onVisibility);
       cancelCharge();
+      stopAmbientEventSounds();
     };
   }, []);
 
   // ── Game loop ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (showRules) { mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
+    if (showRules) { mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); pauseAmbientEventSounds(); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const TARGET_MS = 1000 / 60;
@@ -4267,7 +4532,7 @@ export default function RubyStarPage() {
       if (t % 6 === 0) rerender();
     }
     rafRef.current = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(rafRef.current); stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); };
+    return () => { cancelAnimationFrame(rafRef.current); stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); pauseAmbientEventSounds(); };
   }, [showRules, rerender]);
 
   // ── Canvas resize ─────────────────────────────────────────────────────────
@@ -4451,6 +4716,7 @@ export default function RubyStarPage() {
   };
 
   const handleRestart = () => {
+    stopAmbientEventSounds();
     const s = createInitialState();
     s.godMode = stateRef.current?.godMode ?? false;
     s.noMobs = stateRef.current?.noMobs ?? false;
@@ -4487,7 +4753,6 @@ export default function RubyStarPage() {
     if(state.playerFrozenTicks>0)playerStatuses.push({key:'frozen',label:'FROZEN',color:'#b4eaff',seconds:state.playerFrozenTicks/60,progress:state.playerFrozenTicks/90});
     else if(isPlayerChilled(state))playerStatuses.push({key:'chilled',label:'CHILLED · MOVE & ATTACK SLOW',color:'#8ecfe9'});
     if(isMovementReversed(state))playerStatuses.push({key:'reversed',label:'CONTROLS REVERSED',color:'#ffe477'});
-    if(state.seaHealingDebuffTicks>0)playerStatuses.push({key:'healing',label:'HEALING REDUCED',color:'#8bc8ff',seconds:state.seaHealingDebuffTicks/60,progress:state.seaHealingDebuffTicks/180});
     if(state.rubyPlacedFlashTicks>0)playerStatuses.push({key:'ruby-placed',label:'RUBY PLACED',color:'#ffa5c3',progress:state.rubyPlacedFlashTicks/120});
   }
 
@@ -4807,6 +5072,7 @@ export default function RubyStarPage() {
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
       >
+        {phase === 'playing' && !showRules && state?.constellationReveal && <ConstellationAfterglow kind={state.constellationReveal.kind} ticks={state.constellationReveal.ticks} />}
         <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
         {phase==='playing'&&playerStatuses.length>0&&<div className="rs-player-status" role="status" aria-live="polite" style={{left:isGodQuery?218:12}}>
           {playerStatuses.map(status=><div key={status.key} className="rs-status-tag" data-status={status.key} style={{color:status.color,borderColor:status.color+'88'}}>
@@ -4849,6 +5115,13 @@ export default function RubyStarPage() {
             Full Energy
           </button>
           </div>
+          <button type="button" disabled={phase === 'lost'}
+            style={{ minHeight: 32, cursor: phase === 'lost' ? 'default' : 'pointer', background: '#203e34', color: '#bdffda', border: '2px solid #68cd96', fontWeight: 700, opacity: phase === 'lost' ? .5 : 1 }}
+            onClick={() => {
+              const current = stateRef.current;
+              if (current && current.gamePhase !== 'lost') { current.playerHP = PLAYER_MAX_HP; current.rubyHP = RUBY_MAX_HP; }
+              rerender();
+            }}>Full HP</button>
           <div style={{display:'flex',gap:4}}>
             <button aria-pressed={state?.noMobs ?? false} style={{flex:1,minWidth:0,padding:'6px 2px',fontSize:'.65rem',cursor:'pointer',background:state?.noMobs?'#b89b12':'#333',color:'#fff',border:'1px solid #ffcc00',borderRadius:3}}
               onClick={()=>{if(stateRef.current)godSetNoMobs(stateRef.current,!stateRef.current.noMobs);rerender();}}>
@@ -5075,7 +5348,10 @@ export default function RubyStarPage() {
             borderColor: state.ambientEvents.rewardTicks > 0 ? '#ffe18c' : AMBIENT_EVENTS[(state.ambientEvents.warning || state.ambientEvents.active)!.kind].color }}>
           {state.ambientEvents.rewardTicks > 0 ? <strong>STELLAR SHARD COLLECTED</strong> : (() => {
             const event = state.ambientEvents.warning || state.ambientEvents.active!;
-            const location = event.kind === 'shootingStar' ? ' · ' + CHAMBER_LABELS[chamberOfTile(event.points[0].x, event.points[0].y)] : '';
+            if (state.ambientEvents.warning) return <strong>INCOMING: {AMBIENT_EVENTS[event.kind].name} {Math.ceil(event.ticks / 60)}s</strong>;
+            const location = (event.kind === 'shootingStar' || event.kind === 'supernova') ? ' · ' + CHAMBER_LABELS[chamberOfTile(event.points[0].x, event.points[0].y)] : '';
+            const nova = state.ambientEvents.active;
+            if (nova?.kind === 'supernova' && nova.chargeTicks !== undefined) return <strong>SUPERNOVA · {nova.blastTicks !== undefined ? 'DETONATED' : 'CHARGING · ' + Math.ceil(nova.chargeTicks / 60) + 's'}</strong>;
             return <><strong>{state.ambientEvents.warning ? 'INCOMING · ' : ''}{state.ambientEvents.active?.kind === 'shootingStar' && state.ambientEvents.active.age >= STAR_FALL_TICKS ? 'STELLAR SHARD' : AMBIENT_EVENTS[event.kind].name}{location} · {Math.ceil(event.ticks / 60)}s</strong>
               </>;
           })()}

@@ -225,3 +225,20 @@ test('Singularity whole-tile effect range includes the highlighted edge tile but
  s.specialSkill='devourer';engine.useSpecialSkill(s);s.singularity.damageTimer=1;s.singularity.pullTimer=1000;engine.tick(s);
  close(edge.hp,98.5);assert.equal(outside.hp,100);
 });
+
+
+test('supplied Ascension cue plays once at unlock through boss, meteor or God progression',()=>{
+ const previous=global.Audio,played=[];global.Audio=class{constructor(src){this.src=src;}play(){played.push(this);return Promise.resolve();}pause(){}};
+ try{
+  for(const mode of ['laser','meteor','stage','direct']){
+   played.length=0;const s=fresh();s.bossesKilled=9;
+   if(mode==='stage')engine.godAdvanceStage(s);
+   else if(mode==='direct')engine.godEnterAscension(s);
+   else{const target=boss(s,'fiery_king');target.hp=1;if(mode==='laser')engine.useLaser(s);else{s.meteoriteWarning=0;s.meteoriteStrikeIn=1;engine.tick(s);}}
+   const cues=()=>played.filter(v=>v.src.endsWith('/ascension-unlock.mp3'));
+   assert.equal(s.bossesKilled,10,mode);assert.equal(cues().length,1,mode);assert.equal(cues()[0].volume,.7);
+   engine.tick(s);engine.godEnterAscension(s);assert.equal(cues().length,1);
+   const next=boss(s,'fiery_king');next.hp=1;s.laserCooldown=0;engine.useLaser(s);assert.equal(s.bossesKilled,11);assert.equal(cues().length,1);
+  }
+ }finally{global.Audio=previous;}
+});

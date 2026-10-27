@@ -59,7 +59,7 @@ const bosses: Record<BossType, { description: string; skill: string }> = {
     skill: 'Grants a longer power boost and refreshes your abilities.',
   },
   sea_chanter: {
-    description: 'Sends bursting water attacks, heals aliens and weakens your healing. When hurt, she dives. Dealing damage to other aliens while she is diving heals her. She takes extra damage underwater.',
+    description: 'Sends bursting water attacks, heals aliens. When hurt, she dives. Dealing damage to other aliens while she is diving heals her. She takes extra damage underwater; hitting her briefly blocks her recovery.',
     skill: 'Heals you and Ruby, and pushes enemies away.',
   },
   thorn_weaver: {
@@ -113,7 +113,7 @@ export default function RubyStarGuide() {
       </div>
 
       <section className="rs-guide-section"><h4>SPACE EVENTS</h4>
-        <p>Occasional events warn first. Watch for gravity, eclipses and a golden shard to collect.</p>
+        <p>Occasional events warn first. Watch for gravity, eclipses and a golden shard to collect. Rare Supernovas react to lasers and area attacks—escape before they explode.</p>
       </section>
       <section className="rs-guide-section"><h4>CONSTELLATIONS</h4>
         <p>Every 3 stages, choose an upgrade that lasts for the run. Each constellation can be chosen once.</p>

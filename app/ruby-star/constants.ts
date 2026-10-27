@@ -311,7 +311,7 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
   },
   sea_chanter: {
     maxHp: 90, speed: 3.8, color: '#3998d6', shieldColor: '#c7e9ff',
-    bodyFraction: 1.05, scoreValue: 470, damageToPlayer: 12, damageToRuby: 0,
+    bodyFraction: 1.05, scoreValue: 470, damageToPlayer: 10, damageToRuby: 0,
     attackCooldown: 210, attackRange: 12, bombExplodeRange: 0,
   },
   thorn_weaver: {
@@ -366,19 +366,18 @@ export const THORN_CONTACT_INTERVAL = 45; // 0.75s while standing in plants
 export const THORN_SLOW_MULT = 0.8; // only while physically inside plants
 export const THORN_FLEE_RANGE = 24;
 export const SEA_DIVE_DAMAGE_MULTIPLIER = 1.6;
-export const SEA_DIVE_SPEED = 4.2;
+export const SEA_DIVE_SPEED = ENEMY_CONFIGS.sea_chanter.speed;
 export const SEA_DIVE_FLEE_RANGE = 18; // tiles, roughly one chamber wide
 export const SEA_DIVE_ENTER_HP = 0.4;
 export const SEA_DIVE_EXIT_HP = 0.75;
 export const SEA_MINIMAP_INTERVAL = 480; // ticks: one reveal every 8 seconds
 export const SEA_MINIMAP_REVEAL = 60; // ticks: visible for 1 second
 export const SEA_ALLY_HEAL_RADIUS = 12; // tiles; broad circular area, not restricted to chambers
-export const SEA_HEALING_DEBUFF_TICKS = 180;
-export const SEA_HEALING_DEBUFF_MULTIPLIER = 0.7;
 export const SEA_ALLY_HEAL_INTERVAL = 180; // 3 seconds while surfaced
 export const SEA_ALLY_PASSIVE_HEAL = 3;
 export const SEA_ALLY_HEAL_AMOUNT = 10; // per hit on surfaced Sea Chanter
 export const SEA_FEED_HEAL_RATIO = 0.8; // actual HP damage dealt to other aliens
+export const SEA_HEALING_BLOCK_TICKS = 180; // 3s after taking HP damage while diving
 export const SEA_FEED_HEAL_CAP = 25; // max healing from one hit on one alien
 export const SEA_SONG_WINDUP = 24;
 export const SEA_SONG_FIRST_DELAY = 120;
@@ -386,8 +385,8 @@ export const SEA_SONG_SPEED = 20; // px/tick
 export const SEA_SONG_HIT_RADIUS = 25; // px
 export const SEA_SONG_BLAST_RADIUS = TILE_SIZE * 6;
 export const SEA_SONG_BLAST_TICKS = 24;
-export const SEA_SONG_BLAST_DAMAGE_CENTER = 17;
-export const SEA_SONG_BLAST_DAMAGE_EDGE = 7;
+export const SEA_SONG_BLAST_DAMAGE_CENTER = 15;
+export const SEA_SONG_BLAST_DAMAGE_EDGE = 5;
 export const PRAYER_RUBY_COOLDOWN = 1800; // 30s between ritual starts, only while the Ruby is placed
 export const PRAYER_RUBY_WINDUP = 90; // 1.5s to pick the Ruby up and cancel the ritual
 export const PRAYER_ESCAPE_WINDUP = 36; // 0.6s visible warning before the close-range attack

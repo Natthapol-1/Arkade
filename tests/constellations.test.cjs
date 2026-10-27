@@ -154,3 +154,35 @@ test('Constellation waits one second and pauses its countdown with rules',()=>{
  ticks(s,59);assert.equal(s.gamePhase,'playing');assert.equal(s.constellationDelayTicks,1);
  e.tick(s);assert.equal(s.gamePhase,'constellation');assert.equal(s.constellationDelayTicks,0);
 });
+
+
+test('supplied Constellation sparkle plays once when delayed choice opens, never on paused ticks',()=>{
+ const previous=global.Audio,played=[];global.Audio=class{constructor(src){this.src=src;}play(){played.push(this);return Promise.resolve();}pause(){}};
+ try{
+  const s=fresh();s.bossesKilled=2;e.godAdvanceStage(s);ticks(s,59);assert.equal(played.filter(v=>v.src.endsWith('/constellation-choice.wav')).length,0);
+  e.tick(s);assert.equal(s.gamePhase,'constellation');const cues=played.filter(v=>v.src.endsWith('/constellation-choice.wav'));assert.equal(cues.length,1);assert.equal(cues[0].volume,.6);
+  ticks(s,120);assert.equal(played.filter(v=>v.src.endsWith('/constellation-choice.wav')).length,1);
+  e.chooseConstellation(s,s.constellationChoices[0]);e.tick(s);assert.equal(played.filter(v=>v.src.endsWith('/constellation-choice.wav')).length,1);
+ }finally{global.Audio=previous;}
+});
+
+
+test('valid Constellation confirmation plays the supplied choice cue once; rejected picks stay silent',()=>{
+ const previous=global.Audio,played=[];global.Audio=class{constructor(src){this.src=src;}play(){played.push(this);return Promise.resolve();}pause(){}};
+ try{
+  const s=fresh();s.bossesKilled=2;e.godAdvanceStage(s);ticks(s,60);
+  assert.equal(e.chooseConstellation(s,'missing'),false);assert.equal(played.filter(v=>v.src.endsWith('/constellation-chosen.wav')).length,0);
+  const pick=s.constellationChoices[0];assert.equal(e.chooseConstellation(s,pick),true);assert.equal(played.filter(v=>v.src.endsWith('/constellation-chosen.wav')).length,1);
+  assert.equal(e.chooseConstellation(s,pick),false);assert.equal(played.filter(v=>v.src.endsWith('/constellation-chosen.wav')).length,1);
+ }finally{global.Audio=previous;}
+});
+
+
+test('chosen Constellation briefly reveals its own art while play continues, pauses and resets cleanly',()=>{
+ const s=fresh();s.gamePhase='constellation';s.constellationChoices=['laser'];assert.equal(e.chooseConstellation(s,'laser'),true);
+ assert.deepEqual(s.constellationReveal,{kind:'laser',ticks:96});assert.equal(s.gamePhase,'playing');
+ ticks(s,20);assert.equal(s.gameTick,20);assert.equal(s.constellationReveal.ticks,76);
+ s.gamePhase='teleporting';ticks(s,60);assert.equal(s.constellationReveal.ticks,76);s.gamePhase='playing';
+ assert.equal(e.chooseConstellation(s,'laser'),false);assert.equal(s.constellationReveal.ticks,76);
+ ticks(s,76);assert.equal(s.constellationReveal,null);assert.equal(e.createInitialState().constellationReveal,null);
+});

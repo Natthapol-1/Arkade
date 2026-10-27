@@ -7,7 +7,7 @@ function activate(s,kind){assert.equal(e.triggerAmbientEvent(s,kind),true);for(l
 function ticks(s,n){for(let i=0;i<n;i++)e.tick(s);}
 function enemy(s,type='normal',x=10,y=10){e.godSpawnBoss(s,'frost_warden');const template=s.enemies[0];s.noBossSpawns=true;const a={...template,type,x:(x+.5)*48,y:(y+.5)*48,tileX:x,tileY:y,targetTileX:x,targetTileY:y,stepProgress:0,path:[],pathTimer:0,attackTimer:0,windupTicks:0,hp:100,maxHp:100};s.enemies=[a];return a;}
 
-test('all three events warn for three seconds, refuse overlap and honor teleport/choice/loss pause',()=>{
+test('all events warn for three seconds, refuse overlap and honor teleport/choice/loss pause',()=>{
  for(const kind of Object.keys(e.AMBIENT_EVENTS)){
   const s=fresh();assert.equal(e.triggerAmbientEvent(s,kind),true);assert.equal(e.triggerAmbientEvent(s,kind),false);
   for(const phase of ['teleporting','constellation','lost']){s.gamePhase=phase;const before=JSON.stringify(s.ambientEvents);ticks(s,10);assert.equal(JSON.stringify(s.ambientEvents),before);assert.equal(e.triggerAmbientEvent(s,kind),false);}
@@ -20,6 +20,7 @@ test('natural events are infrequent, defer announcements, cycle all types and re
  const s=fresh();assert.ok(s.ambientEvents.timer>=9000&&s.ambientEvents.timer<=12600);s.ambientEvents.timer=1;s.meteoriteWarning=0;
  events.updateAmbientEvents(s);assert.equal(s.ambientEvents.warning,null);s.meteoriteWarning=-1;s.bossWarningTicks=10;events.updateAmbientEvents(s);assert.equal(s.ambientEvents.warning,null);
  s.bossWarningTicks=0;s.bossSpawnTicks=10;events.updateAmbientEvents(s);assert.equal(s.ambientEvents.warning,null);s.bossSpawnTicks=0;
+ s.ambientEvents.pool=['blackhole','shootingStar','eclipse'];
  const seen=new Set();for(let i=0;i<3;i++){
   s.ambientEvents.timer=0;events.updateAmbientEvents(s);seen.add(s.ambientEvents.warning.kind);
   for(let n=0;n<180;n++)events.updateAmbientEvents(s);s.ambientEvents.active.ticks=1;events.updateAmbientEvents(s);
@@ -41,10 +42,10 @@ test('black hole does no direct damage and expires after seven seconds',()=>{
 test('star landing is telegraphed on floor away from a warned chamber; reward occurs once after landing',()=>{
  const s=fresh();s.meteoriteWarning=0;activate(s,'shootingStar');const point=s.ambientEvents.active.points[0];
  assert.notEqual(c.chamberOfTile(point.x,point.y),0);assert.equal(s.map[point.y][point.x],c.T_FLOOR);s.meteoriteWarning=-1;
- player(s,point.x,point.y);s.playerHP=40;s.rubyHP=30;s.starEnergy=0;s.seaHealingDebuffTicks=180;
+ player(s,point.x,point.y);s.playerHP=40;s.rubyHP=30;s.starEnergy=0;
  ticks(s,35);assert.equal(s.playerHP,40);assert.equal(s.starEnergy,0);e.tick(s);
- assert.equal(s.playerHP,54);assert.equal(s.rubyHP,50);assert.equal(s.starEnergy,100);assert.ok(s.speedActiveTicks>0);assert.equal(s.ambientEvents.active,null);assert.equal(s.ambientEvents.rewardTicks,180);assert.equal(e.triggerAmbientEvent(s,'eclipse'),false);
- e.tick(s);assert.equal(s.playerHP,54);assert.equal(s.rubyHP,50);
+ assert.equal(s.playerHP,60);assert.equal(s.rubyHP,50);assert.equal(s.starEnergy,100);assert.ok(s.speedActiveTicks>0);assert.equal(s.ambientEvents.active,null);assert.equal(s.ambientEvents.rewardTicks,180);assert.equal(e.triggerAmbientEvent(s,'eclipse'),false);
+ e.tick(s);assert.equal(s.playerHP,60);assert.equal(s.rubyHP,50);
 });
 test('uncollected stellar shard expires and never modifies the ordinary resource cap',()=>{
  const s=fresh();activate(s,'shootingStar');const resources=JSON.stringify(s.resources);s.ambientEvents.active.ticks=1;e.tick(s);

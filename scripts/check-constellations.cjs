@@ -37,6 +37,15 @@ const output=path.resolve(process.argv[2]||'docs/ruby-star/visual-reference');fs
    await dialog.waitFor({state:'detached'});
    assert.equal(await page.evaluate(()=>window.__constellationTestState.constellations.length),1);
    assert.ok(await page.getByLabel('Active constellations').isVisible());
+   const afterglow=page.locator('.rs-constellation-afterglow');await afterglow.waitFor();
+   await page.waitForFunction(()=>Number(getComputedStyle(document.querySelector('.rs-constellation-afterglow')).opacity)>.1);
+   assert.equal(await afterglow.evaluate(el=>getComputedStyle(el).pointerEvents),'none');
+   assert.ok(await afterglow.evaluate(el=>Number(getComputedStyle(el).opacity)<=.18));
+   assert.equal(await afterglow.locator('button, a, input').count(),0);
+   const runningTick=await page.evaluate(()=>window.__constellationTestState.gameTick);await page.waitForTimeout(120);
+   assert.ok(await page.evaluate(tick=>window.__constellationTestState.gameTick>tick,runningTick));
+   await page.screenshot({path:path.join(output,`constellation-afterglow-${name}.png`)});
+   await afterglow.waitFor({state:'detached'});assert.equal(await page.evaluate(()=>window.__constellationTestState.gamePhase),'playing');
    // Verify every card's text/layout at the longer final-milestone state.
    const kinds=['healing','laser','speed','energy','bomb','bullets','wave','ruby','power','laserRate','waveReach','bombDamage','burstDuration','burstRate','waveRate','playerGuard','manualHealing','killHealing','bombRate','laserRange'];
    for(let i=0;i<kinds.length;i+=2){

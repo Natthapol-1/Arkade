@@ -6,7 +6,7 @@
 
 After every third actual boss defeat (3, 6, 9, 12, 15, ...), wait one second of unpaused play for defeat effects, then pause and offer two distinct random unowned Constellations. Each can be chosen only once per run; there are no ranks or repeat picks. Choices continue after Ascension. When one remains, offer it alone; after all 20 are owned, stop offering Constellations. Restart clears owned upgrades and pending choices.
 
-Click, tap, keys 1/2, or focused-button Enter/Space selects. Keyboard focus stays in the dialog. `gamePhase='constellation'` freezes simulation and rejects gameplay actions. Boss restoration, hazard cleanup and celestial rewards still resolve, including meteor/special defeats. Choosing clears held mouse/touch movement and attack input. The HUD lists owned constellations, with descriptions available on hover.
+Click, tap, keys 1/2, or focused-button Enter/Space selects. Keyboard focus stays in the dialog. `gamePhase='constellation'` freezes simulation and rejects gameplay actions. Boss restoration, hazard cleanup and celestial rewards still resolve, including meteor/special defeats. Choosing clears held mouse/touch movement and attack input. The chosen star pattern briefly appears as a faint, non-interactive afterglow for 96 gameplay ticks (1.6s) while play continues; it pauses with gameplay and clears on restart. The HUD lists owned constellations, with descriptions available on hover.
 
 | Constellation / internal key | Effect |
 | --- | --- |
@@ -31,7 +31,7 @@ Click, tap, keys 1/2, or focused-button Enter/Space selects. Keyboard focus stay
 | Cepheus / `bombRate` | Bomb cooldown ×0.8 |
 | Crux / `laserRange` | Normal/powered laser range +2 tiles; bullets unchanged |
 
-Healing safety checks, player healing reductions, HP/energy caps and bomb Ruby immunity remain. Upgrades affecting different aspects of the same ability combine. No upgrade changes celestial skill damage. Existing fields and placed bombs retain their rules; Perseus updates the shared bomb radius calculation for both gameplay and the indicator.
+Healing safety checks, HP/energy caps and bomb Ruby immunity remain. Upgrades affecting different aspects of the same ability combine. No upgrade changes celestial skill damage. Existing fields and placed bombs retain their rules; Perseus updates the shared bomb radius calculation for both gameplay and the indicator.
 
 New regular aliens and Splitter children gain +5% HP per third-boss milestone, capped at +30% after defeat 18. The factor multiplies existing tier/global HP scaling and does not retroactively rescale existing enemies. Bosses retain their existing +15 HP per prior defeat, without an extra Constellation multiplier; Queen echoes are unchanged. See [Difficulty](GAMEPLAY.md#difficulty-progression).
 
@@ -47,7 +47,7 @@ The **tenth boss defeat** unlocks Ascension and grants that defeated boss's skil
 | Devourer | Singularity | 5-tile-radius field; duration `12+0.6*s` seconds using defeated Devourer's 0–20 stacks. Normal pull one tile/15 ticks; boss pull one tile/30 ticks, walls respected. Let `q=(s/20)^2`: normal DPS `1.5+6.5q`, boss max-HP DPS `0.003+0.017q` |
 | Warden | Saturn Guard | Player and Ruby absorb shields refilled to at least 40 each, with celestial appearance until depleted; not +40 stacking |
 | Prayer | Sirius Surge | At least 6s powered mode, clears star gauge, free speed burst, resets laser/bullet/wave/bomb/speed cooldowns. Existing placed bomb remains |
-| Chanter | Neptune's Tide | Heals player/Ruby +35 each; pushes enemies within 8 tiles 3 tiles away. Player healing reductions apply |
+| Chanter | Neptune's Tide | Heals player/Ruby +35 each; pushes enemies within 8 tiles 3 tiles away |
 | Weaver | Gaia's Roots | Stationary tile-aligned 12×12 field for 30s, floor only; enemies move 40% slower, take 4 normal damage/sec or 1% boss max HP/sec |
 
 Skill damage respects shields and enemy vulnerabilities, but does not feed diving Chanter. Persistent fields pulse once per second and expire before a pulse on the exact expiry tick; listed DPS×duration is not necessarily the exact total. For example, max Singularity lasts 24s but delivers 23 whole pulses: 46% boss max HP before shields/vulnerability if continuously inside. Gaia also excludes the exact-expiry pulse. Recasts replace the existing field/decoy of that type.

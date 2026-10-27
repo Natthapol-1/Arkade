@@ -7,7 +7,7 @@ Ruby Star is a top-down space-station survival/defense game at `/ruby-star`. Pro
 | Topic | Reference |
 | --- | --- |
 | Controls, combat, Ruby, energy, teleport, meteors, difficulty | [Gameplay](GAMEPLAY.md) |
-| Occasional black holes, shooting stars and eclipses | [Space events](EVENTS.md) |
+| Occasional black holes, shooting stars, eclipses and Supernovas | [Space events](EVENTS.md) |
 | Normal aliens, bosses, targeting, shields and defeat rewards | [Enemies and bosses](ENEMIES.md) |
 | Constellation run upgrades, Ascension and celestial skills | [Skills and upgrades](SKILLS.md) |
 | Art direction, palettes, models, effects, battlefield and UI | [Visual style](VISUALS.md) |

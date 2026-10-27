@@ -3,7 +3,7 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { CONSTELLATIONS, type Constellation } from './engine';
 
-const stars: Record<Constellation, [number, number][]> = {
+export const CONSTELLATION_STARS: Record<Constellation, [number, number][]> = {
   laserRate: [[12, 40], [28, 12], [44, 36], [64, 20]],
   waveReach: [[12, 16], [28, 40], [44, 20], [60, 44]],
   bombDamage: [[16, 16], [60, 52], [20, 52], [60, 16]],
@@ -27,7 +27,7 @@ const stars: Record<Constellation, [number, number][]> = {
 };
 
 // Two-unit cells join through square elbows, never smooth diagonal strokes.
-function constellationLinks(points: [number, number][]): [number, number][] {
+export function constellationLinks(points: [number, number][]): [number, number][] {
   const cells = new Map<string, [number, number]>();
   const add = (x: number, y: number) => cells.set(`${x},${y}`, [x, y]);
   for (let i = 1; i < points.length; i++) {
@@ -73,7 +73,7 @@ export default function ConstellationChoice({ choices, onChoose }: {
       <div className="constellation-cards">
         {choices.map((kind, index) => {
           const upgrade = CONSTELLATIONS[kind];
-          const points = stars[kind];
+          const points = CONSTELLATION_STARS[kind];
           return <button key={kind} type="button" onClick={() => onChoose(kind)} style={{ '--star-color': upgrade.color } as CSSProperties}>
             <svg viewBox="0 0 80 68" aria-hidden="true" shapeRendering="crispEdges">
               <g className="constellation-links" fill="currentColor" opacity=".65">

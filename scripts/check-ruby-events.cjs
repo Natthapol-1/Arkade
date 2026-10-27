@@ -12,14 +12,14 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
     const s=window.__eventState();s.noMobs=s.noBossSpawns=s.godMode=true;s.meteoriteTimer=100000;
    });
    assert.equal(await page.getByRole('button',{name:'Enter Ascension · Boss 10',exact:true}).count(),0);
-   assert.equal(await page.locator('.rs-event-controls button').count(),3);
+   assert.equal(await page.locator('.rs-event-controls button').count(),4);
    const immortal=page.getByRole('button',{name:'Immortal',exact:true,pressed:true}),energy=page.getByRole('button',{name:'Full Energy',exact:true});
    const a=await immortal.boundingBox(),b=await energy.boundingBox();assert.ok(Math.abs(a.y-b.y)<2&&a.x+a.width<=b.x);
-   for(const kind of ['blackhole','shootingStar','eclipse']){
-    const label={blackhole:'BLACK HOLE',shootingStar:'SHOOTING STAR',eclipse:'ECLIPSE'}[kind];
+   for(const kind of ['blackhole','shootingStar','eclipse','supernova']){
+    const label={blackhole:'BLACK HOLE',shootingStar:'SHOOTING STAR',eclipse:'ECLIPSE',supernova:'SUPERNOVA'}[kind];
     await page.getByRole('button',{name:'Create '+label,exact:true}).click();
     await page.waitForFunction(kind=>window.__eventState().ambientEvents.warning?.kind===kind,kind);
-    assert.ok(await page.locator('.rs-event-banner').isVisible());assert.equal(await page.locator('.rs-event-banner span').count(),0);assert.ok(await page.getByRole('button',{name:'Create '+label,exact:true}).isDisabled());
+    assert.ok(await page.locator('.rs-event-banner').isVisible());assert.match(await page.locator('.rs-event-banner').innerText(),new RegExp('^INCOMING: '+label+' [123]s$'));assert.equal(await page.locator('.rs-event-banner span').count(),0);assert.ok(await page.getByRole('button',{name:'Create '+label,exact:true}).isDisabled());
     await page.screenshot({path:path.join(process.argv[2]||'docs/ruby-star/visual-reference',`event-${kind}-${name}-warning.png`)});
     // Pause via the real rules control and verify the warning countdown is frozen.
     await page.getByRole('button',{name:'RULES',exact:true}).click();const before=await page.evaluate(()=>window.__eventState().ambientEvents.warning.ticks);
@@ -70,6 +70,6 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
    }
    assert.deepEqual(errors,[]);await context.close();
   }
-  console.log('Events: all three God triggers, warnings, rules pause, active visuals, shard collection, reset, grouped Immortal/Energy, desktop/mobile and browser errors passed.');
+  console.log('Events: all four God triggers, warnings, rules pause, active visuals, shard collection, reset, grouped Immortal/Energy, desktop/mobile and browser errors passed.');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

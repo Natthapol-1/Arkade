@@ -9,10 +9,12 @@ Ruby Star is a real-time top-down survival/defense game in Arkade, a Next.js 15 
 | File or directory | Responsibility |
 | --- | --- |
 | `app/ruby-star/constants.ts` | Tile map, enemy configurations, boss roster, difficulty tiers, ability tuning, celestial skill definitions |
+| `app/ruby-star/event-audio.ts` | Event warning/arrival/charge cues, Black Hole/Eclipse loop lifecycle and cleanup |
 | `app/ruby-star/events.ts` | Minor-event scheduling, gravity, star landing/pickup and Eclipse |
 | `app/ruby-star/engine.ts` | Pure mutable game state, 60Hz tick, movement/pathfinding, attacks, damage, rewards, spawning, hazards, audio |
 | `app/ruby-star/BombStatus.tsx` | Icon-only HUD bomb ready/armed/cooldown indicator |
 | `app/ruby-star/page.tsx` | Canvas renderers, input, animation loop, camera, HUD, God panel, touch controls |
+| `app/ruby-star/ConstellationAfterglow.tsx` | Faint non-blocking confirmation art, reusing the choice star positions and link geometry |
 | `app/ruby-star/ConstellationChoice.tsx` | Paused run-upgrade interface, including the final single choice |
 | `app/ruby-star/RubyStarGuide.tsx` | Simple main rules and Aliens & Bosses sheet |
 | `tests/*.test.cjs` | Node gameplay regression tests; transpile TypeScript directly |
@@ -55,6 +57,7 @@ node scripts/check-constellations.cjs <absolute-output-directory>
 node scripts/check-ruby-hud.cjs <absolute-output-directory>
 node scripts/check-ruby-game-over.cjs <absolute-output-directory>
 node scripts/check-ruby-events.cjs <absolute-output-directory>
+node scripts/check-ruby-supernova.cjs
 ```
 
 Use meaningful regression tests for gameplay changes. For simple art edits, render the actual drawing functions and inspect rather than adding tests that only mirror implementation. Check actual gameplay scale, an enlarged view and several animation ages. A single static preview does not validate motion, priority or footprint.

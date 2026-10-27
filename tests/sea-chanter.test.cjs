@@ -41,7 +41,7 @@ test('health thresholds, no passive regeneration, hysteresis, and teleport pause
 });
 
 test('diving speed exceeds hunting speed', () => {
- for(const submerged of [false,true]) {const {state,sea}=fresh();position(sea,11,10);if(submerged)dive(sea);sea.targetTileX=12;engine.tick(state);close(sea.stepProgress,submerged?4.2:3.8);}
+ for(const submerged of [false,true]) {const {state,sea}=fresh();position(sea,11,10);if(submerged)dive(sea);sea.targetTileX=12;engine.tick(state);close(sea.stepProgress,3.8);}
 });
 
 test('bullets skip underwater targets, including bullets already in flight',()=>{
@@ -75,7 +75,7 @@ test('song locks aim, travels before hitting, and deals center splash damage wit
  const {state,sea}=fresh();state.godMode=false;position(sea,10,5);sea.sea.songCooldown=0;engine.tick(state);
  assert.equal(sea.sea.songWindupTicks,constants.SEA_SONG_WINDUP);const aim=sea.sea.songAimX;assert.equal(state.playerHP,100);
  for(let i=0;i<constants.SEA_SONG_WINDUP;i++)engine.tick(state);assert.ok(state.seaSongWaves.length>0);assert.equal(sea.sea.songAimX,aim);assert.equal(state.playerHP,100);
- for(let i=0;i<45;i++)engine.tick(state);assert.equal(state.playerHP,83);assert.equal(state.rubyHP,100);
+ for(let i=0;i<45;i++)engine.tick(state);assert.equal(state.playerHP,85);assert.equal(state.rubyHP,100);
 });
 
 test('diving cancels singing and dead casters cannot regenerate',()=>{
@@ -129,11 +129,11 @@ test('aim-point splash hits nearby player once, fades, and passes through projec
  const {state,sea}=fresh();state.godMode=false;position(sea,10,5);
  const x=state.playerX+3*constants.TILE_SIZE,y=state.playerY;
  state.seaSongWaves.push({x:x-1,y,dx:1,dy:0,rangeLeft:1,aimX:x,aimY:y,hitPlayer:false,ownerId:sea.id});
- engine.tick(state);assert.equal(state.playerHP,88);assert.equal(state.seaSongWaves.length,0);assert.equal(state.seaSongBursts.length,1);
- for(let i=0;i<constants.SEA_SONG_BLAST_TICKS;i++)engine.tick(state);assert.equal(state.seaSongBursts.length,0);assert.equal(state.playerHP,88);
+ engine.tick(state);assert.equal(state.playerHP,90);assert.equal(state.seaSongWaves.length,0);assert.equal(state.seaSongBursts.length,1);
+ for(let i=0;i<constants.SEA_SONG_BLAST_TICKS;i++)engine.tick(state);assert.equal(state.seaSongBursts.length,0);assert.equal(state.playerHP,90);
  state.playerHP=100;
  state.seaSongWaves.push({x:state.playerX-30,y,dx:1,dy:0,rangeLeft:30+2*constants.TILE_SIZE,aimX:state.playerX+2*constants.TILE_SIZE,aimY:y,hitPlayer:false,ownerId:sea.id});
- for(let i=0;i<12;i++)engine.tick(state);assert.equal(state.playerHP,88);assert.equal(state.seaSongWaves.length,0);
+ for(let i=0;i<12;i++)engine.tick(state);assert.equal(state.playerHP,90);assert.equal(state.seaSongWaves.length,0);
  state.seaSongBursts=[];state.map[12][12]=constants.T_WALL;
  const wallX=12*constants.TILE_SIZE,wallY=12.5*constants.TILE_SIZE;
  state.seaSongWaves.push({x:wallX-1,y:wallY,dx:1,dy:0,rangeLeft:40,aimX:wallX+39,aimY:wallY,hitPlayer:false,ownerId:sea.id});
@@ -142,8 +142,8 @@ test('aim-point splash hits nearby player once, fades, and passes through projec
 });
 
 
-test('six-tile splash damage falls from 17 at center to 7 at edge and misses outside',()=>{
- for(const [distance,damage] of [[0,17],[1.5,15],[3,12],[4.5,10],[6,7],[6.1,0]]) {
+test('six-tile splash damage falls from 15 at center to 5 at edge and misses outside',()=>{
+ for(const [distance,damage] of [[0,15],[1.5,13],[3,10],[4.5,8],[6,5],[6.1,0]]) {
   const {state,sea}=fresh();state.godMode=false;position(sea,10,5);
   const x=state.playerX+distance*constants.TILE_SIZE,y=state.playerY;
   state.seaSongWaves.push({x:x-1,y,dx:1,dy:0,rangeLeft:1,aimX:x,aimY:y,hitPlayer:false,ownerId:sea.id});
@@ -179,7 +179,7 @@ test('song can target through walls and splash damages through cover',()=>{
  state.map[10][11]=constants.T_WALL;
  const x=state.playerX+2*constants.TILE_SIZE,y=state.playerY;
  state.seaSongWaves.push({x:x-1,y,dx:1,dy:0,rangeLeft:1,aimX:x,aimY:y,hitPlayer:false,ownerId:sea.id});
- engine.tick(state);assert.equal(state.playerHP,86);
+ engine.tick(state);assert.equal(state.playerHP,88);
 });
 
 
@@ -229,15 +229,11 @@ test('surface support pulses every three seconds and on-hit healing stacks indep
 });
 
 
-test('periodic pulse applies local timed healing reduction; hits alone do not refresh it',()=>{
- const {state,sea}=fresh();position(sea,11,10);sea.sea.allyHealCooldown=1;engine.tick(state);assert.equal(state.seaHealingDebuffTicks,180);
- state.playerHP=10;state.resources=[{type:'health',tileX:10,tileY:10}];engine.tick(state);close(state.playerHP,33.1);
- const duration=state.seaHealingDebuffTicks;engine.useLaser(state);assert.equal(state.seaHealingDebuffTicks,duration);
- state.gamePhase='teleporting';engine.tick(state);assert.equal(state.seaHealingDebuffTicks,duration);state.gamePhase='playing';
- position(sea,40,40);for(let i=0;i<duration;i++)engine.tick(state);assert.equal(state.seaHealingDebuffTicks,0);
+test('nearby surface support pulses leave player healing at full strength',()=>{
+ const {state,sea}=fresh();position(sea,11,10);sea.sea.allyHealCooldown=1;engine.tick(state);
  state.playerHP=10;state.resources=[{type:'health',tileX:10,tileY:10}];engine.tick(state);close(state.playerHP,43);
- position(sea,11,10);sea.sea.allyHealCooldown=1;engine.tick(state);assert.equal(state.seaHealingDebuffTicks,180);
- sea.hp=1;state.laserCooldown=0;engine.useLaser(state);assert.equal(state.seaHealingDebuffTicks,0);assert.equal(state.playerHP,100);
+ position(sea,40,40);state.playerCarryingRuby=false;state.rubyTileX=10;state.rubyTileY=10;
+ state.playerHP=20;state.rubyHP=20;assert.equal(engine.healRuby(state),true);close(state.playerHP,23);close(state.rubyHP,25);
 });
 
 
@@ -246,4 +242,28 @@ test('diving vulnerability increases laser damage by 60 percent without affectin
  engine.useLaser(state);close(sea.hp,90-constants.LASER_DMG);
  dive(sea);state.laserCooldown=0;engine.useLaser(state);close(sea.hp,50-constants.LASER_DMG*1.6);
  sea.icyShieldHP=10;const before=sea.hp;state.laserCooldown=0;engine.useLaser(state);close(sea.hp,before);close(sea.icyShieldHP,10-constants.LASER_DMG);
+});
+
+
+test('underwater HP hits block recovery for three seconds; further hits refresh and pause preserves remaining time',()=>{
+ const {state,sea}=fresh();dive(sea);position(sea,11,10);engine.useLaser(state);
+ const damagedHP=sea.hp;assert.ok(damagedHP<50);assert.equal(sea.sea.healingBlockedUntilTick,state.gameTick+180);
+ position(sea,40,40);
+ const victim={...sea,id:state.nextEnemyId++,type:'normal',sea:undefined,hp:500,maxHp:500,path:[],icyShieldHP:0};position(victim,11,10);state.enemies.push(victim);
+ state.laserCooldown=0;engine.useLaser(state);close(sea.hp,damagedHP);
+ for(let i=0;i<90;i++)engine.tick(state);
+ state.gamePhase='teleporting';const tick=state.gameTick;for(let i=0;i<120;i++)engine.tick(state);assert.equal(state.gameTick,tick);state.gamePhase='playing';
+ position(victim,40,35);position(sea,11,10);state.laserCooldown=0;engine.useLaser(state);
+ const refreshedHP=sea.hp;assert.equal(sea.sea.healingBlockedUntilTick,state.gameTick+180);
+ position(sea,40,40);for(let i=0;i<179;i++)engine.tick(state);
+ position(victim,11,10);state.laserCooldown=0;engine.useLaser(state);close(sea.hp,refreshedHP);
+ engine.tick(state);position(victim,11,10);state.laserCooldown=0;engine.useLaser(state);
+ close(sea.hp,refreshedHP+constants.LASER_DMG*.8);
+});
+
+test('fully shielded underwater hits and surfaced hits do not block diving recovery',()=>{
+ const {state,sea}=fresh();dive(sea);position(sea,11,10);sea.icyShieldHP=100;engine.useLaser(state);
+ assert.equal(sea.hp,50);assert.equal(sea.sea.healingBlockedUntilTick,0);
+ sea.icyShieldHP=0;sea.hp=sea.maxHp;sea.sea.mode='hunting';state.laserCooldown=0;engine.useLaser(state);
+ assert.equal(sea.sea.healingBlockedUntilTick,0);
 });
