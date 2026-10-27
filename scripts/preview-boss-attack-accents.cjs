@@ -1,0 +1,10 @@
+const fs=require('fs'),Module=require('module'),ts=require('typescript');require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,f);
+const {createCanvas}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@napi-rs/canvas');const c=require('../app/ruby-star/constants.ts'),engine=require('../app/ruby-star/engine.ts'),src=fs.readFileSync('app/ruby-star/page.tsx','utf8');
+const code='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {isSeaChanterDiving}=require('./engine.ts');"+src.slice(src.indexOf('const PRAYER_GLYPHS'),src.indexOf('function drawRewardSpark('))+src.slice(src.indexOf('function drawEnemy('),src.indexOf('function drawGame('))+';exports.drawBossAttackAccent=drawBossAttackAccent;exports.drawEnemy=drawEnemy;exports.drawThornGround=drawThornGround;';const m=new Module(require('path').resolve('app/ruby-star/preview.cjs'),module);m.filename=require('path').resolve('app/ruby-star/preview.cjs');m.paths=module.paths;m._compile(ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,m.filename);
+const canvas=createCanvas(1000,720),ctx=canvas.getContext('2d');ctx.fillStyle='#111923';ctx.fillRect(0,0,1000,720);
+const types=['fiery_king','splitter_queen','devourer','frost_warden'];
+for(let row=0;row<4;row++){const state=engine.createInitialState();engine.godSpawnBoss(state,types[row]);const e=state.enemies[0];e.shootTicks=10;e.attackTimer=100;
+ctx.save();ctx.translate(105,row*180+100);ctx.scale(1.4,1.4);m.exports.drawEnemy(ctx,e,0,0,40);ctx.restore();
+for(let col=0;col<3;col++){const x=320+col*260,y=row*180+100;m.exports.drawBossAttackAccent(ctx,['king','queen','devourer','warden'][row],x-70,y,x,y,[.1,.4,.7][col]);}
+ctx.fillStyle='#d4e1e9';ctx.font='14px monospace';ctx.fillText(types[row],25,row*180+24);}
+fs.writeFileSync('C:/Users/Natthapol/.codex/visualizations/2026/10/25/01a1710d-8902-7891-8f20-02bf0449228a/boss-attack-accents.png',canvas.toBuffer('image/png'));

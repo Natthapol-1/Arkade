@@ -3,24 +3,29 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import BackButton from '@/components/BackButton';
 import RulesModal from '@/components/RulesModal';
+import RubyStarGuide from './RubyStarGuide';
 import BGMController, { BGMControllerHandle } from '@/components/BGMController';
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
+  SPECIAL_SKILLS, SPECIAL_UNLOCK_KILLS, SPECIAL_REAPER_RADIUS, SPECIAL_CHANTER_RADIUS, SPECIAL_WEAVER_RADIUS, SPECIAL_SINGULARITY_RADIUS,
   T_WALL, T_TELEPORT,
-  CHAMBER_BOUNDS, CHAMBER_LABELS, CHAMBER_COLORS,
+  CHAMBER_BOUNDS, CHAMBER_LABELS, CHAMBER_COLORS, HALLWAY_BOUNDS,
   chamberOfTile,
-  ENEMY_CONFIGS,
+  ENEMY_CONFIGS, isBossType, BOSS_TYPES, BOSS_NAMES, BossType,
   PLAYER_MAX_HP, RUBY_MAX_HP,
   LASER_COOLDOWN,
   STAR_ENERGY_MAX,
   METEORITE_WARNING, METEORITE_CYCLE, BOMB_RADIUS, BOMB_RADIUS_PWR, BULLET_COOLDOWN, BULLET_SPEED,
   HEALER_HEAL_INTERVAL, QUEEN_WINDUP_TICKS, QUEEN_PHASE_TELEGRAPH,
+  PRAYER_RUBY_WINDUP, PRAYER_ESCAPE_WINDUP, SEA_SONG_WINDUP, SEA_SONG_BLAST_RADIUS, SEA_SONG_BLAST_TICKS, SEA_ALLY_HEAL_RADIUS,
+  KING_ARENA_WINDUP, KING_ARENA_FX_TICKS,
+  THORN_WINDUP, THORN_RADIUS, THORN_LIFETIME, getThornFieldBounds,
 } from './constants';
 import {
   GameState, createInitialState, tick,
-  useLaser, useBullet, activateWave, useSpeedBoost, useBomb, godSpawnBoss,
+  useLaser, useBullet, activateWave, useSpeedBoost, useBomb, useSpecialSkill, godSpawnBoss, godSetNoMobs, godSetNoBossSpawns, godEnterAscension,
   toggleCarryRuby, tryActivateTeleport, doTeleport, cancelTeleport,
-  healRuby, canHealRuby, isPlayerChilled, playSFX_charge,
+  healRuby, canHealRuby, isPlayerChilled, isMovementReversed, isSeaChanterDiving, isEnemyVisibleOnMinimap, startChargeSound, stopChargeSound, stopPoisonSound, stopSingularitySound, stopGaiaFieldSound,
   METEOR_CLOCKWISE_ORDER,
 } from './engine';
 
@@ -61,11 +66,6 @@ function drawMinimap(
       const py = MY + ty * S;
       if (tile === T_WALL) {
         ctx.fillStyle = '#060615';
-      } else if (tile === T_TELEPORT) {
-        const ch = chamberOfTile(tx, ty);
-        ctx.fillStyle = ch >= 0 ? CHAMBER_COLORS[ch] + '99' : '#ffffff44';
-      } else if (state.frostIceTiles.some(([itx, ity]) => itx === tx && ity === ty)) {
-        ctx.fillStyle = '#aaeeffcc'; // Frost Warden ice hazard tile
       } else {
         const ch = chamberOfTile(tx, ty);
         ctx.fillStyle = ch >= 0 ? CHAMBER_COLORS[ch] + '18' : '#0a0a1a';
@@ -74,7 +74,28 @@ function drawMinimap(
     }
   }
 
-  // Meteorite warning flash
+  if(state.lunarDecoy){
+    ctx.save();ctx.strokeStyle='#d3aaff';ctx.lineWidth=1;
+    ctx.strokeRect(MX+state.lunarDecoy.tileX*S-2,MY+state.lunarDecoy.tileY*S-2,S+4,S+4);ctx.restore();
+  }
+  const carryingRuby = state.playerCarryingRuby || state.rubyTileX === -1;
+  const rubyX = carryingRuby ? state.playerTileX : state.rubyTileX;
+  const rubyY = carryingRuby ? state.playerTileY : state.rubyTileY;
+  const rubyChamber = chamberOfTile(rubyX, rubyY);
+  const rubyPulse = 0.65 + 0.35 * Math.abs(Math.sin(tickN * 0.07));
+  if (rubyChamber >= 0) {
+    const [r1, c1, r2, c2] = CHAMBER_BOUNDS[rubyChamber];
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,17,85,0.12)';
+    ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
+    ctx.strokeStyle = `rgba(255,85,136,${rubyPulse})`;
+    ctx.shadowColor = '#ff1155'; ctx.shadowBlur = 8;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(MX + c1 * S + 1, MY + r1 * S + 1, (c2 - c1 + 1) * S - 2, (r2 - r1 + 1) * S - 2);
+    ctx.restore();
+  }
+
+  // Meteor warnings remain visible over the Ruby chamber tint.
   if (state.meteoriteWarning >= 0) {
     const pulse = Math.floor(tickN / 6) % 2 === 0;
     if (pulse) {
@@ -93,30 +114,22 @@ function drawMinimap(
 
   // Enemies
   for (const e of state.enemies) {
+    if (!isEnemyVisibleOnMinimap(e)) continue;
     ctx.fillStyle = ENEMY_CONFIGS[e.type].color;
     ctx.fillRect(MX + e.tileX * S, MY + e.tileY * S, S, S);
   }
 
-  // Ruby (placed)
-  if (state.rubyTileX !== -1) {
-    ctx.fillStyle = '#ff1155';
-    ctx.fillRect(MX + state.rubyTileX * S - 1, MY + state.rubyTileY * S - 1, 4, 4);
+  // A shield adds a blue outline while keeping the player marker visible.
+  if (state.playerShieldHP > 0) {
+    ctx.strokeStyle = '#4488ff'; ctx.lineWidth = 1;
+    ctx.strokeRect(MX + state.playerTileX * S - 2, MY + state.playerTileY * S - 2, 6, 6);
   }
-
-  // Player (blink when invincible)
-  const pBlink = state.playerInvincibleTicks > 0 && Math.floor(tickN / 4) % 2 === 0;
-  if (!pBlink) {
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(MX + state.playerTileX * S - 1, MY + state.playerTileY * S - 1, 4, 4);
-    if (state.playerCarryingRuby) {
-      ctx.fillStyle = '#ff2266';
-      ctx.fillRect(MX + state.playerTileX * S, MY + state.playerTileY * S, 2, 2);
-    }
-  }
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(MX + state.playerTileX * S - 1, MY + state.playerTileY * S - 1, 4, 4);
 
   // Boss on minimap — huge pulsing dot with glowing core and border
   for (const e of state.enemies) {
-    if (e.type === 'fiery_king' || e.type === 'splitter_queen' || e.type === 'storm_reaper' || e.type === 'devourer' || e.type === 'frost_warden') {
+    if (isBossType(e.type) && isEnemyVisibleOnMinimap(e)) {
       const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.12));
       const bx = MX + e.tileX * S;
       const by = MY + e.tileY * S;
@@ -124,8 +137,8 @@ function drawMinimap(
       // Deep purple for the Queen, cyan for the Reaper (glow matches her own color), the
       // Devourer's dot fills toxic green (her veins) but glows violet (her body color), white
       // glow + light blue fill for the Frost Warden, red for the King
-      const colorGlow = e.type === 'splitter_queen' ? '#8800ff' : e.type === 'storm_reaper' ? '#00d4ff' : e.type === 'devourer' ? '#6b2fa8' : e.type === 'frost_warden' ? '#ffffff' : '#ff0033';
-      const colorFill = e.type === 'splitter_queen' ? `rgba(136,0,255,${pulse})` : e.type === 'storm_reaper' ? `rgba(0,212,255,${pulse})` : e.type === 'devourer' ? `rgba(136,255,68,${pulse})` : e.type === 'frost_warden' ? `rgba(102,204,255,${pulse})` : `rgba(255,0,34,${pulse})`;
+      const colorGlow = e.type === 'thorn_weaver' ? '#88bc45' : e.type === 'sea_chanter' ? '#3998d6' : e.type === 'blind_prayer' ? '#ffdd22' : e.type === 'splitter_queen' ? '#8800ff' : e.type === 'storm_reaper' ? '#52ffd6' : e.type === 'devourer' ? '#6b2fa8' : e.type === 'frost_warden' ? '#ffffff' : '#ff0033';
+      const colorFill = e.type === 'thorn_weaver' ? 'rgba(136,188,69,' + pulse + ')' : e.type === 'sea_chanter' ? 'rgba(57,152,214,' + pulse + ')' : e.type === 'blind_prayer' ? `rgba(255,221,34,${pulse})` : e.type === 'splitter_queen' ? `rgba(136,0,255,${pulse})` : e.type === 'storm_reaper' ? `rgba(82,255,214,${pulse})` : e.type === 'devourer' ? `rgba(136,255,68,${pulse})` : e.type === 'frost_warden' ? `rgba(102,204,255,${pulse})` : `rgba(255,0,34,${pulse})`;
 
       // Devourer gets an explicit painted violet halo behind her green dot — canvas
       // shadowBlur alone reads too faint to register as purple at this icon size
@@ -142,13 +155,19 @@ function drawMinimap(
 
       // Inner core is gold for every boss except the Frost Warden, whose icon is white/white-blue
       // through and through — a gold core there read too similar to the Devourer's violet+gold combo
-      ctx.fillStyle = e.type === 'frost_warden' ? '#ffffff' : '#ffcc00';
+      ctx.fillStyle = e.type === 'thorn_weaver' ? '#294525' : e.type === 'storm_reaper' ? '#06463f' : e.type === 'sea_chanter' ? '#8dc9f0' : e.type === 'blind_prayer' ? '#080808' : e.type === 'frost_warden' ? '#ffffff' : '#ffcc00';
       ctx.fillRect(bx - 1, by - 1, 4, 4);
 
-      ctx.strokeStyle = e.type === 'frost_warden' ? `rgba(255,255,255,${pulse})` : `rgba(255,204,0,${pulse})`;
+      ctx.strokeStyle = e.type === 'thorn_weaver' ? 'rgba(216,239,155,' + pulse + ')' : e.type === 'storm_reaper' ? `rgba(82,255,214,${pulse})` : e.type === 'sea_chanter' ? `rgba(141,201,240,${pulse})` : e.type === 'frost_warden' ? `rgba(255,255,255,${pulse})` : `rgba(255,204,0,${pulse})`;
       ctx.lineWidth = 1;
       ctx.strokeRect(bx - 4, by - 4, 10, 10);
       ctx.shadowBlur = 0;
+      if (e.type === 'blind_prayer' && (e.prayer?.rubyCastTicks ?? 0) > 0 && e.prayer!.rubyDestination >= 0) {
+        const destination = e.prayer!.rubyDestination;
+        const center = [[10, 10], [39, 10], [10, 39], [39, 39]][destination];
+        ctx.strokeStyle = Math.floor(tickN / 8) % 2 ? '#ffffff' : '#ffdd22';
+        ctx.strokeRect(MX + center[0] * S - 4, MY + center[1] * S - 4, 10, 10);
+      }
     }
   }
 
@@ -162,17 +181,180 @@ function drawMinimap(
     ctx.fillStyle = CHAMBER_COLORS[i] + 'cc';
     ctx.fillText(CHAMBER_LABELS[i][0], MX + lx * S + S / 2, MY + ly * S + S / 2);
   }
+
+  // Draw the Ruby last so enemies, boss dots, and chamber labels cannot hide it.
+  ctx.save();
+  const rx = Math.round(MX + rubyX * S + S / 2);
+  const ry = Math.round(MY + rubyY * S + S / 2);
+  const half = isMobileTouch ? 5 : 7;
+  ctx.shadowColor = '#ff1155'; ctx.shadowBlur = 14 + rubyPulse * 8;
+  ctx.fillStyle = '#ff1155';
+  ctx.fillRect(rx - 2, ry - half, 4, half * 2);
+  ctx.fillRect(rx - half + 2, ry - half + 3, half * 2 - 4, half * 2 - 6);
+  ctx.fillRect(rx - half, ry - 2, half * 2, 4);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = carryingRuby ? '#ffffff' : '#ffddee';
+  ctx.fillRect(rx - 2, ry - 2, 4, 4);
+  ctx.restore();
+}
+
+// Shared ray shape: long cardinal pixels, square diagonal sparks and a tiny leading chip.
+function drawEnergyPixelRay(ctx: CanvasRenderingContext2D, x: number, y: number, dx: number, dy: number, color: string, scale=1) {
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.scale(scale,scale);ctx.fillStyle=color;
+  if(dx===0)ctx.fillRect(-2,-5,4,10);
+  else if(dy===0)ctx.fillRect(-5,-2,10,4);
+  else {ctx.fillRect(-3,-3,6,6);ctx.fillRect(dx*4-1,dy*4-1,2,2);}
+  ctx.restore();
+}
+
+function drawFullEnergyAura(ctx: CanvasRenderingContext2D, x: number, y: number, tickN: number, active: boolean) {
+  ctx.save();
+  x = Math.round(x); y = Math.round(y);
+  const clock = tickN * (active ? 2 : 1);
+  const directions = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]];
+  // Eight outward streams form a starburst, rather than the Sniper buff's square ring.
+  ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = active ? 12 : 8;
+  for (let i = 0; i < directions.length; i++) {
+    const [dx, dy] = directions[i];
+    for (let shard = 0; shard < 2; shard++) {
+      const life = ((clock + i * 5 + shard * 18) % 36) / 36;
+      const distance = 22 + Math.floor(life * (active ? 6 : 4)) * 4;
+      const px = x + dx * distance, py = y + dy * distance;
+      ctx.globalAlpha = (1 - life) * 0.9;
+      ctx.fillStyle = shard ? '#fff2aa' : '#ffbb22';
+      // Elongated cardinal rays and stepped corner sparks keep the silhouette blocky.
+      drawEnergyPixelRay(ctx,px,py,dx,dy,shard?'#fff2aa':'#ffbb22');
+    }
+  }
+  // A persistent eight-point pixel star makes "energy full" readable at a glance.
+  const starY = y - 48;
+  ctx.globalAlpha = 0.85 + 0.15 * Math.abs(Math.sin(tickN * 0.06));
+  ctx.fillStyle = '#ffcc22';
+  ctx.fillRect(x - 2, starY - 9, 4, 18);
+  ctx.fillRect(x - 9, starY - 2, 18, 4);
+  ctx.fillRect(x - 5, starY - 5, 10, 10);
+  for (const dx of [-1, 1]) for (const dy of [-1, 1]) ctx.fillRect(x + dx * 6 - 1, starY + dy * 6 - 1, 2, 2);
+  ctx.fillStyle = active ? '#ffffff' : '#fff3b0';
+  ctx.fillRect(x - 2, starY - 2, 4, 4);
+  ctx.restore();
+}
+
+const PLAYER_CELESTIAL_PALETTES: Record<keyof typeof SPECIAL_SKILLS, { panel: string; visor: string; detail: string }> = {
+  fiery_king:{panel:'#a8323c',visor:'#fff0b5',detail:'#ff9e80'},
+  splitter_queen:{panel:'#8b67a8',visor:'#8fffe0',detail:'#c6a2f2'},
+  storm_reaper:{panel:'#b77535',visor:'#fff0c8',detail:'#f4c18b'},
+  devourer:{panel:'#08080d',visor:'#bcbccd',detail:'#71717f'},
+  frost_warden:{panel:'#327f76',visor:'#e1fff5',detail:'#a8e8d7'},
+  blind_prayer:{panel:'#b19832',visor:'#fffbe3',detail:'#fff2a3'},
+  sea_chanter:{panel:'#315fba',visor:'#c7e4ff',detail:'#91baff'},
+  thorn_weaver:{panel:'#5b8246',visor:'#f2f7eb',detail:'#c1e398'},
+};
+
+function drawPlayerCelestialFeature(ctx: CanvasRenderingContext2D, kind: keyof typeof SPECIAL_SKILLS, sx: number, sy: number, size: number, layer: 'back'|'body'|'front', tick: number) {
+  ctx.save();ctx.translate(Math.round(sx),Math.round(sy));ctx.scale(size/36,size/36);ctx.shadowBlur=0;
+  const detail=PLAYER_CELESTIAL_PALETTES[kind].detail;
+  const rect=(x:number,y:number,w:number,h:number,c:string)=>{ctx.fillStyle=c;ctx.fillRect(x,y,w,h);};
+  if(kind==='frost_warden' && layer!=='body'){
+    ctx.save();ctx.translate(0,1);ctx.globalAlpha=layer==='front'?.85:.45;
+    drawCelestialPolygonRing(ctx,27,10,detail,5.5,.15,layer==='front');
+    // Light travels around a fixed hoop: its centre, tilt and silhouette never rotate.
+    for(let trail=3;trail>=0;trail--){
+      const travel=((tick*.12-trail*.16)%8+8)%8,index=Math.floor(travel),t=travel-index;
+      if((index<4)!==(layer==='front'))continue;
+      const angle=index*Math.PI/4,nextAngle=(index+1)*Math.PI/4;
+      const px=(Math.cos(angle)*(1-t)+Math.cos(nextAngle)*t)*27;
+      const py=(Math.sin(angle)*(1-t)+Math.sin(nextAngle)*t)*10;
+      const x=px*Math.cos(.15)-py*Math.sin(.15),y=px*Math.sin(.15)+py*Math.cos(.15);
+      ctx.globalAlpha=(1-trail*.22)*(layer==='front'?.9:.5);ctx.shadowColor=detail;ctx.shadowBlur=4;
+      rect(Math.round(x)-2,Math.round(y)-2,4,4,trail?'#a8e8d7':'#edfff8');
+    }
+    ctx.restore();
+  }
+  if(layer==='body'){
+    if(kind==='fiery_king'){
+      // A glowing orange mantle surrounds a darker ember core; the visor is white-hot.
+      ctx.globalAlpha=.8;rect(-22,-7,5,11,'#dc4348');rect(17,-7,5,11,'#dc4348');
+      ctx.globalAlpha=1;rect(-21,-11,3,6,detail);rect(18,-11,3,6,detail);
+      rect(-10,-12,20,24,'#ff7947');rect(-12,-8,24,16,'#ff7947');
+      rect(-8,-9,16,18,'#d65b34');rect(-10,-5,20,10,'#d65b34');
+      ctx.shadowColor='#ef793d';ctx.shadowBlur=4+Math.abs(Math.sin(tick*.08))*2;
+      rect(-5,-6,10,12,'#a83b2c');rect(-6,-4,12,8,'#a83b2c');
+      ctx.shadowBlur=0;rect(-3,-3,6,6,'#8c2836');
+    }else if(kind==='splitter_queen'){
+      // The illuminated crescent wraps around a quiet dark lunar hemisphere.
+      rect(-13,-13,26,26,'#544669');rect(-12,-9,7,18,'#d5bbf6');
+      rect(-9,-12,17,5,'#d5bbf6');rect(-9,7,17,5,'#d5bbf6');
+      rect(-6,-8,5,16,'#b48edb');rect(-1,-8,14,16,'#544669');
+      rect(-10,-5,3,3,'#8e6caf');rect(-7,5,3,3,'#ead8ff');
+    }else if(kind==='storm_reaper'){
+      // Layered cloud belts drift gently around a square Great Red Spot.
+      const cloudDrift=Math.round(Math.sin(tick*.045)*2);
+      rect(-13,-11,26,4,detail);rect(-13,-6,26,2,'#d99656');
+      rect(-13,-2,26,5,'#9b582f');rect(-13,6,26,3,detail);
+      rect(-11+cloudDrift,-10,10,2,'#ffe0b0');
+      rect(-11-cloudDrift,-1,10,2,'#c68a51');rect(-5+cloudDrift,2,8,2,'#a96536');
+      rect(-12,9,10,2,'#cf9455');
+      // A lighter square storm drifts around the cloud belts, staying inside the body.
+      const stormX=Math.round(Math.sin(tick*.02)*8)-4;
+      const stormY=Math.round(-3+Math.cos(tick*.02)*5)-4;
+      rect(stormX,stormY,8,8,'#d9774d');rect(stormX+2,stormY+2,4,4,'#ffb77b');
+      rect(stormX+2,stormY+2,2,2,'#ffe3b5');
+    }else if(kind==='devourer'){
+      // A large lightless core with a sharp silver lip and detached void fragments.
+      rect(-9,-9,18,18,'#646477');rect(-7,-7,14,14,'#020205');
+      rect(-9,-9,9,2,'#c0c0d4');rect(5,5,4,4,'#3c3c50');
+      const drift=Math.round(Math.sin(tick*.06)*2);
+      rect(-22,-4+drift,4,4,'#73738a');rect(19,5-drift,4,4,'#73738a');
+    }else if(kind==='frost_warden'){
+      rect(-11,-10,22,3,'#4da89a');rect(-7,-3,14,3,detail);
+    }else if(kind==='blind_prayer'){
+      // Bright stellar inlays frame a darker gold core and a white-hot visor.
+      rect(-13,-12,5,3,detail);rect(-13,-12,3,6,detail);
+      rect(8,8,5,3,detail);rect(10,5,3,6,detail);
+      rect(-3,-10,6,20,'#8f7428');rect(-10,-3,20,6,'#8f7428');
+      rect(-4,-4,8,8,'#675021');rect(-2,-2,4,4,'#4e411d');
+    }else if(kind==='sea_chanter'){
+      rect(-13,-10,26,3,'#4c80d9');rect(-13,4,26,3,'#234e9d');
+      const drift=Math.round(Math.sin(tick*.08)*2)*2;
+      rect(-11+drift,-7,15,4,'#8ec9f4');rect(-4-drift,1,13,4,'#559ee6');
+      rect(-10,8,17,3,'#70b5ee');rect(-7+drift,-6,4,2,'#d4f0ff');
+      rect(-22,-5,5,10,'#4483ef');rect(17,-5,5,10,'#4483ef');
+      rect(-21,-3,2,6,detail);rect(19,-3,2,6,detail);
+    }else if(kind==='thorn_weaver'){
+      // Blue oceans, green land and pale polar caps inside Gaia's green suit rim.
+      rect(-13,-13,26,26,'#345b88');rect(-8,-12,16,3,'#d4edce');
+      rect(-11,-8,10,5,'#9dc778');rect(-8,-3,6,6,'#9dc778');
+      rect(-5,2,4,5,'#719e55');rect(3,1,8,4,'#b5d68c');rect(6,5,4,5,'#b5d68c');
+      rect(-6,10,13,3,'#b8dbbd');
+    }
+  }
+  if(layer==='front' && kind==='splitter_queen'){
+    // One small crescent beside the helmet antenna.
+    rect(6,-28,4,10,detail);rect(9,-31,6,4,detail);rect(9,-20,6,4,detail);
+  }
+  if(layer==='front' && kind==='blind_prayer'){
+    // The antenna tip becomes a bright, block-built stellar crest.
+    ctx.shadowColor='#fff0a8';ctx.shadowBlur=5;
+    rect(-1,-30,3,11,'#fff4b8');rect(-5,-26,11,3,'#fff4b8');rect(-1,-26,3,3,'#ffffff');
+  }
+  ctx.restore();
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state: GameState, tickN: number, chargingMs = 0) {
-  const invincible = state.playerInvincibleTicks > 0;
+  sx=Math.round(sx);sy=Math.round(sy);
+  const shielded = state.playerShieldHP > 0;
+  const energyFull = state.starEnergy >= STAR_ENERGY_MAX || state.poweredTicks > 0;
+  if (energyFull) drawFullEnergyAura(ctx, sx, sy, tickN, state.poweredTicks > 0);
 
   const speeding = state.speedActiveTicks > 0;
   const carrying = state.playerCarryingRuby;
-  const suitColor = speeding ? '#00ffee' : carrying ? '#ff3366' : '#d8d870';
-  const suitDark = speeding ? '#00aaaa' : carrying ? '#aa0033' : '#a0a040';
-  const glowColor = speeding ? '#00ffee' : carrying ? '#ff1155' : '#eeee44';
-  const visorColor = speeding ? '#ffffff' : carrying ? '#ff88aa' : '#44ccff';
+  const celestialKind = carrying ? null : state.specialSkill;
+  const celestial = celestialKind ? SPECIAL_SKILLS[celestialKind] : null;
+  const palette = celestialKind ? PLAYER_CELESTIAL_PALETTES[celestialKind] : null;
+  const suitColor = carrying ? '#ff3366' : celestial?.color ?? (speeding ? '#00ffee' : '#d8d870');
+  const suitDark = carrying ? '#aa0033' : palette?.panel ?? (speeding ? '#00aaaa' : '#a0a040');
+  const glowColor = carrying ? '#ff1155' : celestial?.color ?? (speeding ? '#00ffee' : '#eeee44');
+  const visorColor = carrying ? '#ff88aa' : palette?.visor ?? (speeding ? '#ffffff' : '#44ccff');
 
   // Shrink on laser fire
   const laserFired = state.laserCooldown >= LASER_COOLDOWN - 10;
@@ -192,21 +374,38 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
     ? Math.min(1, (chargingMs - 200) / (waveChargeMs - 200))
     : 0;
   const chargeShrink = 1 - chargeProgress * 0.70;
-  const scaleFactor = Math.min(laserShrink, chargeShrink, bulletShrink);
+  const castProgress=state.playerCastTicks>0?1-state.playerCastTicks/24:1;
+  const castPulse=state.playerCastTicks>0?Math.sin(castProgress*Math.PI):0;
+  const recovery=Math.max(0,(castProgress-.3)/.7);
+  const castScale=castProgress<.3?1-castProgress*.7:.79+.21*recovery+Math.sin(recovery*Math.PI)*.18;
+  const scaleFactor = Math.min(laserShrink, chargeShrink, bulletShrink)*castScale;
 
   const sz = Math.floor(TILE_SIZE * 0.74 * scaleFactor);
   const h = Math.floor(sz / 2);
   const { playerDirX: dx, playerDirY: dy } = state;
 
-  // Speed burst glow on initial cast
-  const speedFlashTicks = state.speedFlashTicks;
-  const burstGlow = speedFlashTicks > 0 ? Math.floor(60 * speedFlashTicks / 30) : 0;
+  if(state.playerCastTicks>0 && state.playerCastKind){
+    const castColor=state.playerCastKind==='bomb'?'#ff9b45':state.playerCastKind==='devourer'?'#c6c6df':SPECIAL_SKILLS[state.playerCastKind].color;
+    ctx.save();ctx.globalAlpha=castPulse*.85;ctx.shadowColor=castColor;ctx.shadowBlur=10;
+    ctx.strokeStyle=castColor;ctx.lineWidth=3;
+    const radius=h+5+Math.round(castProgress*16),arm=8;
+    for(const sideX of [-1,1])for(const sideY of [-1,1]){
+      ctx.beginPath();ctx.moveTo(sx+sideX*(radius-arm),sy+sideY*radius);ctx.lineTo(sx+sideX*radius,sy+sideY*radius);ctx.lineTo(sx+sideX*radius,sy+sideY*(radius-arm));ctx.stroke();
+    }
+    for(const [rx,ry]of [[0,-1],[1,0],[0,1],[-1,0]])drawEnergyPixelRay(ctx,sx+rx*(radius+8),sy+ry*(radius+8),rx,ry,castColor,.75);
+    ctx.restore();
+  }
 
-  // Outer glow
-  ctx.shadowColor = glowColor;
-  ctx.shadowBlur = speeding ? (burstGlow > 0 ? burstGlow : 22) : 14;
+  if(celestialKind){
+    drawPlayerCelestialFeature(ctx,celestialKind,sx,sy,sz,'back',tickN);
+    ctx.save();ctx.globalAlpha=.45;ctx.fillStyle=celestialKind==='devourer'?'#aaaab6':celestial!.color;
+    for(let i=0;i<3;i++){const angle=tickN*.025+i*Math.PI*2/3,r=h+12;ctx.fillRect(sx+Math.cos(angle)*r,sy+Math.sin(angle)*r,2,2);}ctx.restore();
+  }
 
-  // ── Spacesuit body (solid square) ─────────────────────────────────────
+  // Original luminous suit: one colored square rim and a flat darker panel.
+  const burstGlow=state.speedFlashTicks>0?Math.floor(12*state.speedFlashTicks/30):0;
+  ctx.shadowColor=glowColor;ctx.shadowBlur=speeding?(burstGlow||8):14;
+
   ctx.fillStyle = suitColor;
   ctx.fillRect(sx - h, sy - h, sz, sz);
   ctx.shadowBlur = 0;
@@ -215,6 +414,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
   const pad = Math.max(2, Math.floor(sz * 0.12));
   ctx.fillStyle = suitDark;
   ctx.fillRect(sx - h + pad, sy - h + pad, sz - pad * 2, sz - pad * 2);
+  if(celestialKind)drawPlayerCelestialFeature(ctx,celestialKind,sx,sy,sz,'body',tickN);
 
   // ── Helmet / visor on the facing side ────────────────────────────────
   const vw = Math.floor(sz * 0.56); // visor width
@@ -229,16 +429,10 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
   const vwFinal = (dx !== 0) ? vh : vw;
   const vhFinal = (dx !== 0) ? vw : vh;
 
-  ctx.shadowColor = visorColor;
-  ctx.shadowBlur = 10;
-  ctx.fillStyle = visorColor + 'cc';
-  ctx.fillRect(vx, vy, vwFinal, vhFinal);
-  // Visor glare highlight
-  ctx.fillStyle = '#ffffff55';
-  ctx.fillRect(vx + 1, vy + 1, Math.floor(vwFinal * 0.4), Math.floor(vhFinal * 0.4));
-  ctx.shadowBlur = 0;
+  ctx.shadowColor=visorColor;ctx.shadowBlur=10;ctx.fillStyle=visorColor+'cc';
+  ctx.fillRect(vx,vy,vwFinal,vhFinal);
+  ctx.fillStyle='#ffffff55';ctx.fillRect(vx+1,vy+1,Math.floor(vwFinal*.4),Math.floor(vhFinal*.4));ctx.shadowBlur=0;
 
-  // ── Antenna (always on top, small dot) ────────────────────────────────
   const antH = Math.max(3, Math.floor(sz * 0.22));
   ctx.fillStyle = suitColor;
   ctx.fillRect(sx - 1, sy - h - antH, 2, antH);
@@ -248,58 +442,1073 @@ function drawPlayer(ctx: CanvasRenderingContext2D, sx: number, sy: number, state
   ctx.fillRect(sx - 2, sy - h - antH - 2, 4, 4);
   ctx.shadowBlur = 0;
 
+  if(celestialKind)drawPlayerCelestialFeature(ctx,celestialKind,sx,sy,sz,'front',tickN);
+
   // ── Wave charge ring ──────────────────────────────────────────────────
-  if (chargingMs >= 40 && state.waveCooldown <= 0) {
-    const progress = Math.min(1, chargingMs / waveChargeMs);
-    const ringPad = Math.floor(h * (0.15 + progress * 1.6));
-    ctx.globalAlpha = 0.15 + 0.7 * progress;
-    ctx.strokeStyle = '#00ccff';
-    ctx.shadowColor = '#00ccff';
-    ctx.shadowBlur = Math.floor(20 * progress);
-    ctx.lineWidth = Math.max(1, Math.floor(4 * progress));
-    ctx.strokeRect(sx - h - ringPad, sy - h - ringPad, sz + ringPad * 2, sz + ringPad * 2);
+  if(chargingMs>=40&&state.waveCooldown<=0){
+    drawPlayerCharge(ctx,sx,sy,h,Math.min(1,chargingMs/waveChargeMs),tickN);
+  }
+
+  // Blue shield from Armored kills; teal is reserved for Ruby protection.
+  if (shielded) {
+    if(state.playerSaturnShield)drawSaturnShield(ctx,sx,sy,TILE_SIZE*.62,tickN);
+    else drawRewardShield(ctx, sx, sy, TILE_SIZE * 0.6, tickN, '#4488ff');
+  }
+  if (carrying && state.rubyShieldHP > 0) {
+    if(state.rubySaturnShield)drawSaturnShield(ctx,sx,sy,TILE_SIZE*.82,tickN);
+    else drawRewardShield(ctx, sx, sy, TILE_SIZE * 0.85, tickN, '#00ddcc');
+  }
+  if (state.runnerEnergyFlashTicks > 0) {
+    ctx.save();
+    const progress = 1 - state.runnerEnergyFlashTicks / 60;
+    ctx.globalAlpha = Math.min(1, state.runnerEnergyFlashTicks / 15);
+    const directions=[[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+    ctx.shadowColor='#ed9a61';ctx.shadowBlur=5;
+    for(const [dx,dy] of directions){
+      const radius=21+Math.floor(progress*8)*3;
+      drawEnergyPixelRay(ctx,sx+dx*radius,sy+dy*radius,dx,dy,'#ed9a61');
+    }
+    ctx.restore();
+  }
+
+  // Blind Prayer's curse: paired block arrows point opposite ways around the player.
+  if (isMovementReversed(state)) {
+    ctx.save();
+    ctx.fillStyle = '#ffdd22'; ctx.shadowColor = '#ffdd22'; ctx.shadowBlur = 6;
+    ctx.globalAlpha = 0.65 + 0.25 * Math.abs(Math.sin(tickN * 0.08));
+    for (const direction of [-1, 1]) {
+      const ax = Math.round(sx + direction * TILE_SIZE * 0.8);
+      const ay = Math.round(sy);
+      ctx.fillRect(ax - 5, ay - 2, 10, 4);
+      ctx.fillRect(ax + direction * 5 - 2, ay - 6, 4, 12);
+      ctx.fillRect(ax + direction * 9 - 2, ay - 2, 4, 4);
+    }
+    ctx.restore();
+  }
+
+  // Timed healing reduction applied by Sea Chanter's nearby support pulse.
+  if (state.seaHealingDebuffTicks > 0) {
+    ctx.save();
+    const ix = Math.round(sx + TILE_SIZE * 0.8), iy = Math.round(sy);
+    ctx.globalAlpha = 0.65 + 0.25 * Math.abs(Math.sin(tickN * 0.08));
+    ctx.shadowColor = '#3998d6'; ctx.shadowBlur = 6;
+    ctx.fillStyle = '#3998d6';
+    ctx.fillRect(ix - 3, iy - 9, 6, 18); ctx.fillRect(ix - 9, iy - 3, 18, 6);
     ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
-    // Fully charged: fast pulsing second ring
-    if (progress >= 0.98) {
-      const pulse = 0.4 + 0.6 * Math.abs(Math.sin(Date.now() * 0.012));
-      ctx.globalAlpha = pulse * 0.6;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      const r2 = ringPad * 1.4;
-      ctx.strokeRect(sx - h - r2, sy - h - r2, sz + r2 * 2, sz + r2 * 2);
-      ctx.globalAlpha = 1;
+    for (let i = 0; i < 6; i++) {
+      ctx.fillStyle = '#102c50'; ctx.fillRect(ix - 10 + i * 3, iy + 5 - i * 3, 6, 6);
+      ctx.fillStyle = '#c7e9ff'; ctx.fillRect(ix - 9 + i * 3, iy + 6 - i * 3, 3, 3);
+    }
+    ctx.restore();
+  }
+
+  if (state.thornPoisonTicks > 0) {
+    ctx.save(); ctx.shadowColor = '#88bc45'; ctx.shadowBlur = 6;
+    for (let i = 0; i < 5; i++) {
+      const life = ((tickN + i * 13) % 55) / 55;
+      ctx.globalAlpha = (1 - life) * 0.8; ctx.fillStyle = i % 2 ? '#d8ef9b' : '#88bc45';
+      ctx.fillRect(Math.round(sx - 24 + i * 11), Math.round(sy + 19 - life * 46), 4, 5);
+    }
+    // A small leaf beside the suit indicates lingering poison without status text.
+    ctx.globalAlpha = 0.8; ctx.fillStyle = '#88bc45'; ctx.fillRect(sx - 39, sy - 6, 8, 8); ctx.fillRect(sx - 35, sy + 2, 3, 8);
+    ctx.fillStyle = '#d8ef9b'; ctx.fillRect(sx - 37, sy - 4, 3, 3); ctx.restore();
+  }
+
+  if(speeding){
+    ctx.save();ctx.shadowColor='#60d8c7';ctx.shadowBlur=5;
+    for(let i=0;i<3;i++){
+      const life=((tickN+i*9)%30)/30,reach=h+9+Math.floor(life*5)*3;
+      ctx.globalAlpha=(1-life)*.5;ctx.fillStyle=i%2?'#d7fff4':'#60d8c7';
+      const px=Math.round(sx-dx*reach),py=Math.round(sy-dy*reach);
+      ctx.fillRect(px-(dx?3:9),py-(dy?3:9),dx?6:18,dy?6:18);
+    }
+    ctx.restore();
+  }
+  // Small separated pixel bolts replace the Sniper buff's broad glowing box.
+  if(state.electricBuffTicks>0){
+    ctx.save();ctx.shadowColor='#e6cf65';ctx.shadowBlur=5;
+    for(let i=0;i<4;i++){
+      const angle=i*Math.PI/2,reach=h+(shielded?19:12);
+      ctx.globalAlpha=.45+.35*Math.abs(Math.sin(tickN*.13+i));
+      drawPixelBolt(ctx,Math.round(sx+Math.cos(angle)*reach),Math.round(sy+Math.sin(angle)*reach),16,i%2?'#fff1ac':'#dabc56');
+    }
+    ctx.restore();
+  }
+
+}
+
+const PRAYER_GLYPHS = [
+  [[-1, -6, 2, 13], [-5, -6, 4, 2], [-5, -8, 2, 4], [1, -3, 4, 2], [3, -5, 2, 4], [-3, 5, 6, 2]],
+  [[-5, -8, 10, 2], [-5, -8, 2, 12], [3, -4, 2, 12], [-1, -2, 6, 2], [-5, 6, 4, 2]],
+  [[-3, -8, 2, 16], [3, -6, 2, 10], [-5, -6, 10, 2], [-3, 0, 8, 2], [-1, 6, 6, 2]],
+];
+
+function drawPrayerGlyph(ctx: CanvasRenderingContext2D, glyph: number, x: number, y: number) {
+  ctx.save();
+  ctx.fillStyle = '#ffffff'; ctx.shadowBlur = 0;
+  for (const [dx, dy, width, height] of PRAYER_GLYPHS[glyph % PRAYER_GLYPHS.length]) {
+    ctx.fillRect(Math.round(x) + dx, Math.round(y) + dy, width, height);
+  }
+  ctx.restore();
+}
+
+function drawBlockRing(ctx: CanvasRenderingContext2D, x: number, y: number, radiusX: number, radiusY: number, color: string, light: string, alpha: number) {
+  ctx.save();const grid=Math.max(radiusX,radiusY)>90?12:6,rx=Math.max(grid,Math.round(radiusX/grid)*grid),ry=Math.max(grid,Math.round(radiusY/grid)*grid);
+  const span=(py:number)=>Math.abs(py)>ry?-grid:Math.floor(Math.sqrt(Math.max(0,1-(py/ry)**2))*rx/grid)*grid;
+  ctx.beginPath();
+  for(let py=-ry;py<=ry;py+=grid){
+    const outer=span(py),inner=Math.min(outer-grid,span(py-grid),span(py+grid));
+    if(inner<0)ctx.rect(Math.round(x-outer-grid/2),Math.round(y+py-grid/2),outer*2+grid,grid);
+    else{
+      const edge=outer-inner;ctx.rect(Math.round(x-outer-grid/2),Math.round(y+py-grid/2),edge,grid);
+      ctx.rect(Math.round(x+inner+grid/2),Math.round(y+py-grid/2),edge,grid);
     }
   }
+  ctx.globalAlpha=alpha*.5;ctx.shadowColor=color;ctx.shadowBlur=18;ctx.fillStyle=color;ctx.fill();
+  ctx.globalAlpha=alpha*.9;ctx.shadowBlur=5;ctx.fill();
+  ctx.globalAlpha=alpha*.9;ctx.fillStyle=light;ctx.shadowColor=light;ctx.shadowBlur=6;
+  for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]])ctx.fillRect(Math.round(x+dx*rx-3),Math.round(y+dy*ry-3),6,6);
+  ctx.restore();
+}
 
-  // Shield aura when player is invincible (shielder kill buff)
-  if (invincible) {
-    const pulse = 0.55 + 0.45 * Math.abs(Math.sin(tickN * 0.07));
-    const shieldPad = Math.floor(h * 0.5);
-    ctx.globalAlpha = pulse * 0.75;
-    ctx.strokeStyle = '#00ddcc';
-    ctx.shadowColor = '#00ffee';
-    ctx.shadowBlur = Math.floor(16 * pulse);
-    ctx.lineWidth = 3;
-    ctx.strokeRect(sx - h - shieldPad, sy - h - shieldPad, sz + shieldPad * 2, sz + shieldPad * 2);
-    // Inner thinner ring
-    ctx.globalAlpha = pulse * 0.4;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(sx - h - shieldPad + 3, sy - h - shieldPad + 3, sz + (shieldPad - 3) * 2, sz + (shieldPad - 3) * 2);
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+function drawPrayerCircle(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, tickN: number, alpha: number) {
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));
+  ctx.globalAlpha=alpha;ctx.shadowColor='#ffc34d';ctx.shadowBlur=12;
+  const half=Math.round(radius*.7),arm=Math.max(10,Math.min(30,radius*.2));
+  // An open square seal with four outward-facing light spears.
+  ctx.strokeStyle='#dca647';ctx.lineWidth=4;
+  for(const sx of [-1,1])for(const sy of [-1,1]){
+    ctx.beginPath();ctx.moveTo(sx*(half-arm),sy*half);ctx.lineTo(sx*half,sy*half);ctx.lineTo(sx*half,sy*(half-arm));ctx.stroke();
   }
+  for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){
+    for(let i=0;i<3;i++){
+      const distance=radius*(.48+i*.2),length=Math.max(6,Math.round(radius*.12));
+      ctx.fillStyle=i===2?'#fff6cf':'#eebf56';
+      ctx.fillRect(Math.round(dx*distance)-(dx?length/2:3),Math.round(dy*distance)-(dy?length/2:3),dx?length:6,dy?length:6);
+    }
+  }
+  ctx.fillStyle='#fff5cb';ctx.fillRect(-9,-3,18,6);ctx.fillRect(-3,-9,6,18);
+  ctx.restore();
+}
 
-  // Electric aura when sniper buff is active
-  if (state.electricBuffTicks > 0) {
-    const ePulse = 0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.18));
-    ctx.globalAlpha = ePulse * 0.6;
-    ctx.strokeStyle = '#ffffaa';
-    ctx.shadowColor = '#ffff44';
-    ctx.shadowBlur = Math.floor(12 * ePulse);
-    ctx.lineWidth = 2;
-    const eOff = invincible ? Math.floor(h * 0.5) + 5 : Math.floor(h * 0.3);
-    ctx.strokeRect(sx - h - eOff, sy - h - eOff, sz + eOff * 2, sz + eOff * 2);
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+function drawAttackFootprint(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, alpha: number) {
+  ctx.save();const grid=24,extent=Math.ceil(radius/grid),inside=(a:number,b:number)=>Math.hypot(a*grid,b*grid)<=radius;
+  ctx.translate(Math.round(x),Math.round(y));ctx.fillStyle=color;
+  for(let row=-extent;row<=extent;row++)for(let col=-extent;col<=extent;col++){
+    if(!inside(col,row))continue;
+    const px=col*grid-grid/2,py=row*grid-grid/2;
+    ctx.globalAlpha=alpha*.07;ctx.fillRect(px,py,grid,grid);
+    ctx.globalAlpha=alpha*.65;
+    if(!inside(col-1,row))ctx.fillRect(px,py,3,grid);
+    if(!inside(col+1,row))ctx.fillRect(px+grid-3,py,3,grid);
+    if(!inside(col,row-1))ctx.fillRect(px,py,grid,3);
+    if(!inside(col,row+1))ctx.fillRect(px,py+grid-3,grid,3);
+  }
+  ctx.restore();
+}
+
+function drawSeaRipple(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, alpha: number, tick: number) {
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.globalAlpha=alpha;
+  const half=Math.round(radius*.7);ctx.shadowColor='#408eff';ctx.shadowBlur=10;ctx.strokeStyle='#56adf2';ctx.lineWidth=5;
+  ctx.strokeRect(-half,-half,half*2,half*2);ctx.shadowBlur=0;ctx.fillStyle='#d5f7ff';
+  for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]])ctx.fillRect(dx*half-4,dy*half-4,8,8);
+  ctx.restore();
+}
+
+function drawChanterWave(ctx: CanvasRenderingContext2D, x: number, y: number, dx: number, dy: number, tick: number) {
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));
+  const length=Math.hypot(dx,dy)||1,ux=dx/length,uy=dy/length;
+  // Three spaced sonic fronts, built from axis-aligned pixels in every direction.
+  for(let front=2;front>=0;front--){
+    ctx.globalAlpha=1-front*.25;ctx.shadowColor='#419aff';ctx.shadowBlur=front?6:12;
+    for(let step=-3;step<=3;step++){
+      const along=-front*18-Math.abs(step)*5,across=step*7;
+      const px=Math.round((ux*along-uy*across)/3)*3,py=Math.round((uy*along+ux*across)/3)*3;
+      ctx.fillStyle=front?'#397ed4':Math.abs(step)<2?'#e3fbff':'#70c9ff';ctx.fillRect(px-3,py-3,7,7);
+    }
+  }
+  ctx.globalAlpha=.7;ctx.shadowBlur=0;ctx.fillStyle='#2b5c9b';
+  for(let i=0;i<4;i++){const distance=60+((tick+i*13)%40);ctx.fillRect(Math.round(-ux*distance/3)*3,Math.round(-uy*distance/3)*3,4,4);}
+  ctx.restore();
+}
+
+function drawThornGround(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, tickN: number) {
+  ctx.save();
+  const areas = (state.thornPatches ?? []).map(p => ({ x: p.x, y: p.y, ticks: p.ticks, warning: false }));
+  for (const e of state.enemies) {
+    if (e.type === 'thorn_weaver' && e.hp > 0 && (e.thorn?.windupTicks ?? 0) > 0)
+      areas.push({ x: e.thorn!.aimX, y: e.thorn!.aimY, ticks: e.thorn!.windupTicks, warning: true });
+  }
+  for (const rawArea of areas) {
+    const bounds=getThornFieldBounds(rawArea.x,rawArea.y),area={...rawArea,x:bounds.x,y:bounds.y};
+    ctx.save();ctx.beginPath();
+    for(let ty=bounds.top/TILE_SIZE;ty<bounds.bottom/TILE_SIZE;ty++)for(let tx=bounds.left/TILE_SIZE;tx<bounds.right/TILE_SIZE;tx++){
+      if((state.map[ty]?.[tx]??T_WALL)!==T_WALL)ctx.rect(tx*TILE_SIZE-camX,ty*TILE_SIZE-camY,TILE_SIZE,TILE_SIZE);
+    }
+    ctx.clip();
+    const age = area.warning ? 0 : THORN_LIFETIME - area.ticks;
+    const fade = area.warning ? 1 : Math.min(1, area.ticks / 90);
+    const growth = area.warning ? 0 : Math.min(1, age / 24);
+    const progress = area.warning ? 1 - area.ticks / THORN_WINDUP : 1;
+    // A continuous translucent wash tints floor tiles, keeping walls clear and no grid seams.
+    ctx.globalAlpha = fade * (area.warning ? .09 + progress * .05 : .2);
+    ctx.fillStyle = area.warning ? '#b5bd50' : '#729d3d';
+    for(let ty=bounds.top/TILE_SIZE;ty<bounds.bottom/TILE_SIZE;ty++){
+      for(let tx=bounds.left/TILE_SIZE;tx<bounds.right/TILE_SIZE;tx++){
+        if((state.map[ty]?.[tx] ?? T_WALL)!==T_WALL)ctx.fillRect(tx*TILE_SIZE-camX,ty*TILE_SIZE-camY,TILE_SIZE,TILE_SIZE);
+      }
+    }
+    // Stable irregular placements avoid a tiled garden, without flickering between frames.
+    const seedBase = Math.floor(area.x * 13 + area.y * 7);
+    const noise = (i: number) => { const n = Math.sin(i * 127.1 + seedBase) * 43758.5453; return n - Math.floor(n); };
+    for (let i = 0; !area.warning && i < 26; i++) {
+      const wx = area.x + (noise(i * 4 + 1) * 2 - 1) * (THORN_RADIUS - 5);
+      const wy = area.y + (noise(i * 4 + 2) * 2 - 1) * (THORN_RADIUS - 5);
+      if ((state.map[Math.floor(wy / TILE_SIZE)]?.[Math.floor(wx / TILE_SIZE)] ?? T_WALL) === T_WALL) continue;
+      const x = Math.round(wx - camX), y = Math.round(wy - camY);
+      const direction = noise(i * 4 + 3) > .5 ? 1 : -1;
+      const reach = 9 + Math.floor(noise(i * 4 + 4) * 17);
+      ctx.globalAlpha = fade * (area.warning ? .25 + progress * .4 : .7);
+      ctx.strokeStyle = '#477f48';ctx.lineWidth = 3;ctx.shadowBlur=0;
+      // Bent branching roots, rather than identical crosses on a cell grid.
+      ctx.beginPath();ctx.moveTo(x - direction * reach, y + 5);
+      ctx.lineTo(x - direction * reach, y);ctx.lineTo(x, y);ctx.lineTo(x, y - reach * .4);
+      ctx.lineTo(x + direction * 7, y - reach * .4);ctx.stroke();
+      // Thin alien current runs through selected roots, without adding a floor grid.
+      if(i%3===0){
+        ctx.globalAlpha=fade*(.3+.18*Math.sin(tickN*.05+i));ctx.strokeStyle='#b3ef9b';ctx.lineWidth=1;ctx.stroke();
+        ctx.fillStyle='#d5ffd1';ctx.fillRect(x-2,y-2,4,4);
+      }
+      const height = Math.round((8 + noise(i + 300) * 12) * growth);
+      const lean = direction * Math.round(height * .3);
+      ctx.globalAlpha = fade * .9;ctx.fillStyle = '#4a8756';ctx.fillRect(x-2,y-height/2,4,height/2+4);
+      ctx.fillStyle='#85c76a';ctx.fillRect(x+lean-2,y-height,4,height/2+3);
+      ctx.fillRect(Math.min(x,x+lean)-2,y-height/2-2,Math.abs(lean)+4,4);
+      ctx.fillStyle=i%3 ? '#64a65b' : '#a2d585';
+      ctx.fillRect(x+lean+direction*3-(direction<0?8:0),y-height+5,8,4);
+      ctx.shadowColor='#adf7a3';ctx.shadowBlur=4;
+      ctx.fillStyle='#daffd0';ctx.fillRect(x+lean-1,y-height-4,3,5);ctx.shadowBlur=0;
+      // Tiny crystalline collars make the thorns read as energy-grown alien plants.
+      if(i%3===0){ctx.fillStyle='#99da88';ctx.fillRect(x+lean-3,y-height-1,7,3);}
+      if(i%7===0){ctx.fillStyle='#cb86c4';ctx.fillRect(x+lean-3,y-height-5,7,4);ctx.fillStyle='#ffd2f0';ctx.fillRect(x+lean-1,y-height-5,3,2);}
+      const drift = ((tickN + i * 13) % 100) / 100;
+      if(i%4===0){ctx.globalAlpha=fade*Math.sin(drift*Math.PI)*.5;ctx.fillStyle='#c3f4bc';ctx.fillRect(x+direction*drift*7,y-height-drift*16,2,3);if(i%8===0)ctx.fillRect(x+direction*drift*7-2,y-height-drift*16+1,6,1);}
+      if(age<30 && i%3===0){ctx.globalAlpha=fade*(1-age/30);ctx.fillStyle='#c9d98e';ctx.fillRect(x,y-Math.sin(age/30*Math.PI)*30,3,4);}
+    }
+    // One luminous boundary marks the actual walkable hazard tiles.
+    ctx.globalAlpha=fade*(area.warning?.6+progress*.3:.45);ctx.strokeStyle=area.warning?'#ffd68b':'#99cf68';ctx.shadowColor=area.warning?'#ffbc65':'#88bc45';ctx.shadowBlur=8;ctx.lineWidth=3;
+    const floor=(tx:number,ty:number)=>tx>=bounds.left/TILE_SIZE&&tx<bounds.right/TILE_SIZE&&ty>=bounds.top/TILE_SIZE&&ty<bounds.bottom/TILE_SIZE&&(state.map[ty]?.[tx]??T_WALL)!==T_WALL;
+    ctx.beginPath();
+    for(let ty=bounds.top/TILE_SIZE;ty<bounds.bottom/TILE_SIZE;ty++)for(let tx=bounds.left/TILE_SIZE;tx<bounds.right/TILE_SIZE;tx++){
+      if(!floor(tx,ty))continue;const x=tx*TILE_SIZE-camX,y=ty*TILE_SIZE-camY;
+      if(!floor(tx-1,ty)){ctx.moveTo(x+1,y);ctx.lineTo(x+1,y+TILE_SIZE);}
+      if(!floor(tx+1,ty)){ctx.moveTo(x+TILE_SIZE-1,y);ctx.lineTo(x+TILE_SIZE-1,y+TILE_SIZE);}
+      if(!floor(tx,ty-1)){ctx.moveTo(x,y+1);ctx.lineTo(x+TILE_SIZE,y+1);}
+      if(!floor(tx,ty+1)){ctx.moveTo(x,y+TILE_SIZE-1);ctx.lineTo(x+TILE_SIZE,y+TILE_SIZE-1);}
+    }
+    ctx.stroke();ctx.shadowBlur=0;
+    if (area.warning) {
+      const x = Math.round(area.x - camX), y = Math.round(area.y - camY), size = 14 + Math.round(progress * 10);
+      ctx.globalAlpha = 0.7 + Math.sin(tickN * 0.15) * 0.2; ctx.strokeStyle = '#ffd68b'; ctx.lineWidth = 3;
+      ctx.strokeRect(x - size, y - size, size * 2, size * 2);
+      ctx.fillStyle = '#ffd68b'; ctx.fillRect(x - 2, y - 10, 4, 14); ctx.fillRect(x - 2, y + 8, 4, 4);
+    }
+    ctx.restore();
+    // Airborne seed is drawn outside the ground clip so its descent starts above the field.
+    if(area.warning && area.ticks <= 30){
+      const fall=1-area.ticks/30, x=Math.round(area.x-camX), groundY=Math.round(area.y-camY);
+      const y=Math.round(groundY-220*(1-fall*fall));
+      ctx.save();ctx.shadowBlur=0;
+      // Growing square landing shadow anchors the falling object to the marked floor.
+      ctx.globalAlpha=.15+fall*.25;ctx.fillStyle='#132b16';
+      const shadow=7+fall*8;ctx.fillRect(x-shadow,groundY-shadow*.35,shadow*2,shadow*.7);
+      // A compact orbital energy bolt: stepped plasma tail and a pale luminous core.
+      ctx.shadowColor='#a7e66c';ctx.shadowBlur=9;
+      for(let i=4;i>=1;i--){
+        ctx.globalAlpha=(5-i)*.12;ctx.fillStyle=i%2?'#88bc45':'#c9ed9a';
+        ctx.fillRect(x-4-i,y-i*13,8+i*2,12);
+      }
+      ctx.globalAlpha=.35;ctx.fillStyle='#88bc45';ctx.fillRect(x-10,y-22,20,31);
+      ctx.globalAlpha=1;ctx.fillStyle='#a9d866';ctx.fillRect(x-6,y-17,12,24);
+      ctx.shadowBlur=3;ctx.fillStyle='#eaffc8';ctx.fillRect(x-3,y-15,6,23);
+      ctx.fillStyle='#ffffff';ctx.fillRect(x-2,y-3,4,13);
+      ctx.shadowBlur=0;ctx.fillStyle='#bb688b';ctx.fillRect(x-7,y-8,2,5);ctx.fillRect(x+5,y-8,2,5);
+      ctx.restore();
+    }else if(!area.warning && age<16){
+      const hit=age/16,x=area.x-camX,y=area.y-camY;
+      ctx.save();ctx.globalAlpha=(1-hit)*.8;ctx.shadowBlur=0;
+      for(let i=0;i<8;i++){
+        const angle=i*Math.PI/4, r=10+hit*30;
+        ctx.fillStyle=i%2?'#7e9c43':'#b9cb87';
+        ctx.fillRect(Math.round(x+Math.cos(angle)*r),Math.round(y+Math.sin(angle)*r*.5-Math.sin(hit*Math.PI)*13),4,5);
+      }
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+function drawSeaSongEffects(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, tickN: number) {
+  ctx.save(); ctx.shadowColor = '#3998d6'; ctx.shadowBlur = 8;
+  for (const e of state.enemies) {
+    if (e.type !== 'sea_chanter' || e.hp <= 0 || !e.sea) continue;
+    const sea = e.sea, x = e.x - camX, y = e.y - camY;
+    if (sea.supportPulseTicks > 0) {
+      const size = (1 - sea.supportPulseTicks / 24) * SEA_ALLY_HEAL_RADIUS * TILE_SIZE;
+      ctx.globalAlpha = sea.supportPulseTicks / 48; ctx.strokeStyle = '#8dc9f0';
+      ctx.lineWidth = 3; ctx.strokeRect(x - size, y - size, size * 2, size * 2);
+    }
+    if (sea.resurfaceTicks > 0) {
+      const progress = 1 - sea.resurfaceTicks / 36;
+      const rx = sea.resurfaceX - camX, ry = sea.resurfaceY - camY;
+      drawSeaRipple(ctx, rx, ry + 12, 30 + progress * 95, (1 - progress) * 0.9, tickN);
+      drawSeaRipple(ctx, rx, ry + 12, 20 + progress * 60, (1 - progress) * 0.6, tickN);
+      // Square water jets break into foam, rise briefly, then fall around the emergence point.
+      for (let i = 0; i < 12; i++) {
+        const angle = i * Math.PI * 2 / 12, radius = (25 + i % 5 * 12) * progress;
+        const px = Math.round((rx + Math.cos(angle) * radius) / 3) * 3;
+        const py = Math.round((ry + 15 + Math.sin(angle) * radius * 0.5 - Math.sin(progress * Math.PI) * (35 + i % 4 * 16)) / 3) * 3;
+        ctx.globalAlpha = (1 - progress) * 0.9;
+        ctx.fillStyle = '#3998d6'; ctx.fillRect(px - 3, py, 6, 8 + (1 - progress) * 8);
+        ctx.fillStyle = '#d6eeff'; ctx.fillRect(px - 3, py - 3, 6, 4);
+      }
+    }
+    if (sea.songWindupTicks <= 0) continue;
+    const progress = 1 - sea.songWindupTicks / SEA_SONG_WINDUP;
+    drawAttackFootprint(ctx,sea.songAimX-camX,sea.songAimY-camY,SEA_SONG_BLAST_RADIUS,'#579fe9',.5+progress*.4);
+    drawSeaRipple(ctx, sea.songAimX - camX, sea.songAimY - camY, 20+progress*30, .5+progress*.4, tickN);
+    ctx.globalAlpha = 0.85;
+    for (let i = 0; i < 3; i++) {
+      const nx=x-18+i*18,height=8+Math.round((.5+.5*Math.sin(tickN*.18+i))*18);
+      ctx.fillStyle='#60a7e5';ctx.fillRect(nx-3,y-38-height,6,height);ctx.fillStyle='#e3f9ff';ctx.fillRect(nx-3,y-38-height,6,4);
+    }
+  }
+  ctx.lineWidth = 4;
+  for(const wave of state.seaSongWaves??[]){
+    drawAttackFootprint(ctx,wave.aimX-camX,wave.aimY-camY,SEA_SONG_BLAST_RADIUS,'#579fe9',.6);
+    drawChanterWave(ctx,wave.x-camX,wave.y-camY,wave.dx,wave.dy,tickN);
+  }
+  for(const burst of state.seaSongBursts??[]){
+    const progress=1-burst.ticks/SEA_SONG_BLAST_TICKS,x=burst.x-camX,y=burst.y-camY,fade=1-progress;
+    drawAttackFootprint(ctx,x,y,SEA_SONG_BLAST_RADIUS,'#579fe9',fade*.65);
+    drawSeaRipple(ctx,x,y,SEA_SONG_BLAST_RADIUS*(.3+progress*.7),fade,tickN);
+    drawSeaRipple(ctx,x,y,SEA_SONG_BLAST_RADIUS*progress*.75,fade*.5,tickN);
+    ctx.save();ctx.shadowColor='#3998d6';ctx.shadowBlur=7;
+    for(let i=0;i<8;i++){
+      const a=i*Math.PI/4,r=SEA_SONG_BLAST_RADIUS*progress*.8,px=Math.round((x+Math.cos(a)*r)/6)*6,py=Math.round((y+Math.sin(a)*r)/6)*6,height=Math.round(Math.sin(progress*Math.PI)*36);
+      ctx.globalAlpha=fade*.8;ctx.fillStyle='#2866b2';ctx.fillRect(px-6,py-height,12,height+6);ctx.fillStyle='#68b7f2';ctx.fillRect(px-6,py-height,6,height);ctx.fillStyle='#d6eeff';ctx.fillRect(px-6,py-height,12,6);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawPrayerMagic(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, tickN: number) {
+  const boss = state.enemies.find(e => e.type === 'blind_prayer');
+  if (boss && (boss.prayer?.escapeWindupTicks ?? 0) > 0) {
+    const progress = 1 - boss.prayer!.escapeWindupTicks / PRAYER_ESCAPE_WINDUP;
+    drawAttackFootprint(ctx,boss.x-camX,boss.y-camY,ENEMY_CONFIGS.blind_prayer.attackRange*TILE_SIZE,'#e8bd5c',.45+progress*.4);
+    drawPrayerCircle(ctx, boss.x - camX, boss.y - camY,
+      ENEMY_CONFIGS.blind_prayer.attackRange * TILE_SIZE, tickN, 0.25 + progress * 0.5);
+  }
+  for (const wave of state.prayerWaves ?? []) {
+    const progress = 1 - wave.ticks / 30;
+    drawPrayerCircle(ctx, wave.x - camX, wave.y - camY,
+      wave.radius * (0.2 + progress * 0.8), tickN, wave.ticks / 30);
+  }
+}
+
+function drawKingArenaEffects(ctx: CanvasRenderingContext2D, state: GameState, width: number, height: number) {
+  const warning = state.enemies.find(e => e.type === 'fiery_king' && e.hp > 0)?.king?.arenaWindupTicks ?? 0;
+  const pulse = (state.kingArenaPulseTicks ?? 0) / KING_ARENA_FX_TICKS;
+  if (!warning && pulse <= 0) return;
+  ctx.save();
+  const charge = warning ? 1 - warning / KING_ARENA_WINDUP : 0;
+  ctx.fillStyle = `rgba(255,55,0,${warning ? 0.025 + charge * 0.045 : pulse * 0.18})`;
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = `rgba(255,100,30,${warning ? 0.35 + charge * 0.4 : pulse * 0.9})`;
+  ctx.lineWidth = 4;
+  ctx.strokeRect(4, 4, width - 8, height - 8);
+  if(warning){
+    // Small warm cinders gather at the edges as the existing warning builds.
+    for(let i=0;i<12;i++){
+      const life=((state.gameTick+i*23)%100)/100,x=((i*131)%997)/997*width;
+      ctx.globalAlpha=charge*Math.sin(life*Math.PI)*.45;ctx.fillStyle=i%3?'#ff9740':'#ffd68b';
+      ctx.fillRect(x,height-8-life*(14+charge*25),3,5);
+    }
+    ctx.globalAlpha=1;
+  }
+  if (pulse > 0) {
+    const spread=1-pulse;
+    // Short staggered flame tongues replace the evenly spaced impact dots.
+    for(let i=0;i<32;i++){
+      const x=Math.round(((i*137.5)%997)/997*width),y=Math.round(((i*241.3)%991)/991*height);
+      const burn=Math.max(0,Math.sin(Math.min(1,spread*1.8+(i%5)*.07)*Math.PI));
+      const h=8+burn*(10+i%4*5),lift=spread*18;
+      ctx.globalAlpha=pulse*.35;ctx.fillStyle='#ef5918';ctx.fillRect(x-5,y-lift-h,10,h);
+      ctx.globalAlpha=pulse*.55;ctx.fillStyle='#ffab32';ctx.fillRect(x-3,y-lift-h-4,6,h);
+      ctx.shadowColor='#ffab32';ctx.shadowBlur=6;ctx.fillStyle='#ffe4a0';ctx.fillRect(x-1,y-lift-h+3,3,Math.max(3,h*.4));
+    }
+    // Two soft open square fronts ripple outward with the fire release.
+    for(let i=0;i<2;i++){
+      const front=Math.min(1,spread*1.7+i*.18);
+      ctx.globalAlpha=pulse*(1-front)*.4;ctx.strokeStyle=i?'#ffd085':'#ff7d29';ctx.lineWidth=3;
+      ctx.strokeRect(width*.5*(1-front),height*.5*(1-front),width*front,height*front);
+    }
+    ctx.globalAlpha=1;
+  }
+  ctx.restore();
+}
+
+// Extra attack accents share the beam lifetime: cosmetic, bounded, and paused with combat.
+function drawBossBeam(ctx: CanvasRenderingContext2D, kind: 'king'|'queen'|'devourer'|'warden', fromX: number, fromY: number, toX: number, toY: number, remaining: number, tick: number) {
+  ctx.save();ctx.lineCap='square';const fade=Math.max(0,Math.min(1,remaining)),dx=toX-fromX,dy=toY-fromY,len=Math.hypot(dx,dy)||1;
+  const palette={king:['#dc3822','#ff9b35','#fff0ac'],queen:['#bd3ae7','#e99bfa','#ffedff'],devourer:['#6b2fa8','#9bdc65','#e3ffc0'],warden:['#5eaed8','#b5e7fb','#f3fcff']}[kind];
+  if(kind==='devourer'){
+    ctx.globalAlpha=fade*.2;ctx.shadowColor=palette[0];ctx.shadowBlur=8;ctx.strokeStyle=palette[0];ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(fromX,fromY);ctx.lineTo(toX,toY);ctx.stroke();
+    for(let i=0;i<5;i++){
+      const t=((tick*.04+i*.2)%1),r=8+t*14;ctx.save();ctx.translate(fromX+dx*t,fromY+dy*t);ctx.rotate(Math.atan2(dy,dx));
+      ctx.beginPath();ctx.moveTo(-r*.4,-r);ctx.lineTo(r*.1,-r*.65);ctx.lineTo(r*.35,0);ctx.lineTo(r*.1,r*.65);ctx.lineTo(-r*.4,r);
+      ctx.globalAlpha=fade*(.4+.5*Math.sin(t*Math.PI));ctx.shadowColor=palette[0];ctx.shadowBlur=10;ctx.strokeStyle=palette[0];ctx.lineWidth=7;ctx.stroke();
+      ctx.shadowBlur=3;ctx.strokeStyle=palette[1];ctx.lineWidth=3;ctx.stroke();ctx.restore();
+    }
+  }else{
+    const flicker=kind==='king'?.8+.2*Math.abs(Math.sin(tick*.7)):1,width=kind==='king'?48*flicker:kind==='warden'?14:16;
+    for(const [w,color,alpha,glow]of [[width,palette[0],.45,16],[kind==='king'?24*flicker:7,palette[1],.85,7],[kind==='king'?5:2,palette[2],1,0]] as const){
+      ctx.globalAlpha=fade*alpha;ctx.shadowColor=palette[0];ctx.shadowBlur=glow;ctx.strokeStyle=color;ctx.lineWidth=w;
+      ctx.beginPath();ctx.moveTo(fromX,fromY);ctx.lineTo(toX,toY);ctx.stroke();
+    }
+    // A few elemental fragments give each clean luminous beam its own motion.
+    for(let i=0;i<6;i++){
+      const t=((tick*.025+i/6)%1),offset=kind==='king'?Math.sin(i*2.4+tick*.1)*14:Math.sin(t*Math.PI*4+tick*.12)*(kind==='queen'?10:5);
+      const x=fromX+dx*t-dy/len*offset,y=fromY+dy*t+dx/len*offset;
+      ctx.globalAlpha=fade*.65;ctx.fillStyle=i%2?palette[1]:palette[2];ctx.shadowColor=palette[0];ctx.shadowBlur=5;
+      ctx.fillRect(Math.round(x)-2,Math.round(y)-3,4,kind==='king'?9:6);
+    }
+  }
+  ctx.restore();drawBossAttackAccent(ctx,kind,fromX,fromY,toX,toY,1-fade);
+}
+
+function drawBossAttackAccent(ctx: CanvasRenderingContext2D, kind: 'king' | 'queen' | 'devourer' | 'warden', fromX: number, fromY: number, toX: number, toY: number, progress: number) {
+  const fade = 1 - progress;
+  ctx.save(); ctx.shadowColor={king:'#ff8833',queen:'#d96af0',devourer:'#95d85f',warden:'#a3ddf5'}[kind];ctx.shadowBlur=6;ctx.globalAlpha=fade*.85;
+  if (kind === 'king') {
+    // Short stepped tongues of flame climb from the landing point.
+    for (let i = 0; i < 6; i++) {
+      const x = Math.round(toX + (i - 2.5) * (5 + progress * 3));
+      const y = Math.round(toY + Math.sin(i * 2.4) * 10 - progress * 23);
+      const h = Math.round((12 + i % 3 * 5) * (1 - progress * .6));
+      ctx.fillStyle = '#d94412'; ctx.fillRect(x - 4, y - h, 8, h + 5);
+      ctx.fillStyle = '#ff9a23'; ctx.fillRect(x - 3, y - h - 4, 5, h);
+      ctx.fillStyle = '#ffe991'; ctx.fillRect(x - 1, y - h + 3, 3, Math.max(3, h - 7));
+    }
+    // A small cross-shaped flare at the caster marks the fire release.
+    ctx.globalAlpha = fade * fade * .8; ctx.fillStyle = '#ffbc46';
+    ctx.fillRect(fromX - 22, fromY - 3, 44, 6);ctx.fillRect(fromX - 3, fromY - 22, 6, 44);
+  } else if (kind === 'queen') {
+    // Four open sigil corners unfold at impact; square jewel shards scatter outwards.
+    const r = 12 + progress * 23;
+    ctx.strokeStyle = '#f2b6ff'; ctx.lineWidth = 2;
+    for (const x of [-1, 1]) for (const y of [-1, 1]) {
+      ctx.beginPath();ctx.moveTo(toX + x * (r - 7), toY + y * r);
+      ctx.lineTo(toX + x * r, toY + y * r);ctx.lineTo(toX + x * r, toY + y * (r - 7));ctx.stroke();
+    }
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3, dist = 9 + progress * 36;
+      const x = Math.round(toX + Math.cos(angle) * dist), y = Math.round(toY + Math.sin(angle) * dist);
+      ctx.fillStyle = i % 2 ? '#c64ee5' : '#ffddff';ctx.fillRect(x - 2, y - 2, 4, 4);
+    }
+    ctx.strokeStyle = '#ee99ff';ctx.strokeRect(fromX - 15 - progress * 10, fromY - 15 - progress * 10, 30 + progress * 20, 30 + progress * 20);
+  } else if (kind === 'warden') {
+    // Rectangular ice splinters travel down the support beam, never toward the player.
+    for (let i = 0; i < 6; i++) {
+      const t = Math.min(1, progress * 1.3 + i * .045);
+      const x = Math.round(fromX + (toX - fromX) * t);
+      const y = Math.round(fromY + (toY - fromY) * t + (i % 2 ? -5 : 5));
+      ctx.fillStyle = i % 2 ? '#e5faff' : '#79c9ed';
+      ctx.fillRect(x - 2, y - 4, 4, 8);
+    }
+    // Six stepped crystal branches bloom around the newly shielded ally.
+    const reach = 18 + progress * 20;
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3;
+      const x = Math.round(toX + Math.cos(angle) * reach);
+      const y = Math.round(toY + Math.sin(angle) * reach);
+      ctx.fillStyle = '#83cde9'; ctx.fillRect(x - 4, y - 4, 8, 8);
+      ctx.fillStyle = '#e5faff'; ctx.fillRect(x - 2, y - 7, 4, 14);ctx.fillRect(x - 7, y - 2, 14, 4);
+    }
+    ctx.strokeStyle = '#b9eeff';ctx.lineWidth = 2;
+    const frame = 17 + progress * 9;
+    ctx.strokeRect(toX - frame, toY - frame, frame * 2, frame * 2);
+  } else {
+    // Dark square soul fragments collapse inward at the victim, while green waves fan from the maw.
+    for (let i = 0; i < 6; i++) {
+      const angle = i * Math.PI / 3, dist = 10 + fade * 34;
+      const x = Math.round(toX + Math.cos(angle) * dist), y = Math.round(toY + Math.sin(angle) * dist);
+      ctx.fillStyle = '#44205f';ctx.fillRect(x - 4, y - 4, 8, 8);
+      ctx.fillStyle = i % 3 ? '#9dd959' : '#d1ff9c';ctx.fillRect(x - 1, y - 1, 3, 3);
+    }
+    for (let i = 0; i < 3; i++) {
+      const t = Math.min(1, progress * .65 + i * .16), r = 5 + t * 16;
+      const x = fromX + (toX - fromX) * t, y = fromY + (toY - fromY) * t;
+      ctx.globalAlpha = fade * (1 - i * .2);ctx.strokeStyle = i % 2 ? '#8d4aba' : '#b2e877';ctx.lineWidth = 2;
+      ctx.strokeRect(x - r, y - r, r * 2, r * 2);
+    }
+  }
+  ctx.restore();
+}
+
+function drawStormReaperModel(ctx: CanvasRenderingContext2D, tickN: number, flash: boolean, striking: boolean, release = 0){
+ ctx.save();ctx.shadowBlur=0;
+ // Blades and broken square glow share one fan rotation; the face stays upright.
+ const fanAngle = tickN * .12;
+ ctx.save();ctx.rotate(fanAngle);
+ // Angular electric wake: open corners leave the silhouette and face clear.
+ ctx.strokeStyle='rgba(82,255,214,.32)';ctx.lineWidth=1.5;ctx.shadowColor='#52ffd6';ctx.shadowBlur=5;
+ for(const side of [-1,1]){ctx.beginPath();ctx.moveTo(side*16,-40);ctx.lineTo(side*40,-40);ctx.lineTo(side*40,-23);ctx.moveTo(side*40,22);ctx.lineTo(side*40,39);ctx.lineTo(side*21,39);ctx.stroke();}
+ ctx.shadowBlur=0;
+ // Four compact swept blades attach to every side of the square.
+ for(let i=0;i<4;i++){
+  ctx.save();ctx.rotate(i*Math.PI/2);ctx.translate(release * 5,0);ctx.translate(23,-3);ctx.scale(.72,.72);ctx.translate(-23,3);
+  ctx.shadowColor='#52ffd6';ctx.shadowBlur=5;
+  ctx.fillStyle='rgba(35,132,112,.75)';
+  ctx.fillRect(19,-19,12,25);ctx.fillRect(26,-28,10,19);ctx.fillRect(32,-35,9,17);
+  ctx.shadowBlur=0;ctx.fillStyle='#3ac5a5';ctx.fillRect(25,-18,4,16);ctx.fillRect(30,-26,4,14);ctx.fillRect(35,-32,3,11);
+  ctx.restore();
+ }
+ ctx.restore();
+ // Approved plain square body, with no hat or hanging lower pieces.
+ ctx.shadowColor='#52ffd6';ctx.shadowBlur=9;ctx.fillStyle=flash?'#ffffff':'#35c9ad';ctx.fillRect(-24,-24,48,48);ctx.shadowBlur=0;
+ ctx.fillStyle='#0d3a33';ctx.fillRect(-20,-20,40,40);
+ ctx.fillStyle=flash?'#eeeeee':'#195c4d';ctx.fillRect(-16,-15,32,29);
+ ctx.fillStyle='#082e29';ctx.fillRect(-15,-12,30,6);ctx.fillRect(-19,-5,4,17);ctx.fillRect(15,-5,4,17);
+ // A single offset eye gives the hunter an alien, intent stare.
+ ctx.fillStyle='#082e29';ctx.fillRect(-16,-13,32,17);
+ ctx.fillStyle=release > 0 ? '#f0fff9' : '#d6fff0';ctx.fillRect(-13,striking ? -5 : -8,26,striking ? 5 : 8);
+ ctx.fillStyle='#24af92';ctx.fillRect(striking ? 0 : 3,striking ? -5 : -8,striking ? 3 : 6,striking ? 5 : 8);
+ // Dark stepped lid narrows one side of the eye, without a separate eyebrow.
+ ctx.fillStyle='#082e29';ctx.fillRect(-13,-8,10,3);ctx.fillRect(-3,-8,6,1);
+ // One short lightning-shaped jaw mark replaces the exposed teeth and forehead rune.
+ ctx.fillStyle=striking ? '#e4fff1' : '#81d9bd';ctx.fillRect(-5,8,13,3);ctx.fillRect(1,11,4,3);ctx.fillRect(-5,14,10,3);
+ ctx.fillStyle='#348775';ctx.fillRect(-16,4,3,2);ctx.fillRect(13,4,3,2);
+ // Broad isolated lightning fragments replace the cloud of tiny sparks.
+ for(let i=0;i<6;i++){
+  const angle=fanAngle*.45+i*Math.PI/3, radius=47+(i%2)*8;
+  ctx.save();ctx.translate(Math.round(Math.cos(angle)*radius),Math.round(Math.sin(angle)*radius));
+  ctx.globalAlpha=.35+.4*Math.abs(Math.sin(tickN*.12+i*2));
+  ctx.strokeStyle=i%2?'#87ddbe':'#caffea';ctx.lineWidth=2;ctx.shadowColor='#52ffd6';ctx.shadowBlur=3;
+  ctx.beginPath();ctx.moveTo(-6,-7);ctx.lineTo(3,-7);ctx.lineTo(3,-1);ctx.lineTo(-2,-1);ctx.lineTo(-2,5);ctx.lineTo(7,5);ctx.stroke();ctx.restore();
+ }
+ // A few soft pixel motes complement the larger lightning fragments.
+ for(let i=0;i<8;i++){
+  const life=((tickN+i*17)%100)/100, side=i%2?1:-1;
+  const x=side*(43+i%3*6), y=Math.round(40-life*82);
+  ctx.save();ctx.shadowBlur=0;ctx.globalAlpha=Math.sin(life*Math.PI)*.45;
+  ctx.fillStyle=i%3?'#52ffd6':'#baffdf';ctx.fillRect(x,y,2,2);ctx.restore();
+ }
+ // Brief angular trails sit behind the rotating blades, without obscuring the body.
+ ctx.save();ctx.rotate(fanAngle);
+ for(let i=0;i<4;i++){
+  ctx.save();ctx.rotate(i*Math.PI/2);ctx.globalAlpha=.16;ctx.fillStyle='#52ffd6';ctx.fillRect(32,3,5,14);ctx.fillRect(37,12,8,4);ctx.restore();
+ }
+ ctx.restore();
+ // Charged state: a bright rim, traveling edge current and blade-tip discharge.
+ if(striking){
+  ctx.save();ctx.shadowColor='#6affcf';ctx.shadowBlur=22;ctx.strokeStyle='#baffdf';ctx.lineWidth=3;
+  ctx.globalAlpha=.65+release*.3;ctx.strokeRect(-25,-25,50,50);
+  ctx.shadowBlur=7;ctx.strokeStyle='#effff7';ctx.lineWidth=1;ctx.strokeRect(-23,-23,46,46);
+  for(let i=0;i<8;i++){
+   const t=((tickN*.07+i*.5)%4),edge=Math.floor(t),v=(t-edge)*44-22;
+   const x=edge===0?v:edge===1?22:edge===2?-v:-22;
+   const y=edge===0?-22:edge===1?v:edge===2?22:-v;
+   ctx.fillStyle='#e2fff0';ctx.fillRect(x-2,y-2,4,4);
+  }
+  ctx.rotate(fanAngle);ctx.strokeStyle='#aaffdb';ctx.lineWidth=2;
+  for(let i=0;i<4;i++){
+   ctx.save();ctx.rotate(i*Math.PI/2);ctx.beginPath();ctx.moveTo(30,-22);ctx.lineTo(40,-22);ctx.lineTo(40,-29);ctx.lineTo(47,-29);ctx.stroke();ctx.restore();
+  }
+  ctx.restore();
+ }
+ ctx.restore();
+}
+
+function drawStormReaperStrike(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, remaining: number) {
+ const age=1-remaining, reach=TILE_SIZE*(.6+age*.7);
+ ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.lineJoin='miter';ctx.lineCap='butt';
+ // Twin stepped blade cuts cross the victim, driven by the actual melee event.
+ for(const side of [-1,1]){
+  ctx.save();ctx.scale(1,side);
+  ctx.beginPath();ctx.moveTo(-reach,-reach*.45);
+  ctx.lineTo(-reach*.45,-reach*.45);ctx.lineTo(-reach*.45,-reach*.15);
+  ctx.lineTo(reach*.1,-reach*.15);ctx.lineTo(reach*.1,reach*.2);
+  ctx.lineTo(reach*.6,reach*.2);ctx.lineTo(reach*.6,reach*.45);ctx.lineTo(reach,reach*.45);
+  ctx.globalAlpha=remaining*.5;ctx.strokeStyle='#35c9ad';ctx.lineWidth=12;ctx.shadowColor='#52ffd6';ctx.shadowBlur=12;ctx.stroke();
+  ctx.globalAlpha=remaining*.95;ctx.strokeStyle='#52ffd6';ctx.lineWidth=6;ctx.shadowBlur=4;ctx.stroke();
+  ctx.strokeStyle='#dcfff0';ctx.lineWidth=2;ctx.stroke();ctx.restore();
+ }
+ // Layered square shock fronts and eight branching lightning spokes at impact.
+ ctx.shadowBlur=0;
+ for(let layer=0;layer<1;layer++){
+  const r=10+age*(43-layer*12);
+  ctx.globalAlpha=remaining*(layer?.35:.6);ctx.strokeStyle=layer?'#c7ffe7':'#35c9ad';ctx.lineWidth=layer?2:4;
+  ctx.strokeRect(-r,-r,r*2,r*2);
+ }
+ for(let i=0;i<4;i++){
+  ctx.save();ctx.rotate(i*Math.PI/2);const r=12+age*22, tip=r+12+age*18;
+  ctx.beginPath();ctx.moveTo(r,0);ctx.lineTo(r+8,0);ctx.lineTo(r+8,-5);ctx.lineTo(tip,-5);ctx.lineTo(tip,2);
+  ctx.globalAlpha=remaining*.6;ctx.strokeStyle='#238d78';ctx.lineWidth=7;ctx.shadowColor='#52ffd6';ctx.shadowBlur=7;ctx.stroke();
+  ctx.globalAlpha=remaining;ctx.strokeStyle='#c7ffe7';ctx.lineWidth=2;ctx.shadowBlur=0;ctx.stroke();ctx.restore();
+ }
+ // White centre discharge is brief; the layered cuts remain visible as it fades.
+ ctx.globalAlpha=Math.max(0,1-age*4)*.65;ctx.fillStyle='#ebfff4';ctx.fillRect(-11,-11,22,22);
+ ctx.restore();
+}
+
+// Small elemental space accents tie the approved boss silhouettes to the cosmic setting.
+function drawCosmicBossAccents(ctx: CanvasRenderingContext2D, type: string, x: number, y: number, size: number, tick: number) {
+  ctx.save();ctx.translate(x,y);ctx.shadowBlur=0;
+  const baseAlpha=ctx.globalAlpha;
+  const star=(px: number,py: number,color: string,alpha: number)=>{
+    ctx.globalAlpha=alpha*baseAlpha;ctx.fillStyle=color;ctx.fillRect(Math.round(px)-3,Math.round(py)-1,7,2);ctx.fillRect(Math.round(px)-1,Math.round(py)-3,2,7);
+  };
+  if(type==='fiery_king'){
+    // Solar plasma fragments sweep around the fiery corona.
+    for(let i=0;i<5;i++){
+      const a=tick*.018+i*Math.PI*2/5,r=size*.68+9;
+      const px=Math.cos(a)*r,py=Math.sin(a)*r;
+      ctx.globalAlpha=.22;ctx.strokeStyle='#ff9841';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(px-Math.cos(a-.3)*7,py-Math.sin(a-.3)*7);ctx.lineTo(px,py);ctx.stroke();
+      star(px,py,i%2?'#ffbb59':'#ffe9a5',.4);
+    }
+  }else if(type==='splitter_queen'){
+    // A sparse four-star constellation sits beyond her existing magic aura.
+    const points=[];
+    for(let i=0;i<4;i++){const a=tick*.009+i*Math.PI/2;points.push([Math.cos(a)*(size*.8+10),Math.sin(a)*(size*.8+10)]);}
+    ctx.globalAlpha=.14;ctx.strokeStyle='#d991f0';ctx.lineWidth=1;ctx.beginPath();points.forEach(([px,py],i)=>i?ctx.lineTo(px,py):ctx.moveTo(px,py));ctx.closePath();ctx.stroke();
+    points.forEach(([px,py],i)=>star(px,py,i%2?'#dfa4f2':'#ffe3ff',.4));
+  }else if(type==='devourer'){
+    // Dark matter fragments spiral inward, suggesting a hungry gravity well.
+    for(let i=0;i<6;i++){
+      const life=((tick+i*19)%110)/110,a=-tick*.013+i*2.4,r=size*.65+22-life*13;
+      const px=Math.round(Math.cos(a)*r),py=Math.round(Math.sin(a)*r);
+      ctx.globalAlpha=Math.sin(life*Math.PI)*.65;ctx.fillStyle='#24122f';ctx.fillRect(px-4,py-4,8,8);
+      ctx.strokeStyle='#a264cd';ctx.lineWidth=1;ctx.strokeRect(px-4,py-4,8,8);
+      ctx.fillStyle='#b9e878';ctx.fillRect(px-1,py-1,2,2);
+    }
+  }else if(type==='frost_warden'){
+    // Frozen starlets follow a wide tilted orbital plane around her crystal.
+    for(let i=0;i<3;i++){
+      const a=tick*.014+i*Math.PI*2/3,r=size*1.1;
+      star(Math.cos(a)*r,Math.sin(a)*r*.5+Math.cos(a)*9,'#d9f6ff',.42);
+    }
+  }else if(type==='blind_prayer'){
+    // Luminous ritual satellites frame the halo and never cover the cloth or glyphs.
+    for(let i=0;i<4;i++){
+      const side=i%2?1:-1,px=side*(36+i%2*7),py=-35+Math.sin(tick*.025+i*2)*14;
+      ctx.globalAlpha=.35;ctx.strokeStyle='#e1c343';ctx.lineWidth=1;ctx.strokeRect(px-4,py-4,8,8);
+      star(px,py,'#fff2ad',.5);
+    }
+  }else if(type==='sea_chanter'){
+    // Tiny ocean-blue star droplets complement the square bubbles.
+    for(let i=0;i<4;i++){
+      const life=((tick+i*27)%120)/120,side=i%2?1:-1;
+      star(side*(51+i%3*4),35-life*78,i%2?'#98cffa':'#d8f4ff',Math.sin(life*Math.PI)*.38);
+    }
+  }else if(type==='thorn_weaver'){
+    // Pale seed stars drift over the leafy silhouette like bioluminescent spores.
+    for(let i=0;i<3;i++){
+      const life=((tick+i*37)%130)/130;
+      star((i%2?1:-1)*(size*.7+8),18-life*72,i===1?'#e8b6df':'#d6f5a6',Math.sin(life*Math.PI)*.4);
+    }
+  }
+  ctx.restore();
+}
+
+// One connected octagonal crystal band for every celestial orbit; optional halves give models depth.
+function drawCelestialPolygonRing(ctx: CanvasRenderingContext2D, rx: number, ry: number, color: string, width: number, tilt: number, front: boolean | null = null) {
+  const vertices=Array.from({length:8},(_,i)=>{
+    const angle=i*Math.PI/4,x=Math.cos(angle)*rx,y=Math.sin(angle)*ry;
+    return [Math.round(x*Math.cos(tilt)-y*Math.sin(tilt)),Math.round(x*Math.sin(tilt)+y*Math.cos(tilt))];
+  });
+  ctx.save();ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineJoin='miter';ctx.lineCap='butt';ctx.shadowColor=color;ctx.shadowBlur=width*1.5;
+  const start=front===false?4:0,end=front===true?4:8;
+  ctx.beginPath();ctx.moveTo(vertices[start%8][0],vertices[start%8][1]);
+  for(let i=start+1;i<=end;i++)ctx.lineTo(vertices[i%8][0],vertices[i%8][1]);
+  if(front===null)ctx.closePath();ctx.stroke();ctx.restore();
+}
+
+function drawCelestialCast(ctx: CanvasRenderingContext2D, kind: keyof typeof SPECIAL_SKILLS, x: number, y: number, age: number, tick: number) {
+  const fade=Math.max(0,1-age)*ctx.globalAlpha,color=SPECIAL_SKILLS[kind].color;
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.globalAlpha=fade*.9;ctx.shadowColor=color;
+  ctx.shadowBlur=['fiery_king','blind_prayer','devourer'].includes(kind)?5+4*Math.abs(Math.sin(tick*.075)):0;
+  const block=(px: number,py: number,w: number,h: number,c: string)=>{ctx.fillStyle=c;ctx.fillRect(Math.round(px/3)*3,Math.round(py/3)*3,Math.max(3,Math.round(w/3)*3),Math.max(3,Math.round(h/3)*3));};
+  const star=(px: number,py: number,size: number,c: string)=>{
+    const arm=Math.max(6,Math.round(size/12)*3),half=size/2;
+    block(px-arm/2,py-half,arm,size,c);block(px-half,py-arm/2,size,arm,c);block(px-arm,py-arm,arm*2,arm*2,c);
+    for(const dx of [-1,1])for(const dy of [-1,1])block(px+dx*half*.55-3,py+dy*half*.55-3,6,6,c);
+  };
+  // Broad 12px stair steps keep cast rings as chunky as the full-energy sparks.
+  // Keep the held Saturn suit's separate polygon hoop unchanged.
+  const ring=(r: number,flat: number,c: string,shear=0,front: boolean | null=null)=>{
+    const rx=Math.max(24,Math.round(r/12)*12),ry=Math.max(24,Math.round(r*flat/12)*12);
+    ctx.save();ctx.shadowBlur=0;ctx.globalAlpha*=.8+.2*Math.abs(Math.sin(tick*.075));
+    const ringAlpha=ctx.globalAlpha;
+    for(let py=-ry;py<=ry;py+=12)for(let px=-rx;px<=rx;px+=12){
+      if(front!==null && (py>=0)!==front)continue;
+      const outer=(px*px)/(rx*rx)+(py*py)/(ry*ry);
+      const inner=(px*px)/((rx-18)*(rx-18))+(py*py)/(Math.max(6,ry-12)**2);
+      if(outer<=1 && inner>=1){
+        ctx.globalAlpha=ringAlpha*(py<0?.7:1);
+        const glint=(Math.round(px/12)+Math.round(py/12)+Math.floor(tick/8))%13===0;
+        block(px-6,Math.round((py+px*shear)/12)*12-6,12,12,glint?'#dce9ed':c);
+      }
+    }
+    ctx.restore();
+  };
+  const planet=(base: string,shade: string)=>{
+    ctx.save();ctx.shadowBlur=0;
+    for(let row=-4;row<=4;row++)for(let col=-4;col<=4;col++)if(col*col+row*row<=19)block(col*6-3,row*6-3,6,6,col<-1?shade:base);
+    ctx.restore();
+  };
+  const energyStreams=(radius: number,base: string,light: string)=>{
+    ctx.save();ctx.shadowColor=base;ctx.shadowBlur=8;
+    const directions=[[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+    for(let i=0;i<directions.length;i++){
+      const [dx,dy]=directions[i];
+      for(let shard=0;shard<2;shard++){
+        const life=((tick*2+i*5+shard*18)%36)/36;
+        const distance=radius+Math.floor(life*6)*4;
+        ctx.globalAlpha=fade*(1-life)*.9;
+        drawEnergyPixelRay(ctx,dx*distance,dy*distance,dx,dy,shard?light:base,1.5);
+      }
+    }
+    ctx.restore();
+  };
+  if(kind==='fiery_king'){
+    star(0,0,66+age*30,'#ff4545');star(0,0,33,'#ffbbb0');star(0,0,15,'#fff0dc');
+    for(let i=0;i<8;i++){
+      const angle=i*Math.PI/4,dx=Math.cos(angle),dy=Math.sin(angle);
+      ctx.save();ctx.shadowBlur=0;
+      for(let trail=0;trail<5;trail++){
+        const r=48+age*145-trail*12,size=trail===0?6:trail<3?12:9;
+        const px=dx*r,py=dy*r;
+        ctx.globalAlpha=fade*(.95-trail*.14);
+        block(px-size/2,py-size/2,size,size,trail===0?'#ffe0bd':trail<3?'#ff7360':'#ed333d');
+        if(trail===1||trail===3){
+          const side=(i+trail)%2?1:-1;
+          block(px-dy*side*9-3,py+dx*side*9-3,6,6,'#ff9c80');
+        }
+        if(trail===2){ctx.globalAlpha=fade*.8;block(px-3,py-3,6,6,'#ffe7d2');}
+      }
+      ctx.restore();
+    }
+  }else if(kind==='storm_reaper'){
+    // Original striped planet and two expanding wave bands, with the newer thunder accents.
+    ctx.globalAlpha=fade*.85;ring(36+age*(SPECIAL_REAPER_RADIUS-36),1,'#ffa34d');
+    ctx.globalAlpha=fade*.28;ring(24+age*(SPECIAL_REAPER_RADIUS-60),1,'#ffca80');
+    const reach=66+age*48;
+    ctx.save();ctx.shadowColor='#ff8c32';ctx.shadowBlur=5;
+    for(let side=0;side<4;side++){
+      const angle=side*Math.PI/2,dx=Math.cos(angle),dy=Math.sin(angle);
+      let previousX=dx*42,previousY=dy*42;
+      for(let step=1;step<=4;step++){
+        const distance=42+(reach-42)*step/4,offset=step===4?0:(step%2?6:-6);
+        const px=Math.round((dx*distance-dy*offset)/6)*6,py=Math.round((dy*distance+dx*offset)/6)*6;
+        ctx.globalAlpha=fade*.65;
+        drawPixelBeam(ctx,previousX,previousY,px,py,6,'#ff8c32');
+        drawPixelBeam(ctx,previousX,previousY,px,py,3,'#ffe4a9');
+        previousX=px;previousY=py;
+      }
+      ctx.globalAlpha=fade*.75;block(previousX-3,previousY-3,6,6,'#fff0c7');
+    }
+    ctx.restore();ctx.globalAlpha=fade*.9;
+    planet('#ffad55','#bd642e');block(-24,-9,48,6,'#f17b32');block(-24,3,48,6,'#ffe0a8');block(6,12,12,6,'#d45d24');
+    energyStreams(36+age*90,'#ff9b43','#ffe0ae');
+  }else if(kind==='frost_warden'){
+    const orbitRadius=60+age*28,pulse=.8+.2*Math.abs(Math.sin(tick*.075));
+    ctx.globalAlpha=fade*.6*pulse;ring(orbitRadius,.6,'#4baf9e',-.25,false);
+    ctx.globalAlpha=fade*.95;planet('#76cbbb','#3c877b');block(-21,-3,42,6,'#b9fae8');
+    ctx.globalAlpha=fade*.9*pulse;ring(orbitRadius,.6,'#9bf0db',-.25,true);
+    energyStreams(48+age*24,'#76cbbb','#d4fff3');
+  }else if(kind==='sea_chanter'){
+    // Ocean bands and three short currents keep the planet central to the tide.
+    ctx.save();ctx.scale(1.5,1.5);
+    planet(color,'#315796');block(-21,-9,42,6,'#83b7ff');block(-18,6,36,6,'#4379c9');
+    const drift=Math.round(Math.sin(tick*.16)*2)*3;
+    block(-12+drift,-9,15,6,'#c0e7ff');block(3-drift,6,12,6,'#76c8f4');
+    block(-9,-18,12,3,'#a9d8ff');block(6,12,9,6,'#274b8c');
+    block(-6+drift,-6,6,3,'#e6f8ff');
+    ctx.restore();
+    ctx.save();ctx.shadowColor='#78bfff';ctx.shadowBlur=5;
+    for(let current=0;current<3;current++){
+      const start=current*Math.PI*2/3+age*1.4;
+      for(let chip=0;chip<7;chip++){
+        const angle=start-chip*.13,radius=48+age*25+chip*2;
+        ctx.globalAlpha=fade*(.85-chip*.09);
+        block(Math.cos(angle)*radius-3,Math.sin(angle)*radius-3,chip<2?9:6,6,chip===0?'#e1f5ff':chip<3?'#91ceff':'#447dcc');
+      }
+    }
+    ctx.restore();
+    const reach=48+age*(SPECIAL_CHANTER_RADIUS-48);
+    ctx.globalAlpha=fade*.65;ring(Math.max(24,reach-12),1,color);
+    ctx.globalAlpha=fade*.65;ring(reach,1,'#b6ddff');
+    for(let i=0;i<12;i++){
+      const angle=i*Math.PI/6,distance=reach-6-((tick+i*7)%18),dx=Math.cos(angle),dy=Math.sin(angle);
+      ctx.globalAlpha=fade*(i%2?.4:.75);
+      const px=dx*distance,py=dy*distance;
+      block(px-3,py-3,9,6,'#e3f4ff');
+      block(px-dy*9-dx*6-3,py+dx*9-dy*6-3,6,6,'#83c4ff');
+      ctx.globalAlpha=fade*.35;
+      block(dx*(distance-24)-3,dy*(distance-24)-3,6,6,color);
+    }
+  }else if(kind==='blind_prayer'){
+    star(0,0,66+age*42,'#ffe45c');star(0,0,39,'#fff3a4');star(0,0,18,'#ffffff');
+    for(let i=0;i<8;i++){
+      const angle=i*Math.PI/4,r=42+age*65;
+      for(let trail=0;trail<3;trail++){ctx.globalAlpha=fade*(.85-trail*.2);const rr=r-trail*9;block(Math.cos(angle)*rr-3,Math.sin(angle)*rr-3,6,6,trail?'#ffda56':'#fff8d6');}
+    }
+  }else if(kind==='splitter_queen'){
+    // Crescent cut from a stepped pixel disc; no smooth curves or boss ornaments.
+    for(let row=-4;row<=4;row++)for(let col=-4;col<=4;col++)if(col*col+row*row<=19 && (col-2)*(col-2)+(row+1)*(row+1)>16)block(col*6-3,row*6-3,6,6,col<-1?'#8052ba':'#c89aff');
+    star(27,-15,18,'#f4e9ff');
+    ctx.globalAlpha=fade*.85;ring(36+age*100,1,'#b383f0');
+    ctx.globalAlpha=fade*.45;ring(24+age*74,1,'#eddaff');
+    energyStreams(42+age*85,'#bd8cff','#f5e9ff');
+    for(let i=0;i<8;i++){
+      const angle=i*Math.PI/4,r=42+age*100;ctx.globalAlpha=fade*.9;
+      drawEnergyPixelRay(ctx,Math.cos(angle)*r,Math.sin(angle)*r,Math.cos(angle),Math.sin(angle),'#e4c9ff',1.5);
+    }
+  }else if(kind==='thorn_weaver'){
+    planet('#4b8057','#315b47');block(-18,-15,18,12,'#b6da75');block(-6,-3,24,9,'#78b777');block(-3,6,12,15,'#d9edac');
+    // Grounded roots grow outward in branches; Gaia has no orbiting rings or star rays.
+    for(let side=0;side<4;side++){
+      ctx.save();ctx.rotate(side*Math.PI/2);
+      const reach=36+age*105;
+      for(let step=0;step<6;step++){
+        const along=33+step*18;if(along>reach)continue;
+        ctx.globalAlpha=fade*(.9-step*.07);
+        block(along,-3,18,6,step%2?'#6b9e58':'#96c777');
+        const branch=step%2?1:-1;
+        block(along+9,branch>0?3:-15,6,12,'#80b569');
+        block(along+9,branch>0?12:-21,12,9,'#c4e9a0');
+      }
+      ctx.restore();
+    }
+  }else{
+    // A black stellar rift with a silver edge and inward-moving fragments; no boxed rings.
+    ctx.shadowColor='#aaaab6';ctx.shadowBlur=8;ctx.globalAlpha=fade*.8;star(0,0,66+age*12,'#70707e');
+    ctx.globalAlpha=fade;star(0,0,54+age*9,'#050507');star(0,0,24,'#000000');
+    ctx.save();ctx.shadowColor='#c7c7e2';ctx.shadowBlur=8;
+    for(let i=0;i<8;i++){
+      const angle=i*Math.PI/4,distance=100-age*65,dx=Math.cos(angle),dy=Math.sin(angle);
+      ctx.globalAlpha=fade*.85;drawEnergyPixelRay(ctx,dx*distance,dy*distance,-dx,-dy,i%2?'#858598':'#e0e0ef',1.25);
+    }
+    ctx.restore();
+    for(let i=0;i<8;i++){
+      const life=((tick+i*11)%70)/70,angle=i*Math.PI/4+life*.35,r=20+(1-life)*45;
+      ctx.globalAlpha=fade*Math.sin(life*Math.PI)*.7;block(Math.cos(angle)*r-3,Math.sin(angle)*r-3,6,6,i%2?'#646470':'#d0d0da');
+    }
+  }
+  ctx.restore();
+}
+
+// Square samples are filled as one path to avoid overlapping opacity.
+function drawPixelBeam(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, width: number, color: string) {
+  const steps=Math.max(1,Math.ceil(Math.max(Math.abs(x2-x1),Math.abs(y2-y1))/3)),size=Math.max(3,Math.round(width/3)*3);
+  ctx.beginPath();
+  for(let i=0;i<=steps;i++){
+    const t=i/steps;ctx.rect(Math.round((x1+(x2-x1)*t-size/2)/3)*3,Math.round((y1+(y2-y1)*t-size/2)/3)*3,size,size);
+  }
+  ctx.fillStyle=color;ctx.fill();
+}
+
+function drawPlayerLaser(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, powered: boolean, ticks: number) {
+  ctx.save();ctx.lineCap='square';const fade=Math.min(1,ticks/18),base=powered?'#ffcc00':'#44ddff',light=powered?'#ffee88':'#aaffff';
+  for(const [width,color,alpha,glow]of [[powered?60:48,base,.4,18],[powered?27:18,light,.85,10],[powered?6:3,'#ffffff',1,0]] as const){
+    ctx.globalAlpha=fade*alpha;ctx.shadowColor=base;ctx.shadowBlur=glow;ctx.strokeStyle=color;ctx.lineWidth=width;
+    ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawPlayerChain(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, ticks: number) {
+  ctx.save();ctx.lineJoin='miter';ctx.lineCap='butt';const fade=Math.min(1,ticks/22),dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1;
+  const points=Array.from({length:5},(_,i)=>{const t=i/4,off=i===0||i===4?0:(i%2?1:-1)*12;return [x1+dx*t-dy/len*off,y1+dy*t+dx/len*off];});
+  for(const [width,color,glow,alpha]of [[12,'#ffcc33',26,.65],[7,'#ffff88',8,.9],[3,'#ffffff',0,1]] as const){
+    ctx.globalAlpha=fade*alpha;ctx.shadowColor='#ffff44';ctx.shadowBlur=glow;ctx.strokeStyle=color;ctx.lineWidth=width;
+    ctx.beginPath();ctx.moveTo(x1,y1);for(const point of points.slice(1))ctx.lineTo(point[0],point[1]);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawPlayerWave(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, powered: boolean, ticks: number) {
+  ctx.save();const fade=Math.min(1,ticks/30),base=powered?'#ffbb22':'#22cfff',light=powered?'#fff4b8':'#e4ffff',accent=powered?'#ff6d37':'#9b7cff';
+  ctx.shadowColor=base;ctx.shadowBlur=32;ctx.globalAlpha=fade*.85;ctx.strokeStyle=base;ctx.lineWidth=18;ctx.strokeRect(x-radius,y-radius,radius*2,radius*2);
+  ctx.shadowBlur=10;ctx.globalAlpha=fade;ctx.strokeStyle=light;ctx.lineWidth=6;ctx.strokeRect(x-radius,y-radius,radius*2,radius*2);
+  for(const [ratio,color,alpha]of [[.76,accent,.65],[.5,base,.35]] as const){
+    const r=radius*ratio;ctx.shadowColor=color;ctx.shadowBlur=12;ctx.globalAlpha=fade*alpha;ctx.strokeStyle=color;ctx.lineWidth=5;ctx.strokeRect(x-r,y-r,r*2,r*2);
+  }
+  ctx.shadowBlur=0;ctx.globalAlpha=fade*.1;ctx.fillStyle=base;ctx.fillRect(x-radius,y-radius,radius*2,radius*2);
+  ctx.shadowColor=base;ctx.shadowBlur=10;
+  for(const [dx,dy]of [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]]){
+    ctx.globalAlpha=fade*.9;drawEnergyPixelRay(ctx,x+dx*radius,y+dy*radius,dx,dy,light,powered?2:1.5);
+  }
+  if(ticks>20){ctx.globalAlpha=(ticks-20)/10*.6;drawCompassStar(ctx,x,y,60,light);}
+  ctx.restore();
+}
+
+function drawPlayerCharge(ctx: CanvasRenderingContext2D, x: number, y: number, half: number, progress: number, tick: number) {
+  ctx.save();const r=half+Math.floor(half*(.15+progress*1.6));
+  ctx.shadowColor='#00ccff';ctx.shadowBlur=Math.floor(20*progress);ctx.globalAlpha=.15+.7*progress;
+  ctx.strokeStyle='#00ccff';ctx.lineWidth=Math.max(1,Math.floor(4*progress));ctx.strokeRect(x-r,y-r,r*2,r*2);
+  if(progress>=.98){ctx.globalAlpha=.3+.3*Math.abs(Math.sin(tick*.2));ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.shadowBlur=8;const outer=r*1.2;ctx.strokeRect(x-outer,y-outer,outer*2,outer*2);}
+  if(progress>.5){
+    ctx.shadowColor='#8c72ff';ctx.shadowBlur=8;ctx.globalAlpha=(progress-.5)*1.2;ctx.strokeStyle='#ad93ff';ctx.lineWidth=2;
+    const inner=r*.75;ctx.strokeRect(x-inner,y-inner,inner*2,inner*2);
+    for(let i=0;i<4;i++){
+      const angle=i*Math.PI/2,life=((tick+i*9)%36)/36,reach=r+15-Math.floor(life*4)*3;
+      ctx.globalAlpha=progress*(1-life)*.8;drawEnergyPixelRay(ctx,x+Math.cos(angle)*reach,y+Math.sin(angle)*reach,Math.round(Math.cos(angle)),Math.round(Math.sin(angle)),'#e4ffff',1.5);
+    }
+  }
+  ctx.restore();
+}
+
+function drawPlayerBullet(ctx: CanvasRenderingContext2D, x: number, y: number, dx: number, dy: number, powered: boolean, ticks: number) {
+  ctx.save();ctx.lineCap='square';const len=Math.hypot(dx,dy)||1,nx=dx/len,ny=dy/len;
+  const tail=Math.min(TILE_SIZE*1.5,Math.max(0,ticks)*BULLET_SPEED*TILE_SIZE),width=powered?30:18;
+  const base=powered?'#ffcc00':'#44ddff',light=powered?'#ffee88':'#aaffff';
+  for(const [w,color,alpha,glow]of [[width*1.8,base,.3,22],[width,base,.8,10],[Math.max(4,width*.4),light,1,0]] as const){
+    ctx.globalAlpha=alpha;ctx.shadowColor=base;ctx.shadowBlur=glow;ctx.strokeStyle=color;ctx.lineWidth=w;
+    ctx.beginPath();ctx.moveTo(x-nx*tail,y-ny*tail);ctx.lineTo(x+nx*TILE_SIZE*.4,y+ny*TILE_SIZE*.4);ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRewardSpark(ctx: CanvasRenderingContext2D, x: number, y: number, color: string) {
+  ctx.save();
+  // Keep the 4px particle size; crisp 2px steps and a square core replace the soft halo.
+  const px = Math.round(x / 2) * 2;
+  const py = Math.round(y / 2) * 2;
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = color;
+  ctx.fillRect(px - 2, py - 2, 4, 4);
+  ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha *= 0.6;
+  ctx.fillRect(px - 1, py - 1, 2, 2);
+  ctx.restore();
+}
+
+function drawPrayerRitual(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, tickN: number) {
+  const ability = state.enemies.find(e => e.type === 'blind_prayer')?.prayer;
+  if (!ability || ability.rubyCastTicks <= 0 || state.rubyTileX === -1 || ability.rubyDestination < 0) return;
+  const destination = [[10, 10], [39, 10], [10, 39], [39, 39]][ability.rubyDestination];
+  const progress = 1 - ability.rubyCastTicks / PRAYER_RUBY_WINDUP;
+  ctx.save();
+  for (const [tx, ty] of [[state.rubyTileX, state.rubyTileY], destination]) {
+    const x = Math.round(tx * TILE_SIZE + TILE_SIZE / 2 - camX);
+    const y = Math.round(ty * TILE_SIZE + TILE_SIZE / 2 - camY);
+    const radius = Math.round(TILE_SIZE * (0.55 + progress * 0.25));
+    ctx.globalAlpha = 0.65 + 0.25 * Math.abs(Math.sin(tickN * 0.2));
+    ctx.strokeStyle = '#ffdd22'; ctx.shadowColor = '#ffdd22'; ctx.shadowBlur = 10;
+    ctx.lineWidth = 3; ctx.strokeRect(x - radius, y - radius, radius * 2, radius * 2);
+    ctx.fillStyle = '#ffffff'; ctx.shadowBlur = 0;
+    for (const dx of [-1, 1]) for (const dy of [-1, 1]) ctx.fillRect(x + dx * radius - 3, y + dy * radius - 3, 6, 6);
+    const lift=(1-progress)*36;
+    ctx.globalAlpha=.5+progress*.4;ctx.fillStyle='#ffda77';ctx.fillRect(x-3,y-radius-28-lift,6,18);
+    ctx.fillStyle='#fff5cd';ctx.fillRect(x-9,y-radius-24-lift,18,6);
+  }
+  ctx.restore();
+}
+
+function drawSaturnShield(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, tick: number) {
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.shadowBlur=0;
+  const extent=Math.ceil(radius/4)*4,pulse=.75+.25*Math.abs(Math.sin(tick*.055));
+  // A faceted turquoise ward, with sharp steps and a dim translucent interior.
+  for(let py=-extent;py<=extent;py+=4)for(let px=-extent;px<=extent;px+=4){
+    const ax=Math.abs(px),ay=Math.abs(py),edge=Math.max(ax,ay)+Math.min(ax,ay)*.4;
+    if(edge>extent)continue;
+    const rim=edge>extent-4;
+    ctx.globalAlpha=rim?pulse*(py<0?.5:.8):.035;
+    ctx.fillStyle=rim?(py<0?'#67b8aa':'#b6f8e4'):'#76cbbb';ctx.fillRect(px-2,py-2,4,4);
+  }
+  // Moving orbit lights carry the Saturn identity without blurring the shell.
+  for(let i=0;i<4;i++){
+    const angle=tick*.025+i*Math.PI/2;
+    const px=Math.round(Math.cos(angle)*(extent+6)/3)*3,py=Math.round(Math.sin(angle)*(extent+6)*.55/3)*3;
+    ctx.globalAlpha=.55+.25*Math.sin(angle)**2;ctx.shadowColor='#76cbbb';ctx.shadowBlur=6;
+    ctx.fillStyle='#dbfff2';ctx.fillRect(px-2,py-2,4,4);
+  }
+  ctx.restore();
+}
+
+function drawRewardShield(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number,
+  tickN: number, color: string) {
+  ctx.save();
+  x = Math.round(x); y = Math.round(y); radius = Math.round(radius);
+  const alpha=ctx.globalAlpha,pulse=.75+.25*Math.abs(Math.sin(tickN*.055));
+  const left=x-radius,top=y-radius,size=radius*2,border=4;
+  ctx.shadowBlur=0;ctx.fillStyle=color;
+  ctx.globalAlpha=alpha*.035;ctx.fillRect(left+border,top+border,size-border*2,size-border*2);
+  // One plain square, with shaded flat edges and no protruding corners.
+  ctx.globalAlpha=alpha*pulse*.55;
+  ctx.fillRect(left,top,size,border);ctx.fillRect(left,top+border,border,size-border*2);
+  ctx.globalAlpha=alpha*pulse*.85;
+  ctx.fillRect(left,top+size-border,size,border);ctx.fillRect(left+size-border,top+border,border,size-border*2);
+  ctx.fillStyle='#e4f5ff';ctx.globalAlpha=alpha*pulse*.25;
+  ctx.fillRect(left+border,top+size-border,size-border*2,1);
+  // A small glint stays within the border; only this isolated accent glows.
+  const travel=Math.floor(tickN/4)%(size-8);
+  ctx.fillStyle='#e4f5ff';ctx.globalAlpha=alpha*.65;ctx.shadowColor=color;ctx.shadowBlur=4;
+  ctx.fillRect(left+4+travel,top,4,border);
+  ctx.restore();
+}
+
+function drawRewardPulses(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number) {
+  const directions=[[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+  for(const fx of state.rewardEffects){
+    const onPlayer=fx.target==='player'||state.rubyTileX===-1;
+    const x=Math.round((onPlayer?state.playerX:(state.rubyTileX+.5)*TILE_SIZE)-camX);
+    const y=Math.round((onPlayer?state.playerY:(state.rubyTileY+.5)*TILE_SIZE)-camY);
+    const progress=1-fx.ticks/36,fade=Math.min(1,fx.ticks/18),radius=18+Math.floor(progress*9)*3;
+    const color=fx.kind==='heal'?(fx.target==='ruby'?'#ff88aa':'#66cc88'):fx.kind==='shield'?(fx.target==='ruby'?'#49bfb1':'#6c9ce0'):fx.kind==='speed'?'#60d8c7':fx.kind==='electric'?'#e6cf65':fx.kind==='restore'?'#edc75b':'#82b7ef';
+    ctx.save();ctx.shadowBlur=0;
+    if(fx.kind==='heal'){
+      for(let i=0;i<3;i++){
+        const px=x+(i-1)*21,py=Math.round(y-28-progress*36-i%2*9);
+        ctx.globalAlpha=fade*(i===1?.9:.55);ctx.fillStyle=color;
+        ctx.fillRect(px-8,py-3,16,6);ctx.fillRect(px-3,py-8,6,16);
+        ctx.fillStyle='#eaffef';ctx.fillRect(px-2,py-6,2,5);ctx.fillRect(px-6,py-2,5,2);
+      }
+    }else if(fx.kind==='shield'){
+      // Four square corner brackets echo the plain shield without a blurry extra box.
+      ctx.fillStyle=color;ctx.globalAlpha=fade*.6;
+      for(const dx of [-1,1])for(const dy of [-1,1]){
+        const px=x+dx*radius,py=y+dy*radius;
+        ctx.fillRect(px-(dx>0?12:0),py-2,12,4);ctx.fillRect(px-2,py-(dy>0?12:0),4,12);
+      }
+    }else{
+      // The full-energy ray vocabulary, with distinct patterns for each reward.
+      ctx.shadowColor=color;ctx.shadowBlur=6;
+      for(let i=0;i<8;i++){
+        const [dx,dy]=directions[i];
+        ctx.globalAlpha=fade*(i%2?.5:.85);
+        const reach=radius+(fx.kind==='restore'?12:0);
+        drawEnergyPixelRay(ctx,x+dx*reach,y+dy*reach,dx,dy,color,fx.kind==='restore'?1.5:1);
+        if(fx.kind==='electric'&&i%2===0){
+          ctx.shadowBlur=0;drawPixelBolt(ctx,x+dx*reach,y+dy*reach,16,'#fff1ac');ctx.shadowBlur=6;
+        }
+      }
+      if(fx.kind==='energy'||fx.kind==='restore'){
+        ctx.shadowBlur=0;ctx.globalAlpha=fade*.8;
+        drawCompassStar(ctx,x,y-36-Math.floor(progress*6)*3,fx.kind==='restore'?24:16,color);
+        ctx.fillStyle='#fff4dc';ctx.fillRect(x-2,y-38-Math.floor(progress*6)*3,4,4);
+      }
+      if(fx.kind==='speed'){
+        ctx.shadowBlur=0;ctx.fillStyle='#d7fff4';ctx.globalAlpha=fade*.65;
+        for(let i=0;i<3;i++){const px=x-12+i*12,py=y+24+Math.floor(progress*7)*3;ctx.fillRect(px-3,py,6,12-i*3);}
+      }
+    }
+    ctx.restore();
   }
 }
 
@@ -320,25 +1529,10 @@ function drawPixelDiamond(ctx: CanvasRenderingContext2D, cx: number, cy: number,
 
 // 8-pointed compass/north star — 4 long cardinal tips, 4 shorter diagonal tips
 function drawCompassStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, sz: number, color: string) {
-  const outerR = sz / 2;       // long cardinal tips (N/E/S/W)
-  const diagR = sz * 0.28;    // shorter diagonal tips
-  const innerR = sz * 0.045;   // tight concave valleys between tips
-  ctx.beginPath();
-  for (let i = 0; i < 8; i++) {
-    const tipAngle = (i * Math.PI / 4) - Math.PI / 2; // start from top (N)
-    const tipR = i % 2 === 0 ? outerR : diagR;
-    const tx = cx + Math.cos(tipAngle) * tipR;
-    const ty = cy + Math.sin(tipAngle) * tipR;
-    const valAngle = tipAngle + Math.PI / 8;
-    const vx = cx + Math.cos(valAngle) * innerR;
-    const vy = cy + Math.sin(valAngle) * innerR;
-    if (i === 0) ctx.moveTo(tx, ty);
-    else ctx.lineTo(tx, ty);
-    ctx.lineTo(vx, vy);
-  }
-  ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
+  const u=Math.max(2,Math.round(sz/12));cx=Math.round(cx);cy=Math.round(cy);ctx.fillStyle=color;
+  ctx.fillRect(cx-u,cy-u*5,u*2,u*10);ctx.fillRect(cx-u*5,cy-u,u*10,u*2);
+  ctx.fillRect(cx-u*2,cy-u*2,u*4,u*4);
+  for(const dx of [-1,1])for(const dy of [-1,1])ctx.fillRect(cx+dx*u*3-1,cy+dy*u*3-1,2,2);
 }
 
 // Pixel lightning bolt centered at (cx,cy) fitting inside `sz` — classic ⚡ shape
@@ -369,31 +1563,110 @@ function drawPixelBolt(ctx: CanvasRenderingContext2D, cx: number, cy: number, sz
 
 
 function drawRubyGem(ctx: CanvasRenderingContext2D, sx: number, sy: number, tickN: number) {
-  const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.06));
-  const sz = Math.floor(TILE_SIZE * 0.68);
-  const h = sz / 2;
-  const pad = Math.max(2, Math.floor(sz * 0.14));
+  ctx.save();ctx.translate(Math.round(sx),Math.round(sy));const pulse=.7+.3*Math.abs(Math.sin(tickN*.06));
+  ctx.shadowColor=RUBY_COLOR;ctx.shadowBlur=14*pulse;ctx.fillStyle=RUBY_COLOR;ctx.fillRect(-18,-18,36,36);
+  ctx.shadowBlur=0;ctx.fillStyle='#780d30';ctx.fillRect(-14,-14,28,28);
+  ctx.shadowColor='#ff6e99';ctx.shadowBlur=5;drawCompassStar(ctx,0,0,24,'#ff88aa');
+  ctx.shadowBlur=0;ctx.fillStyle='#ffe6eb';ctx.fillRect(-2,-2,4,4);ctx.fillStyle='#ffb6ca';ctx.fillRect(-12,-12,3,3);
+  for(let i=0;i<3;i++){
+    const life=((tickN+i*23)%72)/72;ctx.globalAlpha=(1-life)*.45;ctx.fillStyle='#ff88aa';ctx.shadowBlur=4;
+    ctx.fillRect((i%2?1:-1)*23-1,12-Math.floor(life*12)*3,3,3);
+  }
+  ctx.restore();
+}
 
-  // Outer glow box
-  ctx.shadowColor = RUBY_COLOR;
-  ctx.shadowBlur = Math.floor(20 * pulse);
-  ctx.fillStyle = RUBY_COLOR;
-  ctx.fillRect(sx - h, sy - h, sz, sz);
+function drawBombDevice(ctx: CanvasRenderingContext2D, x: number, y: number, powered: boolean, tick: number) {
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));
+  const base=powered?'#ffcc22':'#ff8833',light=powered?'#fff1ae':'#ffd0a6',dark=powered?'#6b4b13':'#713511';
+  ctx.shadowColor=base;ctx.shadowBlur=12;ctx.fillStyle=base;ctx.fillRect(-18,-15,36,33);
+  ctx.shadowBlur=0;ctx.fillStyle=dark;ctx.fillRect(-14,-11,28,25);
+  ctx.shadowColor=base;ctx.shadowBlur=5;drawCompassStar(ctx,0,1,20,base);
+  ctx.shadowBlur=0;ctx.fillStyle=light;ctx.fillRect(-2,-1,4,4);ctx.fillRect(-12,-9,3,3);
+  ctx.fillStyle='#bb9961';ctx.fillRect(3,-23,4,8);ctx.fillRect(7,-27,8,4);
+  ctx.globalAlpha=.6+.4*Math.abs(Math.sin(tick*.23));ctx.shadowColor=base;ctx.shadowBlur=8;
+  drawCompassStar(ctx,15,-27,12,light);ctx.fillStyle='#ffffff';ctx.fillRect(14,-28,2,2);ctx.restore();
+}
 
-  // Inner darker panel
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#880033';
-  ctx.fillRect(sx - h + pad, sy - h + pad, sz - pad * 2, sz - pad * 2);
+function drawBombBlast(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, ticks: number) {
+  ctx.save();const fade=Math.min(1,ticks/28),progress=1-fade,r=Math.max(0,radius);
+  ctx.shadowColor='#ff6a25';ctx.shadowBlur=30;ctx.globalAlpha=fade*.8;ctx.strokeStyle='#ff9c38';ctx.lineWidth=18;ctx.strokeRect(x-r,y-r,r*2,r*2);
+  ctx.shadowBlur=10;ctx.globalAlpha=fade;ctx.strokeStyle='#fff1b6';ctx.lineWidth=5;ctx.strokeRect(x-r,y-r,r*2,r*2);
+  const inner=r*.65;ctx.globalAlpha=fade*.6;ctx.strokeStyle='#ffce53';ctx.lineWidth=6;ctx.strokeRect(x-inner,y-inner,inner*2,inner*2);
+  ctx.shadowBlur=0;ctx.globalAlpha=fade*.14;ctx.fillStyle='#ff6a25';ctx.fillRect(x-r,y-r,r*2,r*2);
+  ctx.shadowColor='#ff8833';ctx.shadowBlur=10;
+  for(let i=0;i<12;i++){
+    const angle=i*Math.PI/6,reach=r*(.6+progress*.4),px=x+Math.cos(angle)*reach,py=y+Math.sin(angle)*reach;
+    const height=9+Math.sin(progress*Math.PI)*(12+i%3*6);ctx.globalAlpha=fade*.8;ctx.fillStyle=i%2?'#ff833d':'#ffcf6c';
+    ctx.fillRect(Math.round(px)-4,Math.round(py-height),8,height);ctx.fillStyle='#fff2c7';ctx.fillRect(Math.round(px)-1,Math.round(py-height)+3,3,Math.max(3,height*.45));
+  }
+  ctx.globalAlpha=fade*.75;drawCompassStar(ctx,x,y,66+progress*54,'#ffb744');ctx.globalAlpha=fade*fade*.9;drawCompassStar(ctx,x,y,36,'#fff2c7');ctx.restore();
+}
 
-  // Blocky star inside
-  ctx.shadowColor = RUBY_COLOR;
-  ctx.shadowBlur = Math.floor(14 * pulse);
-  drawCompassStar(ctx, sx, sy, sz - pad * 2, '#ff88aa');
-  ctx.shadowBlur = 0;
+function drawResourcePickup(ctx: CanvasRenderingContext2D, x: number, y: number, health: boolean, tick: number) {
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));const pulse=.7+.3*Math.abs(Math.sin(tick*.07));
+  ctx.shadowColor=health?'#ff4466':'#66aaff';ctx.shadowBlur=10*pulse;
+  if(health){
+    ctx.fillStyle='#ff4466';ctx.fillRect(-15,-6,30,12);ctx.fillRect(-6,-15,12,30);
+    ctx.shadowBlur=0;ctx.fillStyle='#bd3052';ctx.fillRect(-12,-3,24,6);ctx.fillRect(-3,-12,6,24);
+    ctx.fillStyle='#ffb4c8';ctx.fillRect(-3,-11,3,6);
+  }else{
+    drawPixelBolt(ctx,0,0,32,'#66aaff');ctx.shadowBlur=0;drawPixelBolt(ctx,0,0,24,'#2e65a6');
+    ctx.fillStyle='#cde5ff';ctx.fillRect(3,-12,3,6);
+  }
+  ctx.shadowBlur=5;ctx.fillStyle=health?'#fff0f3':'#e6f3ff';ctx.fillRect(-2,-2,4,4);
+  for(let i=0;i<2;i++){
+    const life=((tick+i*32)%64)/64;ctx.globalAlpha=(1-life)*.45;
+    ctx.fillRect((i?1:-1)*19-1,10-Math.floor(life*8)*3,3,3);
+  }
+  ctx.restore();
+}
 
-  // Highlight corner
-  ctx.fillStyle = '#ffaabb';
-  ctx.fillRect(sx - h + pad + 1, sy - h + pad + 1, Math.floor(pad * 0.8), Math.floor(pad * 0.8));
+function drawMobBody(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, color: string, flash: boolean) {
+  ctx.save();ctx.shadowColor=color;ctx.shadowBlur=8;ctx.fillStyle=color;ctx.fillRect(x,y,width,height);
+  if(!flash){const pad=Math.max(2,Math.floor(Math.min(width,height)*.12));ctx.shadowBlur=0;ctx.fillStyle='#00000044';ctx.fillRect(x+pad,y+pad,width-pad*2,height-pad*2);}
+  ctx.restore();
+}
+
+function drawMobBrackets(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, alpha: number, width=3) {
+  ctx.save();ctx.shadowColor=color;ctx.shadowBlur=12;ctx.strokeStyle=color;ctx.globalAlpha*=alpha;ctx.lineWidth=width;ctx.strokeRect(x-radius,y-radius,radius*2,radius*2);ctx.restore();
+}
+
+function drawMobIceShield(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, tick: number) {
+  ctx.save();ctx.translate(x,y);const pulse=.6+.3*Math.abs(Math.sin(tick*.15));ctx.beginPath();
+  for(let i=0;i<6;i++){const a=i*Math.PI/3-Math.PI/2,px=Math.cos(a)*radius,py=Math.sin(a)*radius;if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);}ctx.closePath();
+  ctx.globalAlpha=.35+.2*pulse;ctx.shadowColor='#aaeeff';ctx.shadowBlur=12;ctx.strokeStyle='#aaeeff';ctx.lineWidth=8;ctx.stroke();
+  ctx.globalAlpha=.65+.3*pulse;ctx.shadowBlur=6;ctx.strokeStyle='#ffffff';ctx.lineWidth=4;ctx.stroke();
+  for(let i=0;i<4;i++){const a=tick*.03+i*Math.PI/2;ctx.globalAlpha=.7;ctx.fillStyle='#ffffff';ctx.fillRect(Math.cos(a)*(radius+4)-1.5,Math.sin(a)*(radius+4)-1.5,3,3);}
+  ctx.restore();
+}
+
+function drawMobAttack(ctx: CanvasRenderingContext2D, type: string, x: number, y: number, targetX: number, targetY: number, ticks: number, color: string) {
+  if(type==='sniper'||type==='healer'||type==='shielder'||type==='bomber')return;
+  ctx.save();ctx.shadowColor=color;ctx.shadowBlur=10;
+  const fade=Math.min(1,ticks/14),progress=1-fade,dx=targetX-x,dy=targetY-y,len=Math.hypot(dx,dy)||1;
+  if(type==='ghost'){
+    const px=x+dx*progress,py=y+dy*progress;ctx.globalAlpha=.8;ctx.strokeStyle=color;ctx.lineWidth=7;ctx.lineCap='square';
+    ctx.beginPath();ctx.moveTo(px-dx/len*18,py-dy/len*18);ctx.lineTo(px,py);ctx.stroke();ctx.shadowBlur=0;ctx.strokeStyle='#eee4ff';ctx.lineWidth=3;ctx.stroke();
+  }else if(type==='armored'||type==='splitter'){
+    const px=x+dx*progress,py=y+dy*progress;ctx.globalAlpha=.9;ctx.fillStyle=color;ctx.fillRect(px-9,py-9,18,18);
+    ctx.shadowBlur=0;ctx.fillStyle='#00000044';ctx.fillRect(px-6,py-6,12,12);ctx.fillStyle='#ffffff';ctx.fillRect(px-3,py-3,6,6);
+  }else if(type==='normal'||type==='mini_splitter'){
+    const reach=18+progress*30,angle=Math.atan2(dy,dx);ctx.globalAlpha=fade*.85;
+    for(let i=-2;i<=2;i++){const a=angle+i*.24,px=x+Math.cos(a)*reach,py=y+Math.sin(a)*reach;ctx.fillStyle=color;ctx.fillRect(Math.round(px)-3,Math.round(py)-3,6,6);}
+  }else{
+    ctx.globalAlpha=fade*.75;ctx.strokeStyle=color;ctx.lineWidth=10;ctx.lineCap='square';ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(targetX,targetY);ctx.stroke();
+    ctx.shadowBlur=0;ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBossHealthBar(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, hp: number, maxHp: number, baseColor: string) {
+  ctx.save();ctx.shadowBlur=0;x=Math.round(x);y=Math.round(y);width=Math.round(width);
+  const pct=Math.max(0,Math.min(1,hp/Math.max(1,maxHp))),color=pct>.5?baseColor:pct>.25?'#ff983d':'#ffe17b';
+  ctx.fillStyle='#0a101b';ctx.fillRect(x-1,y-1,width+2,7);
+  ctx.strokeStyle=baseColor+'88';ctx.lineWidth=1;ctx.strokeRect(x-.5,y-.5,width+1,6);
+  ctx.shadowColor=color;ctx.shadowBlur=4;ctx.fillStyle=color;ctx.fillRect(x,y,Math.floor(width*pct),5);
+  ctx.restore();
 }
 
 function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createInitialState>['enemies'][0], sx: number, sy: number, tickN: number, shielded = false) {
@@ -402,14 +1675,23 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   const half = size / 2;
   const pad = Math.max(2, Math.floor(size * 0.12));
   const flash = e.flashTicks > 0;
-  // Attack animation: scale up slightly when about to attack (last 15 ticks of cooldown)
-  const attacking = e.attackTimer > 0 && e.attackTimer <= 15 && !e.exploding;
-  const attackScale = attacking ? (1 + 0.15 * (1 - e.attackTimer / 15)) : 1;
+  // Custom casters animate their real windup, rather than an unrelated cooldown.
+  const castProgress = e.type === 'splitter_queen' || e.type === 'queen_echo'
+    ? (e.windupTicks > 0 ? 1 - e.windupTicks / QUEEN_WINDUP_TICKS : 0)
+    : e.type === 'thorn_weaver'
+      ? ((e.thorn?.windupTicks ?? 0) > 0 ? 1 - e.thorn!.windupTicks / THORN_WINDUP : 0)
+      : e.type === 'blind_prayer'
+        ? ((e.prayer?.escapeWindupTicks ?? 0) > 0 ? 1 - e.prayer!.escapeWindupTicks / PRAYER_ESCAPE_WINDUP : 0)
+        : e.type === 'frost_warden'
+          ? (e.windupTicks > 0 && e.windupTicks <= 30 ? 1 - e.windupTicks / 30 : 0)
+          : e.attackTimer > 0 && e.attackTimer <= 15 && !e.exploding ? 1 - e.attackTimer / 15 : 0;
+  const attacking = castProgress > 0;
+  const attackScale = 1 + 0.15 * castProgress;
   // Bomber explode animation: gradually swell up as fuse ticks down from 60
   const explodeScale = (e.type === 'bomber' && e.exploding) ? (1 + 0.5 * (1 - Math.max(0, e.explodeTick) / 60)) : 1;
   // Attack-impact animation: punchy bloat-then-squash the instant a hit actually lands (driven by shootTicks,
   // the same timer that drives the per-type attack-projectile visuals), decaying back to normal size.
-  const impactMax = (e.type === 'sniper' || e.type === 'fiery_king') ? 22 : 14;
+  const impactMax = e.type === 'sea_chanter' ? 24 : e.type === 'splitter_queen' || e.type === 'queen_echo' || e.type === 'frost_warden' ? 20 : e.type === 'devourer' ? 16 : (e.type === 'sniper' || e.type === 'fiery_king') ? 22 : 14;
   const impactT = e.shootTicks > 0 ? 1 - e.shootTicks / impactMax : 1;
   const impactScale = e.shootTicks > 0 ? 1 + 0.35 * Math.exp(-impactT * 4) * Math.cos(impactT * Math.PI * 2.2) : 1;
   const drawSz = Math.floor(size * attackScale * explodeScale * impactScale);
@@ -417,7 +1699,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   const color = flash ? '#ffffff' : cfg.color;
 
   // Heal aura — pink glow ring pulsing outward when a healer's pulse just landed on this enemy
-  if (e.healFlashTicks > 0) {
+  if (e.healFlashTicks > 0 && (isBossType(e.type)||e.type==='queen_echo')) {
     const hProgress = e.healFlashTicks / 20; // 1 -> 0
     const auraSz = drawSz + 8 + 16 * (1 - hProgress);
     const auraH = auraSz / 2;
@@ -432,10 +1714,298 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   }
 
   // Glow — brightens during attack wind-up
+  if(e.healFlashTicks>0&&!isBossType(e.type)&&e.type!=='queen_echo'){
+    const fade=e.healFlashTicks/20;drawMobBrackets(ctx,sx,sy,half+4+(1-fade)*8,'#ff77dd',fade*.85,3);
+  }
   ctx.shadowColor = e.exploding ? '#ff4400' : color;
   ctx.shadowBlur = e.exploding ? (14 + 6 * Math.abs(Math.sin(tickN * 0.3)))
     : attacking ? (16 + 8 * (1 - e.attackTimer / 15))
       : 8;
+
+  if(isBossType(e.type) && e.type !== 'storm_reaper'){
+    const cosmicSize=size*(e.type==='devourer'?1+e.chargeDirX*.06:1);
+    ctx.save();if(isSeaChanterDiving(e))ctx.globalAlpha=.34;
+    drawCosmicBossAccents(ctx,e.type,sx,sy,cosmicSize,tickN);ctx.restore();
+  }
+
+  if (e.type === 'thorn_weaver') {
+    ctx.save(); ctx.translate(Math.round(sx), Math.round(sy));
+    const spriteScale = Math.floor(TILE_SIZE * cfg.bodyFraction) / 60 * attackScale * impactScale;
+    ctx.scale(spriteScale, spriteScale);
+    const casting = (e.thorn?.windupTicks ?? 0) > 0;
+    const erupting = e.shootTicks > 0;
+    const leaf = flash ? '#ffffff' : '#88bc45';
+    const bark = flash ? '#eeeecc' : '#565033';
+    const sway = Math.round(Math.sin(tickN * 0.045) * 2);
+    ctx.save(); ctx.translate(sway, 0);
+    ctx.shadowBlur = 0;
+    // Crooked root tendrils, deliberately unequal and open rather than broad side fans.
+    ctx.fillStyle = '#526e32';
+    ctx.fillRect(-37, -6, 16, 6); ctx.fillRect(-42, -19, 6, 18);
+    ctx.fillRect(-38, -24, 13, 5); ctx.fillRect(-29, -20, 4, 8);
+    ctx.fillStyle = bark;
+    ctx.fillRect(21, 7, 14, 6); ctx.fillRect(31, -6, 6, 17);
+    ctx.fillRect(34, -11, 13, 5); ctx.fillRect(43, -21, 5, 13);
+    ctx.fillStyle = leaf; ctx.fillRect(-45, -14, 5, 6); ctx.fillRect(44, -27, 5, 9);
+    ctx.fillRect(49, -26, 6, 4);
+    ctx.fillStyle = '#d8ef9b'; ctx.fillRect(-42, -25, 4, 4); ctx.fillRect(35, 2, 4, 3);
+    // Saturated green square rim surrounding a single rectangular bark inset.
+    ctx.shadowColor = '#718b35'; ctx.shadowBlur = casting ? 16 : 10;
+    ctx.fillStyle = flash ? '#ffffff' : '#718b35'; ctx.fillRect(-30, -30, 60, 60); ctx.shadowBlur = 0;
+    ctx.fillStyle = bark; ctx.fillRect(-25, -25, 50, 50);
+    // Brown grain stays inside the rectangle instead of breaking its outline into green ribs.
+    ctx.fillStyle = '#7d7543'; ctx.fillRect(-15, -17, 3, 30); ctx.fillRect(13, -19, 3, 34);
+    ctx.fillStyle = '#3f3c24'; ctx.fillRect(-3, -24, 4, 13); ctx.fillRect(1, 11, 4, 13);
+    // One luminous slit eye in a split seed. No paired siren eyes, mouth, or cheek markings.
+    ctx.shadowColor = '#d8ef9b'; ctx.shadowBlur = 0;
+    ctx.fillStyle = flash ? '#ffffff' : '#cfdf87';
+    ctx.fillRect(-8, erupting ? -12 : -10, 17, erupting ? 21 : 17);
+    ctx.shadowBlur = 0; ctx.fillStyle = '#14261f';
+    ctx.fillRect(casting ? -1 : -4, erupting ? -10 : -8, casting ? 4 : 9, erupting ? 17 : 13);
+    // Two rows of three small rectangular eyes surround the central eye.
+    for (const eyeY of [-19, 15]) {
+      for (const eyeX of [-16, -3, 10]) {
+        ctx.shadowColor = '#d8ef9b'; ctx.shadowBlur = casting ? 6 : 3;
+        ctx.fillStyle = flash ? '#ffffff' : '#cfdf87'; ctx.fillRect(eyeX, eyeY + (casting ? 2 : 0), 7, casting ? 2 : 5);
+        ctx.shadowBlur = 0; ctx.fillStyle = '#14261f'; ctx.fillRect(eyeX + 3, eyeY + (casting ? 2 : 1), 2, casting ? 2 : 3);
+      }
+    }
+    // Asymmetric leafy hood grows up and over the pod, like a crooked seed husk.
+    ctx.fillStyle = leaf; ctx.beginPath();
+    ctx.moveTo(-29, -6); ctx.lineTo(-35, -6); ctx.lineTo(-35, -24); ctx.lineTo(-40, -24);
+    ctx.lineTo(-40, -33); ctx.lineTo(-30, -33); ctx.lineTo(-30, -40); ctx.lineTo(-19, -40);
+    ctx.lineTo(-19, -47); ctx.lineTo(-7, -47); ctx.lineTo(-7, -42); ctx.lineTo(6, -42);
+    ctx.lineTo(6, -35); ctx.lineTo(16, -35); ctx.lineTo(16, -29); ctx.lineTo(2, -29);
+    ctx.lineTo(2, -33); ctx.lineTo(-10, -33); ctx.lineTo(-10, -29); ctx.lineTo(-20, -29);
+    ctx.lineTo(-20, -20); ctx.lineTo(-26, -20); ctx.lineTo(-26, -6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#c4dd7a'; ctx.fillRect(-28, -34, 13, 3); ctx.fillRect(-18, -39, 12, 3);
+    ctx.fillStyle = '#537d35'; ctx.fillRect(-31, -23, 4, 12); ctx.fillRect(-21, -30, 9, 4);
+    // A single off-centre flower on a bent stalk replaces the three-pronged crown.
+    ctx.fillStyle = '#526e32'; ctx.fillRect(11, -40, 5, 14); ctx.fillRect(13, -44, 13, 5);
+    const bloom = casting || erupting ? 3 : 0;
+    ctx.fillStyle = casting ? '#e99ab9' : '#bb688b';
+    ctx.fillRect(19 - bloom, -52, 10 + bloom * 2, 14); ctx.fillRect(15, -48 - bloom, 18, 7 + bloom * 2);
+    ctx.fillStyle = '#f0c9bd'; ctx.fillRect(22, -47, 5, 5);
+    // Three splayed, crooked roots continue the pod contour into the ground.
+    ctx.fillStyle = bark;
+    ctx.fillRect(-10, 24, 6, 12); ctx.fillRect(-22, 32, 15, 5); ctx.fillRect(-25, 35, 7, 4);
+    ctx.fillRect(3, 27, 6, 12); ctx.fillRect(7, 36, 10, 5);
+    ctx.fillRect(14, 20, 5, 11); ctx.fillRect(17, 28, 12, 5); ctx.fillRect(26, 25, 5, 6);
+    ctx.fillStyle = '#88bc45'; ctx.fillRect(-25, 34, 6, 3); ctx.fillRect(13, 38, 5, 3);
+    ctx.restore();
+    // Falling leaf fragments and pink pollen retain his original woodland atmosphere.
+    for (let i = 0; i < 18; i++) {
+      const life = ((tickN + i * 17) % 80) / 80, x = Math.sin(i * 2.4 + life) * 53;
+      ctx.globalAlpha = Math.sin(life * Math.PI) * 0.7; ctx.fillStyle = i % 3 ? leaf : '#dda3bb';
+      let px = Math.round(x / 3) * 3;
+      const py = Math.round((25 - life * 80) / 3) * 3;
+      if (Math.abs(px) < 32 && py > -32 && py < 28) px = (px < 0 ? -1 : 1) * (32 + i % 4 * 3);
+      ctx.fillRect(px, py, 6, 3); if (i % 3) ctx.fillRect(px + 3, py - 3, 3, 3);
+    }
+    // Small rising pollen motes add density without obscuring the eyes.
+    for (let i = 0; i < 6; i++) {
+      const life = ((tickN + i * 23) % 100) / 100;
+      const px = (i % 2 ? 1 : -1) * (35 + i % 4 * 5);
+      ctx.globalAlpha = Math.sin(life * Math.PI) * 0.6;
+      ctx.fillStyle = i % 3 ? '#b5c67b' : '#d99bb3';
+      ctx.fillRect(px, Math.round((38 - life * 85) / 3) * 3, 2, 2);
+    }
+    ctx.globalAlpha=1;drawBossHealthBar(ctx,-28,-66,56,e.hp,e.maxHp,leaf);
+    ctx.restore(); return;
+  }
+
+  if (e.type === 'sea_chanter') {
+    ctx.save();
+    const diving = isSeaChanterDiving(e);
+    const preparing = !diving && e.hp <= e.maxHp * 0.5;
+    const singing = !diving && (e.sea?.songWindupTicks ?? 0) > 0;
+    const water = flash ? '#ffffff' : '#3998d6';
+    const pearl = flash ? '#ffffff' : '#d6eeff';
+    const bob = diving ? 3 : Math.round(Math.sin(tickN * 0.05) * 2);
+    ctx.translate(Math.round(sx), Math.round(sy) + bob);
+    if (!diving) ctx.scale(impactScale, impactScale);
+    // A faint stepped wake remains visible while the submerged alien swims away.
+    ctx.shadowBlur = 0; ctx.strokeStyle = '#6bb8e8'; ctx.lineWidth = 2;
+    const moveX = e.targetTileX - e.tileX, moveY = e.targetTileY - e.tileY;
+    for (let i = 0; i < (diving ? 5 : 1); i++) {
+      ctx.globalAlpha = diving ? 0.24 - i * 0.035 : 0.13;
+      const spread = 28 + i * 7 + Math.floor(tickN / 8) % 3 * 2;
+      ctx.strokeRect(-spread - moveX * i * 8, -15 - moveY * i * 8, spread * 2, 32);
+    }
+    ctx.globalAlpha = diving ? 0.28 : 1;
+    if (!diving) {
+      // Fan-like side fins: violet edges, aqua membranes, and crisp pearl fin rays.
+      ctx.fillStyle = '#5264a0';
+      for (const side of [-1, 1]) {
+        ctx.fillRect(side * 27 - 5, -23, 10, 36);
+        ctx.fillRect(side * 35 - 4, -28, 8, 31);
+        ctx.fillRect(side * 41 - 3, -31, 6, 21);
+        ctx.fillStyle = water;
+        ctx.fillRect(side * 27 - 3, -21, 6, 31);
+        ctx.fillRect(side * 35 - 2, -25, 4, 24);
+        ctx.fillStyle = '#a8d8ff';
+        ctx.fillRect(side * 30 - 1, -18, 2, 16);
+        ctx.fillStyle = '#5264a0';
+      }
+      // A fish-tail fluke replaces feet, keeping the silhouette aquatic and alien.
+      ctx.fillStyle = '#5264a0'; ctx.fillRect(-8, 20, 16, 12);
+      ctx.fillRect(-20, 29, 16, 7); ctx.fillRect(4, 29, 16, 7);
+      ctx.fillStyle = water; ctx.fillRect(-5, 20, 10, 12);
+      ctx.fillRect(-17, 28, 12, 5); ctx.fillRect(5, 28, 12, 5);
+      // Fin crest and one broad shell, in the same block construction as other bosses.
+      ctx.fillStyle = '#5264a0'; ctx.fillRect(-10, -35, 20, 12);
+      ctx.fillRect(-5, -41, 10, 10);
+      ctx.fillStyle = water; ctx.fillRect(-2, -38, 4, 13);
+      ctx.shadowColor = water; ctx.shadowBlur = diving ? 0 : 12;
+      ctx.fillStyle = water; ctx.fillRect(-25, -24, 50, 48);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = flash ? '#eeeeff' : '#123f72'; ctx.fillRect(-21, -20, 42, 40);
+      ctx.fillStyle = flash ? '#ffffff' : '#2d719e'; ctx.fillRect(-17, -14, 34, 29);
+      // Original symmetrical pearl eyes and short lashes.
+      ctx.fillStyle = '#0b294d'; ctx.fillRect(-18, -10, 14, 4); ctx.fillRect(4, -10, 14, 4);
+      ctx.fillRect(-20, -13, 3, 5); ctx.fillRect(17, -13, 3, 5);
+      ctx.fillStyle = pearl;
+      ctx.fillRect(-16, -8, 11, 6); ctx.fillRect(5, -8, 11, 6);
+      ctx.fillStyle = singing || e.shootTicks > 0 ? '#ff435d' : '#0b294d';
+      ctx.fillRect(-10, -8, 3, 6); ctx.fillRect(7, -8, 3, 6);
+      // Original gills, pearl scales and small singing mouth.
+      ctx.fillStyle = '#123f72';
+      for (const side of [-1, 1]) for (let i = 0; i < 3; i++) ctx.fillRect(side * 15 - 2, 2 + i * 4, 4, 2);
+      ctx.fillStyle = singing ? '#e9f8ff' : '#a8d8ff'; ctx.fillRect(singing ? -4 : -2, 2, singing ? 8 : 4, singing ? 8 : 4);
+      ctx.fillRect(-7, 10, 3, 3); ctx.fillRect(4, 10, 3, 3); ctx.fillRect(-2, 15, 4, 3);
+    } else {
+      // Underwater she turns away: a narrow fish-back silhouette with folded fins,
+      // no face, and a dorsal ridge. Cardinal rotation follows the swimming direction.
+      ctx.save();
+      const angle = moveX || moveY ? Math.atan2(moveY, moveX) + Math.PI / 2 : 0;
+      ctx.rotate(angle);
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = '#275a91'; ctx.fillRect(-16, -20, 32, 38);
+      ctx.fillRect(-10, -26, 20, 8);
+      ctx.fillStyle = '#123f72'; ctx.fillRect(-12, -19, 24, 34);
+      ctx.fillStyle = '#5264a0';
+      ctx.fillRect(-26, -7, 10, 16); ctx.fillRect(16, -7, 10, 16);
+      ctx.fillStyle = '#3998d6';
+      ctx.fillRect(-23, -5, 7, 9); ctx.fillRect(16, -5, 7, 9);
+      ctx.fillRect(-2, -20, 4, 31); // dorsal ridge seen from above
+      ctx.fillRect(-6, 17, 12, 12);
+      ctx.fillRect(-16, 26, 12, 6); ctx.fillRect(4, 26, 12, 6);
+      ctx.fillStyle = '#a8d8ff';
+      for (let i = 0; i < 4; i++) ctx.fillRect(-6, -12 + i * 6, 12, 2);
+      ctx.restore();
+    }
+    // Low health bubbles and brief pixel crosses show recovery underwater.
+    if ((e.sea?.healPulseTicks ?? 0) > 0) {
+      for (let i = 0; i < 3; i++) {
+        const y = 15 - (tickN + i * 20) % 60;
+        ctx.globalAlpha = diving ? 0.4 : 0.8; ctx.fillStyle = pearl;
+        ctx.fillRect(-19 + i * 19, y, 6, 2); ctx.fillRect(-17 + i * 19, y - 2, 2, 6);
+      }
+    }
+    for (let i = 0; i < (preparing ? 18 : diving ? 16 : 12); i++) {
+      const life = ((tickN + i * 11) % 55) / 55;
+      ctx.globalAlpha = (diving ? 0.24 : 0.6) * (1 - life);
+      ctx.strokeStyle = pearl; ctx.lineWidth = 1;
+      const x = (i % 2 ? 1 : -1) * (29 + i % 5 * 5);
+      const y = Math.round((28 - life * 80) / 2) * 2;
+      const size = i % 3 === 0 ? 5 : 3;
+      if (i % 3) ctx.strokeRect(x, y, size, size);
+      else {
+        ctx.fillStyle = water; ctx.fillRect(x, y, 3, 5);
+        ctx.fillStyle = pearl; ctx.fillRect(x, y, 2, 2);
+      }
+    }
+    {
+      ctx.globalAlpha = diving ? 0.34 : 1;
+      drawBossHealthBar(ctx,-27,-51,54,e.hp,e.maxHp,water);
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (e.type === 'blind_prayer') {
+    ctx.save();
+    ctx.translate(Math.round(sx), Math.round(sy));
+    const gold = flash ? '#ffffff' : '#ffdd22';
+    const invoking = (e.prayer?.escapeWindupTicks ?? 0) > 0 || (e.prayer?.rubyCastTicks ?? 0) > 0;
+    const prayerRelease = e.shootTicks > 0;
+    const pulse = 0.65 + 0.35 * Math.abs(Math.sin(tickN * 0.055));
+    const bob = Math.round(Math.sin(tickN * 0.045) * 2);
+    ctx.translate(0, bob);
+    ctx.scale(attackScale * impactScale, attackScale * impactScale);
+    // A white expanding frame telegraphs the escape attack; golden afterimages
+    // distinguish the temporary speed burst from the normal fleeing movement.
+    if ((e.prayer?.escapeWindupTicks ?? 0) > 0) {
+      const radius = Math.round(33 + 10 * (1 - e.prayer!.escapeWindupTicks / PRAYER_ESCAPE_WINDUP));
+      ctx.strokeStyle = '#fff5aa'; ctx.lineWidth = 3; ctx.shadowBlur = 0;
+      ctx.strokeRect(-radius, -radius, radius * 2, radius * 2);
+    }
+    if ((e.prayer?.escapeBoostTicks ?? 0) > 0) {
+      const dx = e.targetTileX - e.tileX, dy = e.targetTileY - e.tileY;
+      ctx.strokeStyle = '#ffdd22'; ctx.lineWidth = 2; ctx.shadowBlur = 0;
+      for (let i = 3; i >= 1; i--) {
+        ctx.globalAlpha = (4 - i) * 0.12;
+        ctx.strokeRect(-25 - dx * i * 8, -25 - dy * i * 8, 50, 50);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+ const rim=flash ? '#ffffff' : '#d7b82d';
+ ctx.shadowBlur=0;
+ // Matching translucent corner ornaments above and below the body.
+ ctx.fillStyle='rgba(255,221,34,.24)';
+ for(const vertical of [-1,1]){
+ for(const side of [-1,1]){
+  ctx.save();ctx.scale(side,vertical);ctx.beginPath();ctx.moveTo(24,-17);ctx.lineTo(31,-17);ctx.lineTo(31,-23);ctx.lineTo(35,-23);ctx.lineTo(35,-10);ctx.lineTo(29,-10);ctx.lineTo(29,9);ctx.lineTo(24,9);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#b99b27';ctx.fillRect(30,-20,3,3);ctx.restore();
+ }
+ }
+ // Uneven translucent hanging hems give the lower edge a ghost-like silhouette.
+ ctx.shadowColor=gold;ctx.shadowBlur=3;
+ ctx.fillStyle=flash?'rgba(255,255,255,.4)':'rgba(215,184,45,.4)';
+ for(const [x,length] of [[-21,10],[-12,17],[-3,7],[6,13],[15,9]])ctx.fillRect(x,23,7,length);
+ ctx.shadowBlur=0;
+ // The body follows Chanter/Queen: one square rim and a calm, flat inner panel.
+ ctx.shadowColor=gold;ctx.shadowBlur=10*pulse;ctx.fillStyle=rim;ctx.fillRect(-25,-25,50,50);ctx.shadowBlur=0;
+ ctx.fillStyle='#393426';ctx.fillRect(-21,-21,42,42);ctx.fillStyle='#4f452e';ctx.fillRect(-17,-16,34,32);
+ // A few tiny marks inside the forehead; no separate hood or neck.
+ ctx.fillStyle='#928044';for(const x of [-11,-1,9])ctx.fillRect(x,-18,2,2);
+ // Single broad ancient cloth wrap, faintly showing three closed eyelids.
+ ctx.fillStyle='#bdaa67';ctx.fillRect(-23,-10,46,12);
+ ctx.fillStyle='rgba(0,0,0,.86)';ctx.fillRect(-27,-10,54,12);
+ // Three muted yellow pixel X eyes remain visible through the black cloth.
+ ctx.fillStyle=invoking || prayerRelease ? '#fff1a0' : 'rgba(255,221,34,.55)';
+ for(const x of [-13,0,13]){
+  for(const [dx,dy] of [[-3,-3],[1,-3],[-1,-1],[-3,1],[1,1]])ctx.fillRect(x+dx,-5+dy,2,2);
+ }
+ ctx.fillStyle='#17150f';ctx.fillRect(-29,-7,3,7);ctx.fillRect(26,-7,5,5);
+ // Three white inscriptions are the face/body signature, kept compact and readable.
+ for(let i=0;i<3;i++){ctx.save();ctx.translate((i-1)*13,invoking ? 8 : prayerRelease ? 10 : 12);ctx.scale(.78,invoking ? .95 : .78);drawPrayerGlyph(ctx,i,0,0);ctx.restore();}
+ // Short embedded horn tips, and a small floating halo with a quiet centre gap.
+ for(const side of [-1,1]){ctx.fillStyle='#15130d';ctx.fillRect(side*18-2,-30,4,7);ctx.fillStyle='#a78e21';ctx.fillRect(side*18-2,-30,2,3);}
+ ctx.save();ctx.translate(0,invoking ? -4 : 0);
+ ctx.shadowColor=gold;ctx.shadowBlur=5;ctx.fillStyle=gold;
+ ctx.fillRect(-13,-45,26,2);ctx.fillRect(-18,-42,7,2);ctx.fillRect(11,-42,7,2);
+ ctx.fillRect(-19,-40,2,5);ctx.fillRect(17,-40,2,5);ctx.fillRect(-16,-34,9,2);ctx.fillRect(1,-34,15,2);ctx.shadowBlur=0;ctx.restore();
+ // Falling holy light and rising black fragments occupy lanes outside the blindfold and scripture.
+ for(let i=0;i<16;i++){
+  const side=i%2?1:-1, life=((tickN+i*19)%90)/90, sinful=i%4===0;
+  const px=side*(34+(i*7)%23), py=Math.round((sinful?40-life*85:-47+life*88)/2)*2;
+  const size=i%3===0?3:2;
+  ctx.globalAlpha=Math.sin(life*Math.PI)*.78;
+  if(sinful){
+   ctx.shadowBlur=0;ctx.fillStyle='#75601d';ctx.fillRect(px-1,py-1,size+2,size+2);
+   ctx.fillStyle='#090806';ctx.fillRect(px,py,size,size);
+  }else{
+   ctx.shadowColor=gold;ctx.shadowBlur=3;ctx.fillStyle=gold;ctx.fillRect(px,py,size,size);
+   if(i%5===0){ctx.shadowBlur=0;ctx.fillStyle='#fff2b0';ctx.fillRect(px,py,1,1);}
+  }
+ }
+ ctx.shadowBlur=0;ctx.globalAlpha=1;
+ drawBossHealthBar(ctx,-27,-57,54,e.hp,e.maxHp,gold);
+    ctx.restore();
+    return;
+  }
 
   // ── Boss: fully custom draw ───────────────────────────────────────────
   if (e.type === 'fiery_king') {
@@ -448,7 +2018,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     const bodyColor = bFlash ? '#ffffff' : '#cc0022';
 
     // Outer crimson glow
-    ctx.shadowColor = '#ff0033'; ctx.shadowBlur = Math.floor(22 * pulse);
+    ctx.shadowColor = '#ff0033'; ctx.shadowBlur = Math.floor(18 * pulse);
 
     // Shoulder spikes (left and right) - they extend further during attack
     const spikeW = Math.max(4, Math.floor(bSz * 0.18));
@@ -468,10 +2038,10 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
 
     // Inner armor plate (dark inset)
     if (!bFlash) {
-      ctx.fillStyle = '#550011';
+      ctx.fillStyle = '#4d0d1a';
       ctx.fillRect(sx - bH + bPad, sy - bH + bPad, bSz - bPad * 2, bSz - bPad * 2);
       // Gold cross/X armor detail
-      ctx.fillStyle = '#ffcc0088';
+      ctx.fillStyle = '#ffcc0044';
       const cx = bSz - bPad * 2, gH = Math.max(1, Math.floor(bSz * 0.07));
       ctx.fillRect(sx - bH + bPad, sy - Math.floor(gH / 2), cx, gH); // horizontal bar
       ctx.fillRect(sx - Math.floor(gH / 2), sy - bH + bPad, gH, cx); // vertical bar
@@ -541,19 +2111,27 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       }
     }
 
-    // HP bar above boss
-    const barW = bSz + 10;
-    const barH = 4;
-    const barX = sx - Math.floor(barW / 2);
-    const barY = sy - bH - 16;
-    ctx.fillStyle = '#440000';
-    ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle = hpPct > 0.5 ? '#ff2222' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
-    ctx.fillRect(barX, barY, Math.floor(barW * hpPct), barH);
-    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
-    ctx.strokeRect(barX, barY, barW, barH);
+    // Three compact pixel flames decorate the lower armor without changing his silhouette.
+    if (!bFlash) {
+      const flameBase = sy + bH - bPad - 4;
+      const flameWidth = Math.max(7, Math.floor(bSz * .13));
+      for (let i = 0; i < 3; i++) {
+        const fx = sx + Math.round((i - 1) * bSz * .23);
+        const height = Math.max(8, Math.floor(bSz * (i === 1 ? .20 : .14)) + Math.round(Math.sin(tickN * .08 + i) * 1));
+        const lean = i === 1 ? 1 : -1;
+        ctx.shadowBlur = 0; ctx.fillStyle = '#b92d0b';
+        ctx.fillRect(fx - Math.floor(flameWidth / 2), flameBase - 4, flameWidth, 4);
+        ctx.fillRect(fx - Math.floor(flameWidth / 2) - 1, flameBase - 8, flameWidth + 2, 4);
+        ctx.fillRect(fx - Math.floor(flameWidth / 2) + 1, flameBase - height + 2, flameWidth - 2, Math.max(2, height - 7));
+        ctx.fillRect(fx + lean * 2 - 1, flameBase - height - 2, 3, 5);
+        ctx.fillStyle = '#ed6414'; ctx.fillRect(fx - 2, flameBase - 5, 4, 5);
+        ctx.fillRect(fx - 1, flameBase - 8, 2, 4);
+      }
+    }
 
-    // Ground-fire glow — a warm pulsing wash beneath him, like he's standing over embers
+    // HP bar above boss
+    drawBossHealthBar(ctx,sx-bSz/2-5,sy-bH-16,bSz+10,e.hp,e.maxHp,'#ff334c');
+
     const groundPulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.08));
     ctx.shadowColor = '#ff4400'; ctx.shadowBlur = Math.floor(20 * groundPulse);
     ctx.fillStyle = `rgba(255,68,0,${0.25 * groundPulse})`;
@@ -565,7 +2143,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     const auraFlicker = 0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.5) * Math.sin(tickN * 0.23 + 1));
     const fAuraR = bH + 8 + Math.floor(6 * auraFlicker);
     ctx.shadowColor = '#ff6600'; ctx.shadowBlur = Math.floor(14 * auraFlicker);
-    ctx.strokeStyle = `rgba(255,${120 + Math.floor(60 * auraFlicker)},0,${0.35 + 0.25 * auraFlicker})`;
+    ctx.strokeStyle = `rgba(255,${120 + Math.floor(60 * auraFlicker)},0,${0.2 + 0.15 * auraFlicker})`;
     ctx.lineWidth = 2;
     ctx.strokeRect(sx - fAuraR, sy - fAuraR, fAuraR * 2, fAuraR * 2);
     ctx.shadowBlur = 0;
@@ -578,7 +2156,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       const phase = (tickN + m * (cycle / emberCount) * 5.3) % cycle;
       const riseT = phase / cycle; // 0 (spawn, at his base) -> 1 (fully risen, faded out)
       const jitterX = Math.sin(tickN * 0.22 + m * 2.1) * (bH * 0.7);
-      const ex = sx + jitterX * riseT;
+      const ex = sx + (m % 2 ? 1 : -1) * (bH + 4 + m % 3 * 3) + jitterX * riseT * .15;
       const ey = sy + bH - riseT * (bSz + 22);
       const emberSz = Math.max(1, 4 - Math.floor(riseT * 2.5));
       const emberAlpha = Math.sin(riseT * Math.PI); // fades in, peaks mid-rise, fades out
@@ -586,6 +2164,17 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 10;
       ctx.fillStyle = riseT < 0.4 ? '#ffee00' : riseT < 0.7 ? '#ff8800' : '#ff3300';
       ctx.fillRect(ex - emberSz / 2, ey - emberSz / 2, emberSz, emberSz);
+    }
+    // Extra cinders travel up the sides, adding fire without obscuring his eyes and mouth.
+    for (let i = 0; i < 6; i++) {
+      const life = ((tickN + i * 17) % 95) / 95;
+      const side = i % 2 ? 1 : -1;
+      const px = sx + side * (bH + 7 + i % 3 * 4);
+      const py = sy + bH - life * (bSz + 16);
+      ctx.globalAlpha = Math.sin(life * Math.PI) * .75;
+      ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 5;
+      ctx.fillStyle = life < .45 ? '#ffbd35' : '#e84d16';
+      ctx.fillRect(Math.round(px), Math.round(py / 2) * 2, 2 + i % 2, 2 + i % 2);
     }
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
@@ -615,176 +2204,19 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   // no crown/tiara since she's a rogue, not royalty like the King/Queen) ──
   if (e.type === 'storm_reaper') {
     const rSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
-    const rH = rSz / 2;
-    const pulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.14)); // faster restless pulse than King/Queen
-    const hpPct = e.hp / e.maxHp;
-    const rFlash = e.flashTicks > 0;
-    const bodyColor = rFlash ? '#ffffff' : '#00c8e0';
-
-    // Motion streak — a couple of faded afterimage copies trailing behind her movement,
-    // selling speed the way King's embers sell heat and Queen's motes sell magic.
-    if (e.tileX !== e.targetTileX || e.tileY !== e.targetTileY) {
-      const mdx = e.targetTileX - e.tileX, mdy = e.targetTileY - e.tileY;
-      for (let i = 1; i <= 2; i++) {
-        ctx.save();
-        ctx.globalAlpha = 0.14 / i;
-        ctx.fillStyle = '#00eaff';
-        ctx.translate(sx - mdx * i * 8, sy - mdy * i * 8);
-        ctx.rotate(Math.PI / 4);
-        ctx.fillRect(-rH * 0.7, -rH * 0.7, rH * 1.4, rH * 1.4);
-        ctx.restore();
-      }
+    const modelScale = rSz / 48;
+    // Square afterimages preserve the fast hunter's movement tell.
+    if(e.tileX !== e.targetTileX || e.tileY !== e.targetTileY){
+      const dx=e.targetTileX-e.tileX, dy=e.targetTileY-e.tileY;
+      ctx.save();ctx.shadowBlur=0;ctx.fillStyle='#52ffd6';
+      for(let i=2;i>=1;i--){ctx.globalAlpha=.14/i;ctx.fillRect(sx-dx*i*8-rSz/2,sy-dy*i*8-rSz/2,rSz,rSz);}
+      ctx.restore();
     }
-
-    // Ground electric crackle — a pulsing wash beneath her, boss-scale presence like
-    // King's ground-fire glow / Queen's idle aura (she previously had no ambient ground FX)
-    const groundPulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.16));
-    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = Math.floor(18 * groundPulse);
-    ctx.fillStyle = `rgba(0,234,255,${0.22 * groundPulse})`;
-    ctx.fillRect(sx - rH - 6, sy + rH - 4, rSz + 12, 10);
-    ctx.shadowBlur = 0;
-
-    // Outer soft halo — big, always-on aura ring so she reads as boss-scale even at rest
-    ctx.save();
-    ctx.globalAlpha = 0.35 * pulse;
-    ctx.strokeStyle = '#00eaff';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = 18;
-    ctx.beginPath();
-    ctx.arc(sx, sy, rH * 1.55, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.save();ctx.translate(sx,sy);ctx.scale(modelScale,modelScale);
+    drawStormReaperModel(ctx,tickN,flash,attacking || e.shootTicks>0,Math.max(0,e.shootTicks/14));
     ctx.restore();
-
-    // Outer electric glow
-    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = Math.floor(20 * pulse);
-
-    // Blade fins — angular and sharp, unlike King's blocky spikes or Queen's rounded epaulettes
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.fillStyle = rFlash ? '#ffffff' : '#008fa8';
-    const finLen = rH * (attacking ? 1.6 : 1.25);
-    ctx.beginPath();
-    ctx.moveTo(-rH * 0.5, -rH * 0.3);
-    ctx.lineTo(-finLen, 0);
-    ctx.lineTo(-rH * 0.5, rH * 0.3);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(rH * 0.5, -rH * 0.3);
-    ctx.lineTo(finLen, 0);
-    ctx.lineTo(rH * 0.5, rH * 0.3);
-    ctx.closePath();
-    ctx.fill();
-
-    // Backswept horn spikes — her equivalent of a crown/tiara silhouette, but angular
-    ctx.fillStyle = rFlash ? '#ffffff' : '#00c8e0';
-    ctx.beginPath();
-    ctx.moveTo(-rH * 0.35, -rH * 0.55);
-    ctx.lineTo(-rH * 0.7, -rH * 1.25);
-    ctx.lineTo(-rH * 0.12, -rH * 0.6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(rH * 0.35, -rH * 0.55);
-    ctx.lineTo(rH * 0.7, -rH * 1.25);
-    ctx.lineTo(rH * 0.12, -rH * 0.6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-
-    // Diamond core body (rotated square)
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(Math.PI / 4);
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(-rH * 0.72, -rH * 0.72, rH * 1.44, rH * 1.44);
-    ctx.shadowBlur = 0;
-    if (!rFlash) {
-      ctx.fillStyle = '#003844';
-      ctx.fillRect(-rH * 0.5, -rH * 0.5, rH, rH);
-      // Cracked exoskeleton veins across the inset plate — jagged, irregular fractures
-      // instead of a straight tech-circuit diagonal, so the plate reads as carapace, not armor plating
-      ctx.strokeStyle = '#00eaff88'; ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(-rH * 0.5, -rH * 0.1); ctx.lineTo(-rH * 0.15, -rH * 0.4); ctx.lineTo(rH * 0.05, -rH * 0.5);
-      ctx.moveTo(rH * 0.5, rH * 0.15); ctx.lineTo(rH * 0.1, rH * 0.35); ctx.lineTo(-rH * 0.05, rH * 0.5);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // Alien eyes — one larger insectoid eye plus a smaller off-center companion, both
-    // plain axis-aligned blocks (matching the Devourer's "blocky square eye" convention)
-    // rather than a symmetrical mechanical slit pair
-    if (!rFlash) {
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
-      ctx.fillRect(sx - rH * 0.34, sy - rH * 0.18, rH * 0.28, rH * 0.22);
-      ctx.fillRect(sx + rH * 0.1, sy - rH * 0.06, rH * 0.15, rH * 0.13);
-      ctx.shadowBlur = 0;
-    }
-
-    // Chitinous mandible maw — uneven rectangular teeth stubs (same construction as the
-    // King's/Devourer's teeth) sitting directly on her body, the creature "face" tell she
-    // was missing, so she reads as a hunting alien rather than a geometric drone
-    if (!rFlash) {
-      const mH = rH * 0.34;
-      const mY = sy + rH * 0.14;
-      ctx.fillStyle = '#aefcff';
-      ctx.shadowColor = '#aefcff'; ctx.shadowBlur = 5;
-      for (const [tOff, tFrac, tW] of [[-0.26, 0.3, 0.08], [-0.1, 0.5, 0.06], [0.06, 0.36, 0.09], [0.22, 0.55, 0.07]] as [number, number, number][]) {
-        ctx.fillRect(sx + tOff * rSz - (tW * rSz) / 2, mY, tW * rSz, mH * tFrac);
-      }
-      ctx.shadowBlur = 0;
-    }
-
-    // Crackling electric arcs orbiting her at a distance — jagged zigzag bolts
-    const arcCount = 5;
-    for (let i = 0; i < arcCount; i++) {
-      const ang = tickN * 0.1 + (Math.PI * 2 * i) / arcCount;
-      const orbitR = rH + 12;
-      const ax = sx + Math.cos(ang) * orbitR;
-      const ay = sy + Math.sin(ang) * orbitR;
-      ctx.strokeStyle = `rgba(180,255,255,${0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.3 + i))})`;
-      ctx.lineWidth = 1.5;
-      ctx.shadowColor = '#aefcff'; ctx.shadowBlur = 6;
-      ctx.beginPath();
-      ctx.moveTo(ax - 3, ay - 3);
-      ctx.lineTo(ax + 2, ay);
-      ctx.lineTo(ax - 2, ay + 2);
-      ctx.lineTo(ax + 3, ay + 5);
-      ctx.stroke();
-    }
-
-    // Close-in body sparks — quick jittering micro-bolts crackling right off her silhouette,
-    // denser and closer than the orbiting arcs, refreshed every frame for a "live wire" feel
-    for (let i = 0; i < 4; i++) {
-      const sparkAng = Math.random() * Math.PI * 2;
-      const r1 = rH * (0.5 + Math.random() * 0.3);
-      const r2 = r1 + 4 + Math.random() * 5;
-      ctx.strokeStyle = `rgba(255,255,255,${0.4 + Math.random() * 0.4})`;
-      ctx.lineWidth = 1;
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 4;
-      ctx.beginPath();
-      ctx.moveTo(sx + Math.cos(sparkAng) * r1, sy + Math.sin(sparkAng) * r1);
-      ctx.lineTo(sx + Math.cos(sparkAng) * r2, sy + Math.sin(sparkAng) * r2);
-      ctx.stroke();
-    }
-    ctx.shadowBlur = 0;
-
-    // HP bar above her
-    const rBarW = rSz + 10;
-    const rBarH = 4;
-    const rBarX = sx - Math.floor(rBarW / 2);
-    const rBarY = sy - rH - 16;
-    ctx.fillStyle = '#003340';
-    ctx.fillRect(rBarX, rBarY, rBarW, rBarH);
-    ctx.fillStyle = hpPct > 0.5 ? '#00eaff' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
-    ctx.fillRect(rBarX, rBarY, Math.floor(rBarW * hpPct), rBarH);
-    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
-    ctx.strokeRect(rBarX, rBarY, rBarW, rBarH);
-
-    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-    return;
+    drawBossHealthBar(ctx,sx-(rSz+10)/2,sy-53*modelScale,rSz+10,e.hp,e.maxHp,'#52ffd6');
+    ctx.globalAlpha=1;ctx.shadowBlur=0;return;
   }
 
   // ── Devourer: fully custom draw (blocky, matching the rest of the game's pixel-art
@@ -792,14 +2224,14 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   if (e.type === 'devourer') {
     const stacks = e.chargeDirX; // absorb-stack counter, reused from the charger's unused field
     const stackGrowth = 1 + stacks * 0.06;
-    const vSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale * stackGrowth);
+    // Brief feeding swell settles into the permanent stack-grown size.
+    const feedingScale = 1 + 0.12 * Math.sin(Math.PI * Math.min(1, e.healFlashTicks / 26));
+    const vSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale * stackGrowth * feedingScale);
     const vH = vSz / 2;
-    const vPad = Math.max(3, Math.floor(vSz * 0.10));
     const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09));
     const hpPct = e.hp / e.maxHp;
     const vFlash = e.flashTicks > 0;
     const vHealFlash = e.healFlashTicks > 0; // pulses brightly right when she absorbs something
-    const bodyColor = vFlash ? '#ffffff' : vHealFlash ? '#c8a0ff' : '#6b2fa8';
 
     // Big absorb shockwave — blocky expanding square ring, the moment she eats
     if (vHealFlash) {
@@ -823,7 +2255,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.globalAlpha = 0.35 * pulse;
     ctx.strokeStyle = '#6b2fa8';
     ctx.lineWidth = 3;
-    ctx.shadowColor = '#6b2fa8'; ctx.shadowBlur = 18;
+    ctx.shadowColor = '#6b2fa8'; ctx.shadowBlur = 12;
     ctx.strokeRect(sx - vH * 1.5, sy - vH * 1.5, vH * 3, vH * 3);
     ctx.restore();
 
@@ -848,64 +2280,43 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.fillRect(sx - vH - 6, sy + vH - 4, vSz + 12, 10);
     ctx.shadowBlur = 0;
 
-    // Blocky side + top spikes (same construction as the King's shoulder spikes) —
-    // grow a little longer with more stacks
-    const spikeW = Math.max(4, Math.floor(vSz * 0.16));
-    const spikeH = Math.max(6, Math.floor(vSz * (0.22 + Math.min(stacks, 6) * 0.025)));
-    ctx.fillStyle = vFlash ? '#ffffff' : '#4a1a5c';
-    ctx.fillRect(sx - vH - spikeW, sy - Math.floor(spikeH * 0.5), spikeW, spikeH);
-    ctx.fillRect(sx + vH, sy - Math.floor(spikeH * 0.5), spikeW, spikeH);
-    ctx.fillRect(sx - Math.floor(spikeW / 2), sy - vH - spikeH, spikeW, spikeH);
+    // Approved square pufferfish model. Ambient spores/aura/pool above stay unchanged.
+    ctx.save(); ctx.translate(sx, sy);
+    const modelScale = vSz / 50;
+    ctx.scale(modelScale, modelScale);
+    const part = (color: string, x: number, y: number, width: number, height: number) => {
+      ctx.fillStyle = vFlash ? '#ffffff' : vHealFlash && color === '#7134a2' ? '#c8a0ff' : color;
+      ctx.fillRect(x, y, width, height);
+    };
 
-    // Main blocky body
-    ctx.shadowColor = '#88ff44'; ctx.shadowBlur = Math.floor(18 * pulse);
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(sx - vH, sy - vH, vSz, vSz);
-    ctx.shadowBlur = 0;
 
-    if (!vFlash) {
-      // Inner dark armor plate inset, like the King's
-      ctx.fillStyle = '#2a0a3a';
-      ctx.fillRect(sx - vH + vPad, sy - vH + vPad, vSz - vPad * 2, vSz - vPad * 2);
+ // Dark purple extensions inherit the body's violet glow, like King's shoulders and Queen's ornaments.
+ ctx.save();ctx.shadowColor='#9945c7';ctx.shadowBlur=9;
+ part('#50206a',-31,-13,10,21);part('#50206a',21,-20,10,15);
+ part('#50206a',-20,24,14,8);part('#50206a',8,24,17,5);ctx.restore();
+ // Short rectangular side antennae give the silhouette a pufferfish rhythm.
+ ctx.save();ctx.shadowColor='#9945c7';ctx.shadowBlur=7;
+ for(const side of [-1,1]){
+  ctx.save();ctx.scale(side,1);
+  part('#7134a2',24,-20,12,5);part('#7134a2',24,-3,16,5);part('#7134a2',24,15,12,5);
+  ctx.restore();
+ }
+ ctx.restore();
+ ctx.shadowColor='#8e45c0';ctx.shadowBlur=9;part('#7134a2',-25,-25,50,50);ctx.shadowBlur=0;
+ part('#32153e',-21,-21,42,42);part('#482153',-17,-16,34,32);
+ // One large flat eye and a simple hungry mouth: no reflections, plates, or intricate shading.
+ part('#9dd959',-8,-14,16,14);part('#18311b',attacking ? -1 : -3,-12,attacking ? 3 : 6,10);
+ part('#19211b',-15,e.shootTicks > 0 || vHealFlash ? 4 : 7,30,e.shootTicks > 0 || vHealFlash ? 19 : attacking ? 15 : 11);
+ for(const[x,h]of [[-12,7],[-5,5],[2,7],[9,5]])part('#c4ee8b',x,e.shootTicks > 0 || vHealFlash ? 4 : 7,4,h);
+ if(e.shootTicks > 0 || vHealFlash)for(const x of [-10,-1,8])part('#c4ee8b',x,19,4,4);
+ part('#78a647',-17,-3,3,3);part('#78a647',14,-6,3,2);part('#78a647',15,0,2,2);
+ // Small swallowed-creature eyes sit inside the lopsided side chunk.
+ part('#28402b',-29,-7,6,8);part('#b9d97c',-28,-5,2,2);part('#b9d97c',-25,-2,2,2);
+ part('#432149',23,-16,6,6);part('#96be60',25,-15,2,2);
+ ctx.save();ctx.shadowColor='#9945c7';ctx.shadowBlur=8;
+ part('#7134a2',-18,-29,5,6);part('#7134a2',12,-31,6,7);ctx.restore();
 
-      // Fused chunks — small square blocks stuck around her edges, one per absorb stack
-      // (capped at 8 positions), the "consumed ally fragments" tell
-      ctx.fillStyle = '#4a1a5c';
-      const chunkPositions: [number, number][] = [[-1, -1], [1, -1], [-1, 1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]];
-      const chunkCount = Math.min(stacks, chunkPositions.length);
-      for (let i = 0; i < chunkCount; i++) {
-        const [ox, oy] = chunkPositions[i];
-        const csz = 6;
-        ctx.fillRect(sx + ox * vH * 0.95 - csz / 2, sy + oy * vH * 0.95 - csz / 2, csz, csz);
-      }
-
-      // Circuit-line veins — blocky right-angle segments, not smooth radiating lines
-      ctx.strokeStyle = `rgba(136,255,68,${0.5 + 0.4 * pulse})`;
-      ctx.lineWidth = 1.5;
-      ctx.shadowColor = '#88ff44'; ctx.shadowBlur = 6;
-      ctx.beginPath();
-      ctx.moveTo(sx - vH * 0.5, sy); ctx.lineTo(sx, sy); ctx.lineTo(sx, sy - vH * 0.5);
-      ctx.moveTo(sx + vH * 0.5, sy); ctx.lineTo(sx, sy); ctx.lineTo(sx, sy + vH * 0.5);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-
-      // Blocky square eye
-      ctx.fillStyle = '#c8ff88';
-      ctx.shadowColor = '#c8ff88'; ctx.shadowBlur = 8;
-      ctx.fillRect(sx - vH * 0.18, sy - vH * 0.35, vH * 0.36, vH * 0.26);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#1a3300';
-      ctx.fillRect(sx - vH * 0.08, sy - vH * 0.28, vH * 0.16, vH * 0.14);
-
-      // Jagged blocky maw beneath the eye — widens open right before/during a bite
-      const mawOpen = attacking ? 0.55 : 0.18;
-      ctx.fillStyle = '#1a0526';
-      ctx.fillRect(sx - vH * 0.45, sy + vH * 0.1, vH * 0.9, vH * mawOpen + 4);
-      ctx.fillStyle = '#c8ff88';
-      for (const txp of [-0.32, -0.1, 0.1, 0.32]) {
-        ctx.fillRect(sx + txp * vH - 2, sy + vH * 0.1, 4, 6);
-      }
-    }
+    ctx.restore();
 
     // Absorb-stack counter, small text above the HP bar
     ctx.font = '9px monospace';
@@ -915,16 +2326,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.textAlign = 'left';
 
     // HP bar above her
-    const vBarW = vSz + 10;
-    const vBarH = 4;
-    const vBarX = sx - Math.floor(vBarW / 2);
-    const vBarY = sy - vH - 14;
-    ctx.fillStyle = '#2a0a3a';
-    ctx.fillRect(vBarX, vBarY, vBarW, vBarH);
-    ctx.fillStyle = hpPct > 0.5 ? '#88ff44' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
-    ctx.fillRect(vBarX, vBarY, Math.floor(vBarW * hpPct), vBarH);
-    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
-    ctx.strokeRect(vBarX, vBarY, vBarW, vBarH);
+    drawBossHealthBar(ctx,sx-(vSz+10)/2,sy-vH-14,vSz+10,e.hp,e.maxHp,'#9dd959');
 
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     return;
@@ -934,299 +2336,85 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   // matches the game's rectangle-based sprite style like the rest of the bosses) ──
   if (e.type === 'frost_warden') {
     const wSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
-    const wH = wSz / 2;
-    const wPad = Math.max(3, Math.floor(wSz * 0.10));
-    const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.08));
     const hpPct = e.hp / e.maxHp;
     const wFlash = e.flashTicks > 0;
-    const bodyColor = wFlash ? '#ffffff' : '#aaeeff';
+    ctx.save(); ctx.translate(sx, sy);
+    const modelScale = wSz / 48;
+    ctx.scale(modelScale, modelScale);
+    ctx.shadowBlur = 0;
+    const part = (color: string, x: number, y: number, width: number, height: number) => {
+      ctx.fillStyle = wFlash ? '#ffffff' : color;
+      ctx.fillRect(x, y, width, height);
+    };
 
-    // Always-on white aura ring — the idle presence tell the other bosses have
-    ctx.save();
-    ctx.globalAlpha = 0.35 * pulse;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 18;
-    ctx.strokeRect(sx - wH * 1.55, sy - wH * 1.55, wH * 3.1, wH * 3.1);
+ // Two depth layers give the tilted shard belt a Saturn-like orbit around the body.
+ function ringLayer(front: boolean){
+  ctx.save();ctx.translate(0,6);ctx.rotate(.25);
+  for(let i=0;i<24;i++){
+   const angle=tickN*.012+i*Math.PI*2/24;
+   if((Math.sin(angle)>=0)!==front)continue;
+   ctx.save();ctx.translate(Math.cos(angle)*47,Math.sin(angle)*15);ctx.rotate(angle+Math.PI/2);
+   ctx.globalAlpha=front?.8:.45;ctx.shadowColor='#aaeeff';ctx.shadowBlur=5;
+   part(i%3?'#a7ddf4':'#e7f8ff',-3.5,-1.75,7,3.5);ctx.restore();
+  }
+  ctx.restore();
+ }
+
+ // Six-sided crystal aura, behind the face so the spiral stays legible.
+ const corners: [number, number][]=[];
+ for(let i=0;i<6;i++){const a=-Math.PI/2+i*Math.PI/3;corners.push([Math.cos(a)*37,Math.sin(a)*37]);}
+ function crystalPath(){ctx.beginPath();corners.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();}
+ ctx.save();ctx.shadowColor='#9fe3ff';ctx.shadowBlur=8;
+ crystalPath();ctx.strokeStyle='rgba(138,219,250,.28)';ctx.lineWidth=10;ctx.stroke();
+ ctx.shadowBlur=5;ctx.strokeStyle='rgba(222,247,255,.8)';ctx.lineWidth=4;ctx.stroke();
+ // Each crystal vertex extends into a branched snowflake ray.
+ for(let i=0;i<6;i++){
+  const angle=-Math.PI/2+i*Math.PI/3,ux=Math.cos(angle),uy=Math.sin(angle),px=-uy,py=ux;
+  ctx.beginPath();ctx.moveTo(ux*36,uy*36);ctx.lineTo(ux*55,uy*55);
+  for(const side of [-1,1]){ctx.moveTo(ux*46,uy*46);ctx.lineTo(ux*41+px*side*6,uy*41+py*side*6);}
+  ctx.strokeStyle='rgba(141,211,240,.3)';ctx.lineWidth=8;ctx.shadowBlur=7;ctx.stroke();
+  ctx.strokeStyle='#dff7ff';ctx.lineWidth=3;ctx.shadowBlur=3;ctx.stroke();
+ }
+ ctx.restore();
+ ringLayer(false);
+ // Shield release sends a crisp square frost pulse out through the crystal.
+ if(e.shootTicks > 0){
+  const release=1-e.shootTicks/20, radius=28+release*25;
+  ctx.save();ctx.globalAlpha=(1-release)*.85;ctx.strokeStyle='#e4faff';ctx.lineWidth=3;
+  ctx.strokeRect(-radius,-radius,radius*2,radius*2);ctx.restore();
+ }
+ // Calm icy square body, with light inner panels matching the old Warden palette.
+ ctx.shadowColor='#a7ddf4';ctx.shadowBlur=9;part('#8ecbe3',-24,-24,48,48);ctx.shadowBlur=0;
+ part('#d8eff7',-20,-20,40,40);part('#c4e4ef',-16,-15,32,30);
+ // Old continuous right-angle spiral, in cold navy rather than nested eye rectangles.
+ ctx.save();ctx.translate(0,-5);ctx.scale(attacking ? 1.1 : 1,attacking ? .65 : e.shootTicks > 0 ? 1.15 : 1);ctx.strokeStyle='#003844';ctx.lineWidth=2.5;
+ let x=0,y=0,dir=0,length=1,turns=0;const dirs=[[1,0],[0,1],[-1,0],[0,-1]];
+ ctx.beginPath();ctx.moveTo(0,0);
+ for(let i=0;i<8;i++){x+=dirs[dir][0]*length*3.3;y+=dirs[dir][1]*length*3.3;ctx.lineTo(x,y);dir=(dir+1)%4;if(++turns===2){length++;turns=0;}}
+ ctx.stroke();ctx.restore();
+ // Closed frozen crack, not the rectangular toothed mouth used by Devourer.
+ if(e.shootTicks > 0){part('#174a60',-5,9,10,10);part('#dff7ff',-2,12,4,4);}else{
+ ctx.strokeStyle='#174a60';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(-10,10);ctx.lineTo(-7,10);ctx.lineTo(-7,13);ctx.lineTo(0,13);ctx.lineTo(0,16);ctx.lineTo(8,16);ctx.lineTo(8,12);ctx.lineTo(11,12);ctx.stroke();
+ }
+ // Two soft pink cheek marks on each side, kept as short blocky bars.
+ for(const cheekX of [-18,14]){part('#d995b7',cheekX,1,4,2);part('#d995b7',cheekX,5,4,2);}
+ // Three tiny frost marks inside the body, with compact stepped icicle growths.
+ part('#91bfce',-16,-5,3,2);part('#91bfce',13,-12,2,3);part('#91bfce',13,-4,3,2);
+ part('#c5e6f3',-17,-30,6,7);part('#c5e6f3',-15,-34,3,5);
+ part('#d8f4ff',-3,-36,7,13);part('#d8f4ff',-1,-41,3,6);
+ part('#c5e6f3',12,-30,6,7);part('#c5e6f3',14,-34,3,5);
+ ringLayer(true);
+ // Small drifting snowflakes stay around the crystal rather than washing out the face.
+ for(let i=0;i<8;i++){
+  const angle=tickN*.008+i*2.4+.6;
+  ctx.globalAlpha=.25+(i%3)*.12;
+  part('#b9e8fa',Math.round(Math.cos(angle)*48),Math.round(Math.sin(angle)*45),2+(i%2),2+(i%2));
+ }
+ ctx.globalAlpha=1;
     ctx.restore();
-
-    // Frosty ground mist — pale blue wash beneath her
-    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = Math.floor(16 * pulse);
-    ctx.fillStyle = `rgba(170,238,255,${0.2 * pulse})`;
-    ctx.fillRect(sx - wH - 6, sy + wH - 4, wSz + 12, 10);
-    ctx.shadowBlur = 0;
-
-    // Orbiting ice shards — angular crystal shapes, not just dots, riding a wider orbit
-    const shardCount = 6;
-    for (let i = 0; i < shardCount; i++) {
-      const ang = tickN * 0.02 + (Math.PI * 2 * i) / shardCount;
-      const orbitR = wH + 18 + 5 * Math.sin(tickN * 0.05 + i);
-      const mx = sx + Math.cos(ang) * orbitR;
-      const my = sy + Math.sin(ang) * orbitR * 0.65;
-      const shardAlpha = 0.5 + 0.4 * Math.abs(Math.sin(tickN * 0.1 + i));
-      ctx.save();
-      ctx.translate(mx, my);
-      ctx.rotate(ang + tickN * 0.04);
-      ctx.fillStyle = `rgba(255,255,255,${shardAlpha})`;
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 5;
-      ctx.beginPath();
-      ctx.moveTo(0, -5); ctx.lineTo(3, 0); ctx.lineTo(0, 5); ctx.lineTo(-3, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
-    ctx.shadowBlur = 0;
-
-    // Continuous frost breath — small drifting mist puffs rising off her, like the
-    // Devourer's drips but rising instead of falling
-    if (Math.random() < 0.35) {
-      const puffAng = -Math.PI / 2 + (Math.random() - 0.5) * 1.4;
-      ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;
-      ctx.beginPath();
-      ctx.arc(sx + Math.cos(puffAng) * wH * 0.5, sy + Math.sin(puffAng) * wH * 0.9 - 6, 2 + Math.random() * 2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    // Heavy snowfall — a wide field of small falling flakes constantly drifting down around
-    // her, index-phased off tickN so it's dense and continuous without needing particle state
-    const snowCount = 28;
-    const snowField = wH * 2.6;
-    for (let i = 0; i < snowCount; i++) {
-      const seedX = ((i * 53 + 7) % 97) / 97 - 0.5; // stable pseudo-random x per flake
-      const speed = 0.4 + (i % 5) * 0.15;
-      const fallCycle = 140 + (i % 7) * 10;
-      const fallT = ((tickN * speed + i * 31) % fallCycle) / fallCycle; // 0 -> 1 falling
-      const sway = Math.sin(tickN * 0.05 + i) * 4;
-      const fx = sx + seedX * snowField + sway;
-      const fy = sy - wH * 1.8 + fallT * wH * 3.6;
-      const fadeIn = Math.min(1, fallT * 6);
-      const fadeOut = Math.min(1, (1 - fallT) * 6);
-      ctx.globalAlpha = Math.min(fadeIn, fadeOut) * 0.85;
-      ctx.fillStyle = i % 4 === 0 ? '#ffffff' : '#cceeff';
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 3;
-      const flakeSz = 1.5 + (i % 3);
-      ctx.fillRect(fx - flakeSz / 2, fy - flakeSz / 2, flakeSz, flakeSz);
-    }
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-
-    // Icicle side spikes (mirrors King's shoulder-spike construction, angular icy tone)
-    const spikeW = Math.max(4, Math.floor(wSz * 0.16));
-    const spikeH = Math.max(6, Math.floor(wSz * 0.28));
-    ctx.fillStyle = wFlash ? '#ffffff' : '#eaffff';
-    ctx.fillRect(sx - wH - spikeW, sy - Math.floor(spikeH * 0.5), spikeW, spikeH);
-    ctx.fillRect(sx + wH, sy - Math.floor(spikeH * 0.5), spikeW, spikeH);
-
-    // Main blocky body
-    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = Math.floor(18 * pulse);
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(sx - wH, sy - wH, wSz, wSz);
-    ctx.shadowBlur = 0;
-
-    if (!wFlash) {
-      // Inner frosted plate
-      ctx.fillStyle = '#dff7ff';
-      ctx.fillRect(sx - wH + wPad, sy - wH + wPad, wSz - wPad * 2, wSz - wPad * 2);
-
-      // Jagged frozen horns — uneven, outward-leaning icicle growths instead of a
-      // symmetric royal crown, so she reads as a frozen alien organism, not ice royalty
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
-      for (const [cx2, spH, lean] of [[-0.44, 0.34, -0.5], [-0.22, 0.58, -0.15], [0.02, 0.68, 0.08], [0.24, 0.44, 0.3], [0.44, 0.26, 0.55]] as [number, number, number][]) {
-        ctx.beginPath();
-        ctx.moveTo(sx + cx2 * wSz - 3, sy - wH);
-        ctx.lineTo(sx + cx2 * wSz + lean * wH * 0.4, sy - wH - wH * spH);
-        ctx.lineTo(sx + cx2 * wSz + 3, sy - wH);
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.shadowBlur = 0;
-
-      // Single big spiral eye — one continuous blocky square spiral (right-angle turns
-      // only, like the classic pixel-art spiral) instead of a smooth stroked curve or a
-      // cluster of dots. Deep icy navy, not black or white — matches her cold palette
-      // (same dark tone as the mouth below) while still reading clearly against her pale
-      // icy-white body/plate.
-      const eyeCy = sy - wH * 0.15;
-      ctx.save();
-      ctx.translate(sx, eyeCy);
-      ctx.strokeStyle = '#003844';
-      ctx.lineWidth = Math.max(2, wH * 0.12);
-      const spiralUnit = wH * 0.15;
-      const spiralDirs: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-      let spx = 0, spy = 0, dirIdx = 0, segLen = 1, turnCount = 0;
-      ctx.beginPath();
-      ctx.moveTo(spx, spy);
-      for (let i = 0; i < 8; i++) {
-        spx += spiralDirs[dirIdx][0] * segLen * spiralUnit;
-        spy += spiralDirs[dirIdx][1] * segLen * spiralUnit;
-        ctx.lineTo(spx, spy);
-        dirIdx = (dirIdx + 1) % 4;
-        turnCount++;
-        if (turnCount === 2) { segLen++; turnCount = 0; }
-      }
-      ctx.stroke();
-      ctx.restore();
-
-      // Mouth — three x's in a row, literal text glyphs instead of a jagged maw or crack
-      // line. Same deep icy navy as the eye for a coherent face. Font-weight alone barely
-      // fattens a monospace glyph on canvas, so stroke the outline before filling to make
-      // it read as genuinely thicker, not just bigger.
-      ctx.font = `bold ${Math.max(10, Math.floor(wH * 0.55))}px monospace`;
-      ctx.textAlign = 'center';
-      ctx.lineWidth = Math.max(2, wH * 0.05);
-      ctx.strokeStyle = '#003844';
-      ctx.strokeText('x x x', sx, sy + wH * 0.55);
-      ctx.fillStyle = '#003844';
-      ctx.fillText('x x x', sx, sy + wH * 0.55);
-      ctx.textAlign = 'left';
-    }
-
-    // Ice shield — a slowly-rotating double hexagonal crystal barrier encasing her, drawn
-    // OVER her fully-built body (not before it) so every layer is actually visible instead
-    // of being painted over by her opaque body fill.
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(tickN * 0.008);
-    const shieldR = wH * 1.3;
-    const hexPoints: [number, number][] = [];
-    for (let i = 0; i < 6; i++) {
-      const hAng = (Math.PI * 2 * i) / 6 - Math.PI / 2;
-      hexPoints.push([Math.cos(hAng) * shieldR, Math.sin(hAng) * shieldR]);
-    }
-    // Outermost hazy glow layer (opacity dialed down — the elaborate shape reads fine
-    // without being as bright/loud as the first pass)
-    ctx.globalAlpha = 0.14 + 0.08 * pulse;
-    ctx.strokeStyle = '#aaeeff';
-    ctx.lineWidth = 18;
-    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = 24;
-    ctx.beginPath();
-    hexPoints.forEach(([hx, hy], i) => i === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy));
-    ctx.closePath();
-    ctx.stroke();
-    // Thick mid layer
-    ctx.globalAlpha = 0.25 + 0.14 * pulse;
-    ctx.strokeStyle = '#66ccff';
-    ctx.lineWidth = 10;
-    ctx.shadowBlur = 16;
-    ctx.stroke();
-    // Bright core layer
-    ctx.globalAlpha = 0.4 + 0.17 * pulse;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 5;
-    ctx.shadowBlur = 10;
-    ctx.stroke();
-    // Gem-cut facet lines from each vertex to center — sells "crystal", not just a ring
-    ctx.globalAlpha = 0.17 + 0.08 * pulse;
-    ctx.strokeStyle = '#cceeff';
-    ctx.lineWidth = 1.5;
-    ctx.shadowBlur = 4;
-    ctx.beginPath();
-    for (const [hx, hy] of hexPoints) { ctx.moveTo(0, 0); ctx.lineTo(hx, hy); }
-    ctx.stroke();
-    // Counter-rotating inner hexagon layer for depth
-    ctx.rotate(-tickN * 0.016);
-    ctx.globalAlpha = 0.2 + 0.11 * pulse;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const hAng = (Math.PI * 2 * i) / 6 - Math.PI / 2;
-      const hx = Math.cos(hAng) * shieldR * 0.6, hy = Math.sin(hAng) * shieldR * 0.6;
-      if (i === 0) ctx.moveTo(hx, hy); else ctx.lineTo(hx, hy);
-    }
-    ctx.closePath();
-    ctx.stroke();
-    ctx.rotate(tickN * 0.016);
-    // Corner glints on the outer shield vertices
-    ctx.fillStyle = '#ffffff';
-    ctx.globalAlpha = 0.5;
-    ctx.shadowBlur = 6;
-    for (const [hx, hy] of hexPoints) {
-      ctx.fillRect(hx - 2.5, hy - 2.5, 5, 5);
-    }
-    ctx.restore();
-    ctx.shadowBlur = 0;
-
-    // Saturn-style ring — a thick, tilted, blocky halo encircling her (chunky rect segments
-    // along a flattened ellipse, not a smooth stroke, to match the pixel-art construction)
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(0.25); // fixed tilt, like Saturn's rings
-    const ringRx = wH * 2.0, ringRy = wH * 0.55;
-    const ringSegs = 20;
-    const ringPulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.05));
-    for (let i = 0; i < ringSegs; i++) {
-      const rAng = tickN * 0.012 + (Math.PI * 2 * i) / ringSegs;
-      const rx = Math.cos(rAng) * ringRx, ry = Math.sin(rAng) * ringRy;
-      const segW = 10, segH = 6;
-      ctx.save();
-      ctx.translate(rx, ry);
-      ctx.rotate(rAng + Math.PI / 2);
-      ctx.globalAlpha = (0.5 + 0.35 * ringPulse) * (i % 2 === 0 ? 1 : 0.7);
-      ctx.fillStyle = i % 3 === 0 ? '#ffffff' : '#aaeeff';
-      ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = 8;
-      ctx.fillRect(-segW / 2, -segH / 2, segW, segH);
-      ctx.restore();
-    }
-    ctx.restore();
-    ctx.shadowBlur = 0;
-
-    // Ice-shard particles orbiting along the shield's edge — denser now, with trailing streaks
-    const shieldSparkCount = 12;
-    for (let i = 0; i < shieldSparkCount; i++) {
-      const sAng = tickN * 0.022 + (Math.PI * 2 * i) / shieldSparkCount;
-      const orbR = shieldR * (1.05 + 0.06 * Math.sin(tickN * 0.05 + i));
-      const sx2 = sx + Math.cos(sAng) * orbR;
-      const sy2 = sy + Math.sin(sAng) * orbR;
-      const sparkAlpha = 0.5 + 0.4 * Math.abs(Math.sin(tickN * 0.12 + i * 1.6));
-      // trailing streak toward where the spark came from
-      const trailAng = sAng - 0.15;
-      const tx2 = sx + Math.cos(trailAng) * orbR, ty2 = sy + Math.sin(trailAng) * orbR;
-      ctx.strokeStyle = `rgba(170,238,255,${sparkAlpha * 0.5})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(tx2, ty2); ctx.lineTo(sx2, sy2); ctx.stroke();
-      ctx.fillStyle = i % 3 === 0 ? '#ffffff' : `rgba(255,255,255,${sparkAlpha})`;
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;
-      ctx.fillRect(sx2 - 2, sy2 - 2, 4, 4);
-    }
-    ctx.shadowBlur = 0;
-
-    // Antennae — 6 stalks radiating in every direction, same construction as a regular
-    // enemy's single centered antenna (thin colored stalk + separate small white dot tip),
-    // not a forked snowflake branch
-    const antH = wH * 0.6;
-    const antW = Math.max(3, wSz * 0.06);
-    const antDotSz = Math.max(2, wSz * 0.08);
-    for (let i = 0; i < 6; i++) {
-      const ang = (Math.PI * 2 * i) / 6;
-      ctx.save();
-      ctx.translate(sx, sy);
-      ctx.rotate(ang);
-      ctx.fillStyle = '#aaeeff';
-      ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = 4;
-      ctx.fillRect(-antW / 2, -(wH + antH), antW, antH);
-      ctx.shadowBlur = 6;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(-antDotSz / 2, -(wH + antH) - antDotSz, antDotSz, antDotSz);
-      ctx.shadowBlur = 0;
-      ctx.restore();
-    }
 
     // HP bar above her
-    const wBarW = wSz + 10;
-    const wBarH = 4;
-    const wBarX = sx - Math.floor(wBarW / 2);
-    const wBarY = sy - wH - 16;
-    ctx.fillStyle = '#0a2a33';
-    ctx.fillRect(wBarX, wBarY, wBarW, wBarH);
-    ctx.fillStyle = hpPct > 0.5 ? '#aaeeff' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
-    ctx.fillRect(wBarX, wBarY, Math.floor(wBarW * hpPct), wBarH);
-    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
-    ctx.strokeRect(wBarX, wBarY, wBarW, wBarH);
+    drawBossHealthBar(ctx,sx-(wSz+10)/2,sy-modelScale*64,wSz+10,e.hp,e.maxHp,'#a7ddf4');
 
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     return;
@@ -1253,7 +2441,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     const bodyColor = qFlash ? '#ffffff' : '#8800cc';
 
     // Outer violet glow
-    ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = Math.floor(22 * pulse);
+    ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = Math.floor(16 * pulse);
 
     // Slender epaulettes (tapered, unlike the King's blunt shoulder spikes)
     const epW = Math.max(3, Math.floor(qSz * 0.13));
@@ -1264,6 +2452,20 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.fillStyle = qFlash ? '#ffffff' : '#ee99ff';
     ctx.fillRect(sx - qH - epW - 2, sy - Math.floor(epH * 0.55), 2, 2);
     ctx.fillRect(sx + qH + epW, sy - Math.floor(epH * 0.55), 2, 2);
+
+    // Short stepped royal tassels hang from the shoulder edges, rather than a fin or large cloak.
+    ctx.save(); ctx.translate(sx, sy); ctx.shadowBlur = 0;
+    for (const side of [-1, 1]) {
+      ctx.save(); ctx.scale(side, 1);
+      ctx.fillStyle = 'rgba(136,0,204,0.42)'; ctx.beginPath();
+      ctx.moveTo(qH, -6); ctx.lineTo(qH + 8, -6); ctx.lineTo(qH + 8, 7);
+      ctx.lineTo(qH + 12, 7); ctx.lineTo(qH + 12, 18); ctx.lineTo(qH + 6, 18);
+      ctx.lineTo(qH + 6, 9); ctx.lineTo(qH + 3, 9); ctx.lineTo(qH + 3, 0);
+      ctx.lineTo(qH, 0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#bf62d9'; ctx.fillRect(qH + 7, 14, 4, 3);
+      ctx.restore();
+    }
+    ctx.restore();
 
     // Main body
     ctx.fillStyle = bodyColor;
@@ -1286,6 +2488,17 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     if (!qFlash) {
       ctx.fillStyle = '#4a0066';
       ctx.fillRect(sx - qH + qPad, sy - qH + qPad, qSz - qPad * 2, qSz - qPad * 2);
+
+      // A few tiny jewel markings inside the face, like Sea Chanter's sparse scales.
+      ctx.fillStyle = '#a84ac5';
+      for (const side of [-1, 1]) {
+        ctx.fillRect(sx + side * (qH - qPad - 2) - 1, sy + 2, 2, 3);
+        ctx.fillRect(sx + side * (qH - qPad - 4) - 1, sy + 8, 2, 2);
+      }
+      ctx.fillStyle = '#c76ce2';
+      for (const offset of [-6, 0, 6]) {
+        ctx.fillRect(sx + offset - 1, sy + qH - qPad - 2, 2, 2);
+      }
 
       // Twinkling center gem — brightness pulses independently for a "living jewel" feel
       const gemTwinkle = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09));
@@ -1334,6 +2547,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     if (!qFlash) {
       const eSz = Math.max(4, Math.floor(qSz * 0.20));
       const pSz = Math.max(2, Math.floor(eSz * 0.55));
+      const focused = attacking || e.shootTicks > 0;
       const eyeY = sy - qH + qPad + Math.floor(qSz * 0.20);
       const ex1 = sx - Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
       const ex2 = sx + Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
@@ -1341,13 +2555,15 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.fillRect(ex1, eyeY, eSz, eSz); ctx.fillRect(ex2, eyeY, eSz, eSz);
       ctx.fillStyle = attacking ? '#ffcc00' : '#ee44ff';
       ctx.shadowColor = attacking ? '#ffcc00' : '#ee44ff'; ctx.shadowBlur = attacking ? 12 : 6;
-      ctx.fillRect(ex1 + 1, eyeY + 1, pSz, pSz); ctx.fillRect(ex2 + 1, eyeY + 1, pSz, pSz);
+      const pupilW = focused ? Math.max(2, Math.floor(pSz * .5)) : pSz;
+      ctx.fillRect(ex1 + (focused ? Math.floor(eSz / 2) : 1), eyeY + 1, pupilW, focused ? eSz - 2 : pSz);
+      ctx.fillRect(ex2 + 1, eyeY + 1, pupilW, focused ? eSz - 2 : pSz);
       ctx.shadowBlur = 0;
 
       // Third eye — central eye below the main pair, sitting where her nose would be,
       // same construction as the other two
       const eyeGap = Math.max(4, Math.floor(qSz * 0.12));
-      const eSz3 = Math.max(4, Math.floor(eSz * 0.9));
+      const eSz3 = Math.max(4, Math.floor(eSz * (e.shootTicks > 0 ? 1.15 : 0.9)));
       const pSz3 = Math.max(2, Math.floor(eSz3 * 0.55));
       const eye3Y = eyeY + eSz + eyeGap;
       ctx.fillStyle = '#ffffff';
@@ -1365,19 +2581,38 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       ctx.fillRect(sx - Math.floor(mW / 2), eye3Y + eSz3 + mouthGap, mW, mH);
     }
 
-    // HP bar above her
-    const barW = qSz + 10;
-    const barH = 4;
-    const barX = sx - Math.floor(barW / 2);
-    const barY = sy - qH - 16;
-    ctx.fillStyle = '#330044';
-    ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle = hpPct > 0.5 ? '#dd44ff' : hpPct > 0.25 ? '#ff8800' : '#ffff00';
-    ctx.fillRect(barX, barY, Math.floor(barW * hpPct), barH);
-    ctx.strokeStyle = '#ffffff44'; ctx.lineWidth = 1;
-    ctx.strokeRect(barX, barY, barW, barH);
+    // Foreground crown base, raised around her lower body at 75% opacity with no aura glow.
+    ctx.save(); ctx.translate(sx, sy + qH - 6); ctx.scale(.88, .75);
+    const crownHalf = qSz * 0.8;
+    const baseY = 14;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = qFlash ? 'rgba(255,255,255,.75)' : 'rgba(86,0,133,.75)'; ctx.beginPath();
+    ctx.moveTo(-crownHalf, baseY); ctx.lineTo(-crownHalf, -12);
+    ctx.lineTo(-crownHalf + 5, -12); ctx.lineTo(-crownHalf + 5, -4);
+    ctx.lineTo(-crownHalf + 10, -4); ctx.lineTo(-crownHalf + 10, 6);
+    ctx.lineTo(-qSz * .34, 6); ctx.lineTo(-qSz * .34, -4);
+    ctx.lineTo(-qSz * .22, -4); ctx.lineTo(-qSz * .22, 5);
+    ctx.lineTo(-3, 5); ctx.lineTo(-3, -2); ctx.lineTo(3, -2);
+    ctx.lineTo(3, 5); ctx.lineTo(qSz * .22, 5);
+    ctx.lineTo(qSz * .22, -4); ctx.lineTo(qSz * .34, -4);
+    ctx.lineTo(qSz * .34, 6); ctx.lineTo(crownHalf - 10, 6);
+    ctx.lineTo(crownHalf - 10, -4); ctx.lineTo(crownHalf - 5, -4);
+    ctx.lineTo(crownHalf - 5, -12); ctx.lineTo(crownHalf, -12);
+    ctx.lineTo(crownHalf, baseY); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    // Forehead gemstone beneath the central tiara spike, matching the corner gems.
+    ctx.save(); ctx.translate(sx, sy - qH + 1); ctx.rotate(Math.PI / 4);
+    const foreheadGem = Math.max(6, Math.floor(qSz * .18));
+    ctx.shadowColor = '#dd77ff'; ctx.shadowBlur = 3;
+    ctx.fillStyle = qFlash ? '#ffffff' : '#edb2ff';
+    ctx.fillRect(-foreheadGem / 2, -foreheadGem / 2, foreheadGem, foreheadGem);
+    ctx.shadowBlur = 0; ctx.fillStyle = qFlash ? '#ffffff' : '#b546d3';
+    ctx.fillRect(-foreheadGem / 2 + 1, -foreheadGem / 2 + 1, foreheadGem - 2, foreheadGem - 2);
+    ctx.restore();
 
-    // Attack wind-up aiming ring (her custom body returns early, so draw it here too)
+    // HP bar above her
+    drawBossHealthBar(ctx,sx-(qSz+10)/2,sy-qH-16,qSz+10,e.hp,e.maxHp,'#d96af0');
+
     if (e.windupTicks > 0) {
       const progress = 1 - e.windupTicks / QUEEN_WINDUP_TICKS;
       const ringR = qH + 6 + Math.floor(progress * 10);
@@ -1401,7 +2636,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     // Revolving magic ring — a segmented halo of tick marks spinning continuously around her,
     // on a tilted ellipse so it reads as a ring orbiting in 3D, not a flat static circle
     const ringR = qH + 21;
-    const ringSegs = 12;
+    const ringSegs = 8;
     const ringSpin = tickN * 0.06;
     for (let r = 0; r < ringSegs; r++) {
       const ang = ringSpin + (r * Math.PI * 2) / ringSegs;
@@ -1550,28 +2785,14 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     return;
   }
 
-  // ── Blocky body (slightly scaled during attack) ───────────────────────
-  ctx.fillStyle = color;
-  if (e.type === 'splitter' && !flash) {
-    // Two boxes stacked vertically with a gap between them
-    const boxH = Math.floor(drawSz * 0.44);
-    const gap2 = Math.max(2, drawSz - boxH * 2);
-    ctx.fillRect(sx - drawH, sy - drawH, drawSz, boxH);           // top box
-    ctx.fillStyle = '#aaffcc';
-    ctx.fillRect(sx - drawH, sy - drawH + boxH + gap2, drawSz, boxH); // bottom box (lighter)
-  } else {
-    ctx.fillRect(sx - drawH, sy - drawH, drawSz, drawSz);
-  }
-  ctx.shadowBlur = 0;
+  // Ordinary monsters keep their silhouettes, with flat shaded pixel facets.
+  ctx.shadowBlur=0;
+  if(e.type==='splitter'&&!flash){
+    const boxH=Math.floor(drawSz*.44),gap=Math.max(2,drawSz-boxH*2);
+    drawMobBody(ctx,sx-drawH,sy-drawH,drawSz,boxH,color,false);
+    drawMobBody(ctx,sx-drawH,sy-drawH+boxH+gap,drawSz,boxH,'#aaffcc',false);
+  }else drawMobBody(ctx,sx-drawH,sy-drawH,drawSz,drawSz,color,flash);
 
-  // Inner panel (darker)
-  if (!flash && e.type !== 'splitter') {
-    const darken = e.type === 'armored' ? '66' : '44';
-    ctx.fillStyle = '#000000' + darken;
-    ctx.fillRect(sx - half + pad, sy - half + pad, size - pad * 2, size - pad * 2);
-  }
-
-  // ── Antenna ───────────────────────────────────────────────────────────
   const antH = Math.max(3, Math.floor(size * 0.28));
   const dotSz = 3;
   ctx.fillStyle = color;
@@ -1761,7 +2982,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
       const ex1 = sx - half + pad + 1;
       const ex2 = sx + half - pad - eSz - 1;
       ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-      ctx.shadowColor = '#aa88ff'; ctx.shadowBlur = 15;
+      ctx.shadowColor = '#aa88ff'; ctx.shadowBlur = 6;
       ctx.strokeRect(ex1, eyeY, eSz, eSz);
       ctx.strokeRect(ex2, eyeY, eSz, eSz);
       ctx.shadowBlur = 0;
@@ -1867,14 +3088,8 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   }
 
   // ── Type-specific details ─────────────────────────────────────────────
-  if (e.type === 'armored' && e.hp > e.maxHp / 2) {
-    // Shield border plates
-    ctx.strokeStyle = cfg.shieldColor + 'bb';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = cfg.shieldColor;
-    ctx.shadowBlur = 8;
-    ctx.strokeRect(sx - half - 3, sy - half - 3, size + 6, size + 6);
-    ctx.shadowBlur = 0;
+  if(e.type==='armored'&&e.hp>e.maxHp/2){
+    drawMobBrackets(ctx,sx,sy,half+4,cfg.shieldColor,.85,3);
   }
   if (e.type === 'armored' && !flash) {
     // Wavy/squiggly mouth below the eyes
@@ -1885,7 +3100,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     const wX = sx - Math.floor(wW / 2);
     const wY = sy - half + Math.floor(size * 0.55);
     ctx.fillStyle = '#ffff00';
-    ctx.shadowColor = '#ffff00'; ctx.shadowBlur = 4;
+    ctx.shadowColor = '#ffff00'; ctx.shadowBlur = 6;
     for (let i = 0; i < 6; i++) {
       ctx.fillRect(wX + i * segW, wY + (i % 2 === 0 ? 0 : amp), segW, wH);
     }
@@ -1903,16 +3118,14 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.fillRect(x1, y2 - xs, xs, xs);
     ctx.fillRect(x2 - xs, y2 - xs, xs, xs);
   }
-  if (e.type === 'bomber' && e.exploding) {
-    ctx.strokeStyle = '#ff4400';
-    ctx.lineWidth = 3;
-    ctx.shadowColor = '#ff6600';
-    ctx.shadowBlur = 18;
-    ctx.strokeRect(sx - drawH - 4, sy - drawH - 4, drawSz + 8, drawSz + 8);
-    ctx.shadowBlur = 0;
+  if(e.type==='bomber'&&e.exploding){
+    const pulse=.55+.45*Math.abs(Math.sin(tickN*.3));
+    drawMobBrackets(ctx,sx,sy,drawH+6,'#f39a65',pulse,3);
+    ctx.save();ctx.shadowBlur=0;ctx.fillStyle='#ffe0b2';ctx.globalAlpha=pulse;
+    for(let i=0;i<Math.ceil(Math.max(0,e.explodeTick)/15);i++)ctx.fillRect(Math.round(sx-10+i*6),Math.round(sy-drawH-12),3,3);
+    ctx.restore();
   }
 
-  // ── Charger: motion trail when charging / dizzy when stunned ─────────
   if (e.type === 'charger') {
     if (e.chargeDirX !== 0 || e.chargeDirY !== 0) {
       // Motion trail — two faint rects trailing behind
@@ -1935,120 +3148,24 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   }
 
   // ── Shielder: shield arc toward shielded target (drawn per-enemy; shielded overlay is separate) ──
-  if (e.type === 'shielder' && e.shieldTargetId !== -1) {
-    ctx.shadowColor = '#00ddcc'; ctx.shadowBlur = 8;
-    ctx.strokeStyle = 'rgba(0,221,204,0.55)'; ctx.lineWidth = 2;
-    ctx.strokeRect(sx - half - 3, sy - half - 3, size + 6, size + 6);
-    ctx.shadowBlur = 0;
+  if(e.type==='shielder'&&e.shieldTargetId!==-1){
+    drawMobBrackets(ctx,sx,sy,half+4,'#6dd3c2',.65,2);
+  }
+  if(shielded){
+    drawMobBrackets(ctx,sx,sy,half+5,'#00ddcc',.75,3);
+  }
+  if(e.icyShieldHP>0)drawMobIceShield(ctx,sx,sy,half+7,tickN);
+
+  if(e.type==='healer'){
+    const ready=Math.max(0,Math.min(1,1-e.attackTimer/HEALER_HEAL_INTERVAL)),pulse=.4+.6*Math.abs(Math.sin(tickN*.1));
+    drawMobBrackets(ctx,sx,sy,half+4+Math.floor(ready*10),'#ff55cc',(.2+.6*ready)*pulse,2);
   }
 
-  // ── Shielded enemy overlay ────────────────────────────────────────────
-  if (shielded) {
-    ctx.shadowColor = '#00ddcc'; ctx.shadowBlur = 12;
-    ctx.strokeStyle = 'rgba(0,221,204,0.75)'; ctx.lineWidth = 3;
-    ctx.strokeRect(sx - half - 4, sy - half - 4, size + 8, size + 8);
-    // Corner triangles
-    const ct = Math.max(3, Math.floor(half * 0.35));
-    ctx.fillStyle = 'rgba(0,221,204,0.6)';
-    for (const [cx2, cy2] of [[sx - half - 4, sy - half - 4], [sx + half + 4, sy - half - 4], [sx - half - 4, sy + half + 4], [sx + half + 4, sy + half + 4]] as [number, number][]) {
-      ctx.fillRect(cx2 - 1, cy2 - 1, ct, 2);
-      ctx.fillRect(cx2 - 1, cy2 - 1, 2, ct);
-    }
-    ctx.shadowBlur = 0;
-  }
-
-  // ── Frost Warden icy shield overlay — a hexagonal ice-crystal barrier on whichever
-  // ally she granted it to, distinct from the shielder's teal square+corners look.
-  // Double stroke (glow + bright core) plus corner glints, not just one thin line.
-  if (e.icyShieldHP > 0) {
-    const shPulse = 0.6 + 0.3 * Math.abs(Math.sin(tickN * 0.15));
-
-    // Orbiting ice-shard particles
-    const shSparkCount = 4;
-    for (let i = 0; i < shSparkCount; i++) {
-      const spAng = tickN * 0.03 + (Math.PI * 2 * i) / shSparkCount;
-      const spR = half + 10;
-      const spx = sx + Math.cos(spAng) * spR;
-      const spy = sy + Math.sin(spAng) * spR;
-      const spAlpha = 0.5 + 0.4 * Math.abs(Math.sin(tickN * 0.1 + i * 1.7));
-      ctx.fillStyle = `rgba(255,255,255,${spAlpha})`;
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 5;
-      ctx.fillRect(spx - 1.5, spy - 1.5, 3, 3);
-    }
-    ctx.shadowBlur = 0;
-
-    ctx.save();
-    ctx.translate(sx, sy);
-    const shR = half + 6;
-    const shHexPoints: [number, number][] = [];
-    for (let i = 0; i < 6; i++) {
-      const hAng = (Math.PI * 2 * i) / 6 - Math.PI / 2;
-      shHexPoints.push([Math.cos(hAng) * shR, Math.sin(hAng) * shR]);
-    }
-    // Outer glow layer — thicker border
-    ctx.globalAlpha = 0.35 + 0.2 * shPulse;
-    ctx.strokeStyle = '#aaeeff';
-    ctx.lineWidth = 8;
-    ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = 12;
-    ctx.beginPath();
-    shHexPoints.forEach(([hx, hy], i) => i === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy));
-    ctx.closePath();
-    ctx.stroke();
-    // Bright core layer
-    ctx.globalAlpha = 0.65 + 0.3 * shPulse;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 4;
-    ctx.shadowBlur = 6;
-    ctx.stroke();
-    // Corner glints
-    ctx.fillStyle = '#ffffff';
-    ctx.globalAlpha = 0.8;
-    for (const [hx, hy] of shHexPoints) {
-      ctx.fillRect(hx - 1.5, hy - 1.5, 3, 3);
-    }
-    ctx.restore();
-    ctx.shadowBlur = 0;
-  }
-
-  // ── Healer pulsing aura ring ─────────────────────────────────────────
-  if (e.type === 'healer') {
-    const healProgress = 1 - e.attackTimer / HEALER_HEAL_INTERVAL; // 0→1 toward next heal
-    const pulse = 0.4 + 0.6 * Math.abs(Math.sin(Date.now() * 0.01));
-    const ringR = half + 4 + Math.floor(healProgress * 10);
-    ctx.shadowColor = '#ff55cc';
-    ctx.shadowBlur = 5 + Math.floor(healProgress * 12);
-    ctx.strokeStyle = `rgba(255,85,204,${(0.2 + 0.6 * healProgress) * pulse})`;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(sx - ringR, sy - ringR, ringR * 2, ringR * 2);
-    ctx.shadowBlur = 0;
-  }
-
-  // ── Sniper wind-up aiming ring ────────────────────────────────────────
-  if (e.type === 'sniper' && e.windupTicks > 0) {
-    const progress = 1 - e.windupTicks / 50; // 0→1 as windup completes
-    const ringR = half + 6 + Math.floor(progress * 10);
-    const pulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() * 0.018));
-    const danger = `rgba(255,${Math.floor(80 * (1 - progress))},0,${0.6 + 0.4 * pulse})`;
-    ctx.shadowColor = '#ff2200';
-    ctx.shadowBlur = 10 + Math.floor(progress * 16);
-    ctx.strokeStyle = danger;
-    ctx.lineWidth = 2 + Math.floor(progress * 2);
-    ctx.strokeRect(sx - ringR, sy - ringR, ringR * 2, ringR * 2);
-    // Corner tick marks
-    const tick = Math.max(4, Math.floor(ringR * 0.3));
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.shadowBlur = 0;
-    for (const [cx2, cy2, dx2, dy2] of [
-      [sx - ringR, sy - ringR, 1, 1],
-      [sx + ringR, sy - ringR, -1, 1],
-      [sx - ringR, sy + ringR, 1, -1],
-      [sx + ringR, sy + ringR, -1, -1],
-    ] as [number, number, number, number][]) {
-      ctx.beginPath(); ctx.moveTo(cx2, cy2); ctx.lineTo(cx2 + dx2 * tick, cy2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx2, cy2); ctx.lineTo(cx2, cy2 + dy2 * tick); ctx.stroke();
-    }
-    ctx.shadowBlur = 0;
+  if(e.type==='sniper'&&e.windupTicks>0){
+    const progress=Math.max(0,Math.min(1,1-e.windupTicks/50));
+    drawMobBrackets(ctx,sx,sy,half+15-Math.floor(progress*8),'#eb745b',.55+progress*.35,3);
+    ctx.save();ctx.shadowBlur=0;ctx.fillStyle='#ffe1bd';ctx.globalAlpha=.5+.35*Math.abs(Math.sin(tickN*.15));
+    ctx.fillRect(Math.round(sx)-2,Math.round(sy-half-18),4,4);ctx.restore();
   }
 
   // ── HP bar ────────────────────────────────────────────────────────────
@@ -2066,6 +3183,116 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.lineWidth = 1;
     ctx.strokeRect(bx, by, barW, barH);
   }
+}
+
+// Battlefield geometry stays in the map; these helpers only paint its surfaces.
+function drawBattlefieldPad(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, tick: number, phase: number) {
+  ctx.save();const pulse=.6+.4*Math.abs(Math.sin(tick*.04+phase));
+  ctx.fillStyle=color+'33';ctx.fillRect(x,y,TILE_SIZE,TILE_SIZE);
+  ctx.shadowColor=color;ctx.shadowBlur=14*pulse;ctx.strokeStyle=color;ctx.lineWidth=2;
+  ctx.strokeRect(x+1,y+1,TILE_SIZE-2,TILE_SIZE-2);
+  const blink=Math.pow(Math.abs(Math.sin(tick*.08+phase*2)),8);
+  ctx.shadowBlur=16*blink;drawPixelDiamond(ctx,x+TILE_SIZE/2,y+TILE_SIZE/2,Math.floor(TILE_SIZE*(.15+.45*blink)),color);ctx.restore();
+}
+
+function drawBattlefieldIce(ctx: CanvasRenderingContext2D, x: number, y: number, tick: number) {
+  ctx.save();const pulse=.6+.4*Math.abs(Math.sin(tick*.06)),size=TILE_SIZE;
+  ctx.shadowColor='#aaeeff';ctx.shadowBlur=10*pulse;ctx.fillStyle='rgba(170,238,255,'+.4*pulse+')';ctx.fillRect(x,y,size,size);
+  ctx.shadowBlur=0;ctx.strokeStyle='rgba(255,255,255,'+.7*pulse+')';ctx.lineWidth=2;ctx.strokeRect(x+2,y+2,size-4,size-4);
+  ctx.shadowBlur=0;ctx.globalAlpha=.55*pulse;ctx.fillStyle='#d4edf6';
+  for(const [px,py,w,h]of [[9,12,12,3],[18,12,3,12],[18,21,12,3],[27,21,3,12],[12,30,9,3],[12,30,3,9]])ctx.fillRect(x+px,y+py,w,h);
+  ctx.globalAlpha=.8*pulse;ctx.shadowColor='#d4edf6';ctx.shadowBlur=4;ctx.fillStyle='#f0fcff';ctx.fillRect(x+9,y+9,3,3);
+  ctx.restore();
+}
+
+function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, viewW: number, viewH: number, tick: number) {
+  ctx.save();const size=TILE_SIZE,ice=new Set(state.frostIceTiles.map(([x,y])=>x+','+y));
+  const x0=Math.max(0,Math.floor(camX/size)-1),y0=Math.max(0,Math.floor(camY/size)-1),x1=Math.min(MAP_COLS-1,Math.ceil((camX+viewW)/size)+1),y1=Math.min(MAP_ROWS-1,Math.ceil((camY+viewH)/size)+1);
+  const wall=(x:number,y:number)=>(state.map[y]?.[x]??T_WALL)===T_WALL;
+  const cover=(x:number,y:number)=>{const ch=chamberOfTile(x,y);if(ch<0||!wall(x,y))return false;const [t,l,b,r]=CHAMBER_BOUNDS[ch];return x>l&&x<r&&y>t&&y<b;};
+  // All base tiles are flat dark panels, keeping actors' neon silhouettes dominant.
+  for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
+    const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=ch>=0?CHAMBER_COLORS[ch]:'#8899ff';ctx.shadowBlur=0;
+    if(wall(tx,ty)){
+      if(!cover(tx,ty))continue;
+      ctx.fillStyle='#0f0f28';ctx.fillRect(x,y,size,size);ctx.fillStyle=color+'22';ctx.fillRect(x,y,size,size);
+      ctx.shadowColor=color;ctx.shadowBlur=3;ctx.strokeStyle=color+'55';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,size-2,size-2);continue;
+    }
+    ctx.fillStyle=ch>=0?'#0d0d22':'#0a0a1a';ctx.fillRect(x,y,size,size);
+    if(ch>=0){ctx.fillStyle=color+'10';ctx.fillRect(x,y,size,size);}
+    ctx.strokeStyle='#ffffff0f';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,size-1,size-1);
+  }
+  // Glowing colored borders follow the map's exposed edges, preserving door openings.
+  for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
+    if(wall(tx,ty))continue;
+    const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=ch>=0?CHAMBER_COLORS[ch]:'#8899ff';
+    ctx.shadowColor=color;ctx.shadowBlur=14;ctx.strokeStyle=color+'99';ctx.lineWidth=4;ctx.beginPath();
+    if(wall(tx-1,ty)&&!cover(tx-1,ty)){ctx.moveTo(x+1,y);ctx.lineTo(x+1,y+size);}
+    if(wall(tx+1,ty)&&!cover(tx+1,ty)){ctx.moveTo(x+size-1,y);ctx.lineTo(x+size-1,y+size);}
+    if(wall(tx,ty-1)&&!cover(tx,ty-1)){ctx.moveTo(x,y+1);ctx.lineTo(x+size,y+1);}
+    if(wall(tx,ty+1)&&!cover(tx,ty+1)){ctx.moveTo(x,y+size-1);ctx.lineTo(x+size,y+size-1);}
+    ctx.stroke();ctx.shadowBlur=0;
+    if(state.map[ty][tx]===T_TELEPORT)drawBattlefieldPad(ctx,x,y,color,tick,ch);
+    if(ice.has(tx+','+ty))drawBattlefieldIce(ctx,x,y,tick);
+  }
+  ctx.restore();
+}
+
+function drawReaperHallwaySeal(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, tick: number) {
+  const bounds=HALLWAY_BOUNDS[state.hallwaySeal];
+  if(!bounds||state.hallwaySealTicks<=0)return;
+  const [r1,c1,r2,c2]=bounds,horizontal=c2-c1>r2-r1;
+  const fade=Math.min(1,state.hallwaySealTicks/30),pulse=.7+.3*Math.abs(Math.sin(tick*.1)),size=TILE_SIZE;
+  ctx.save();
+  for(let row=r1;row<=r2;row++)for(let col=c1;col<=c2;col++){
+    const x=Math.round(col*size-camX),y=Math.round(row*size-camY);
+    const blocked=horizontal?col===c1||col===c2:row===r1||row===r2;
+    ctx.shadowBlur=0;ctx.fillStyle='#52ffd6';ctx.globalAlpha=fade*(blocked?.25+.12*pulse:.07);
+    ctx.fillRect(x,y,size,size);
+    ctx.globalAlpha=fade*(blocked?.8*pulse:.18);ctx.strokeStyle=blocked?'#91ffe4':'#52ffd6';ctx.lineWidth=blocked?4:2;
+    if(blocked){ctx.shadowColor='#52ffd6';ctx.shadowBlur=10;}
+    ctx.strokeRect(x+2,y+2,size-4,size-4);
+    if(blocked){
+      ctx.shadowBlur=0;ctx.fillStyle='#d6fff3';ctx.globalAlpha=fade*.8*pulse;
+      ctx.fillRect(x+size/2-3,y+size/2-3,6,6);
+    }
+  }
+  ctx.restore();
+}
+
+function drawMeteor(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, progress: number, tick: number) {
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));
+  const half=Math.round(size/2),pixel=Math.max(6,Math.round(size/36)*6);
+  // Separated, stepped flame tongues leave a sharp silhouette at every size.
+  for(let i=-2;i<=2;i++){
+    const width=Math.max(pixel,Math.round(size*.15/pixel)*pixel);
+    const length=Math.round(size*(1.2+.25*Math.abs(i)+.16*Math.sin(tick*.14+i*2))/pixel)*pixel;
+    const px=i*width,top=-half-length;
+    ctx.globalAlpha=.3+progress*.2;ctx.fillStyle=i%2?'#ff973d':'#ff4d22';
+    ctx.fillRect(px-width/2,top,width,length+pixel);
+    ctx.globalAlpha=.65;ctx.fillStyle='#ffc46b';
+    ctx.fillRect(px-width/2,top+length*.5,width*.5,length*.5+pixel);
+  }
+  ctx.globalAlpha=1;ctx.shadowColor='#ff6622';ctx.shadowBlur=18;
+  ctx.fillStyle='#ff7638';ctx.fillRect(-half,-half,size,size);
+  ctx.shadowBlur=0;const rim=Math.max(6,Math.round(size*.05));
+  ctx.fillStyle='#4d1514';ctx.fillRect(-half+rim,-half+rim,size-rim*2,size-rim*2);
+  // A few molten stair steps, with a pale core, echo the other glowing square bodies.
+  ctx.fillStyle='#ffae55';
+  ctx.fillRect(-pixel,-half+rim,pixel,size*.4);
+  ctx.fillRect(-pixel,-size*.15,pixel*3,pixel);
+  ctx.fillRect(pixel,-size*.15,pixel,size*.4);
+  ctx.fillRect(-pixel,size*.2,pixel*3,pixel);
+  ctx.fillRect(-pixel,size*.2,pixel,size*.3-rim);
+  ctx.fillStyle='#ffe8bc';ctx.fillRect(-pixel,-pixel,pixel,pixel);
+  ctx.fillRect(-half+rim,-half+rim,pixel*2,pixel);
+  for(let i=0;i<6;i++){
+    const life=((tick+i*17)%75)/75,side=i%2?1:-1;
+    ctx.globalAlpha=(1-life)*.75;ctx.fillStyle=i%3?'#ff773b':'#ffdb8a';
+    ctx.shadowColor='#ff6622';ctx.shadowBlur=6;
+    ctx.fillRect(side*(half+pixel*(1+life*3)),-half-size*life,pixel,pixel);
+  }
+  ctx.restore();
 }
 
 function drawGame(
@@ -2098,152 +3325,8 @@ function drawGame(
   ctx.fillStyle = BG_COLOR;
   ctx.fillRect(0, 0, viewW, viewH);
 
-  // Per-chamber glowing borders — inset 1 tile to sit right on the floor edge
-  for (let ch = 0; ch < 4; ch++) {
-    const [r1, c1, r2, c2] = CHAMBER_BOUNDS[ch];
-    const bx2 = (c1 + 1) * TILE_SIZE - camX;
-    const by2 = (r1 + 1) * TILE_SIZE - camY;
-    const bw2 = (c2 - c1 - 1) * TILE_SIZE;
-    const bh2 = (r2 - r1 - 1) * TILE_SIZE;
-    const col = CHAMBER_COLORS[ch];
-    ctx.shadowColor = col;
-    ctx.shadowBlur = 22;
-    ctx.strokeStyle = col + '99';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(bx2, by2, bw2, bh2);
-    ctx.shadowBlur = 10;
-    ctx.strokeStyle = col + '44';
-    ctx.lineWidth = 8;
-    ctx.strokeRect(bx2, by2, bw2, bh2);
-    ctx.shadowBlur = 0;
-  }
-
-  // Hallway border lines — exposed long sides of each corridor (neutral glow)
-  // fillFloor zones: (9,20,11,30), (38,20,40,30), (20,9,30,11), (20,38,30,40)
-  const TS = TILE_SIZE;
-  const hallways: [number, number, number, number][] = [
-    [9, 20, 11, 30],   // top horizontal  (ALPHA ↔ BETA)
-    [38, 20, 40, 30],  // bottom horizontal (GAMMA ↔ DELTA)
-    [20, 9, 30, 11],   // left vertical   (ALPHA ↔ GAMMA)
-    [20, 38, 30, 40],  // right vertical  (BETA  ↔ DELTA)
-  ];
-  ctx.shadowColor = '#8899ff';
-  ctx.shadowBlur = 14;
-  ctx.strokeStyle = '#8899ff88';
-  ctx.lineWidth = 3;
-  for (const [hr1, hc1, hr2, hc2] of hallways) {
-    const isHoriz = (hr2 - hr1) < (hc2 - hc1);
-    if (isHoriz) {
-      // Top and bottom long edges
-      ctx.beginPath();
-      ctx.moveTo(hc1 * TS - camX, hr1 * TS - camY);
-      ctx.lineTo((hc2 + 1) * TS - camX, hr1 * TS - camY);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(hc1 * TS - camX, (hr2 + 1) * TS - camY);
-      ctx.lineTo((hc2 + 1) * TS - camX, (hr2 + 1) * TS - camY);
-      ctx.stroke();
-    } else {
-      // Left and right long edges
-      ctx.beginPath();
-      ctx.moveTo(hc1 * TS - camX, hr1 * TS - camY);
-      ctx.lineTo(hc1 * TS - camX, (hr2 + 1) * TS - camY);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo((hc2 + 1) * TS - camX, hr1 * TS - camY);
-      ctx.lineTo((hc2 + 1) * TS - camX, (hr2 + 1) * TS - camY);
-      ctx.stroke();
-    }
-  }
-  ctx.shadowBlur = 0;
-
-  // Tile range in view
-  const tx0 = Math.floor(camX / TILE_SIZE) - 1;
-  const ty0 = Math.floor(camY / TILE_SIZE) - 1;
-  const tx1 = Math.ceil((camX + viewW) / TILE_SIZE) + 1;
-  const ty1 = Math.ceil((camY + viewH) / TILE_SIZE) + 1;
-
-  // Tiles
-  for (let ty = ty0; ty <= ty1; ty++) {
-    for (let tx = tx0; tx <= tx1; tx++) {
-      if (tx < 0 || tx >= MAP_COLS || ty < 0 || ty >= MAP_ROWS) continue;
-      const tile = state.map[ty][tx];
-      const sx = tx * TILE_SIZE - camX;
-      const sy = ty * TILE_SIZE - camY;
-
-      if (tile === T_WALL) {
-        // Interior cover walls inside chambers get a distinct color
-        const wch = chamberOfTile(tx, ty);
-        if (wch >= 0) {
-          const [wr1, wc1, wr2, wc2] = CHAMBER_BOUNDS[wch];
-          if (ty > wr1 && ty < wr2 && tx > wc1 && tx < wc2) {
-            ctx.fillStyle = '#0f0f28';
-            ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
-            ctx.fillStyle = CHAMBER_COLORS[wch] + '22';
-            ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
-            ctx.strokeStyle = CHAMBER_COLORS[wch] + '55';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(sx + 0.5, sy + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
-          }
-        }
-        continue;
-      }
-
-      // Floor / hallway base
-      const ch = chamberOfTile(tx, ty);
-      if (ch >= 0) {
-        ctx.fillStyle = '#0d0d22';
-        ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
-        ctx.fillStyle = CHAMBER_COLORS[ch] + '10';
-        ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
-      } else {
-        ctx.fillStyle = '#0a0a1a';
-        ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
-      }
-      // Subtle grid border on every walkable tile
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-      ctx.lineWidth = 0.5;
-      ctx.strokeRect(sx + 0.5, sy + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
-
-      // Teleport pad
-      if (tile === T_TELEPORT) {
-        const tcol = ch >= 0 ? CHAMBER_COLORS[ch] : '#ffffff';
-        const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.04 + ch));
-        ctx.fillStyle = tcol + '33';
-        ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
-        ctx.shadowColor = tcol;
-        ctx.shadowBlur = 14 * pulse;
-        ctx.strokeStyle = tcol;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(sx + 1, sy + 1, TILE_SIZE - 2, TILE_SIZE - 2);
-        ctx.shadowBlur = 0;
-        // Blocky diamond symbol - blinking pulse
-        const blinkPulse = Math.pow(Math.abs(Math.sin(tickN * 0.08 + ch * 2)), 8);
-        ctx.shadowColor = tcol;
-        ctx.shadowBlur = Math.floor(16 * blinkPulse);
-        const diaSize = Math.floor(TILE_SIZE * (0.15 + 0.45 * blinkPulse));
-        drawPixelDiamond(ctx, sx + TILE_SIZE / 2, sy + TILE_SIZE / 2, diaSize, tcol);
-        ctx.shadowBlur = 0;
-      }
-
-      // Frost Warden ice tile — blocky icy tint + crack pattern, freezes the player on step
-      if (state.frostIceTiles.some(([itx, ity]) => itx === tx && ity === ty)) {
-        const icePulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.06));
-        ctx.shadowColor = '#aaeeff'; ctx.shadowBlur = Math.floor(10 * icePulse);
-        ctx.fillStyle = `rgba(170,238,255,${0.4 * icePulse})`;
-        ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = `rgba(255,255,255,${0.7 * icePulse})`;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(sx + 2, sy + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-        ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(sx + TILE_SIZE * 0.2, sy + TILE_SIZE * 0.5); ctx.lineTo(sx + TILE_SIZE * 0.8, sy + TILE_SIZE * 0.5);
-        ctx.moveTo(sx + TILE_SIZE * 0.5, sy + TILE_SIZE * 0.2); ctx.lineTo(sx + TILE_SIZE * 0.5, sy + TILE_SIZE * 0.8);
-        ctx.stroke();
-      }
-    }
-  }
+  drawBattlefield(ctx,state,camX,camY,viewW,viewH,tickN);
+  drawReaperHallwaySeal(ctx,state,camX,camY,tickN);
 
   // Frost Warden chill field — persistent icy wash + frosty border over whichever chamber
   // she currently occupies, so the chill debuff is visible, not just felt
@@ -2263,6 +3346,73 @@ function drawGame(
     }
   }
 
+  drawThornGround(ctx, state, camX, camY, tickN);
+  if(state.singularity){
+    const field=state.singularity,x=field.x-camX,y=field.y-camY,fade=Math.min(1,field.ticks/90);
+    ctx.save();ctx.shadowBlur=0;
+    const radius=SPECIAL_SINGULARITY_RADIUS/TILE_SIZE,centerX=Math.floor(field.x/TILE_SIZE),centerY=Math.floor(field.y/TILE_SIZE);
+    const affected=(dx:number,dy:number)=>Math.hypot(dx,dy)<=radius && (state.map[centerY+dy]?.[centerX+dx]??T_WALL)!==T_WALL;
+    for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
+      if(!affected(dx,dy))continue;
+      const tx=(centerX+dx)*TILE_SIZE-camX,ty=(centerY+dy)*TILE_SIZE-camY;
+      ctx.globalAlpha=fade*(.09+.025*Math.abs(Math.sin(tickN*.04)));ctx.fillStyle='#b1b1c1';ctx.fillRect(tx+1,ty+1,TILE_SIZE-2,TILE_SIZE-2);
+      const pulse=.5+.5*Math.sin(tickN*.065-(Math.abs(dx)+Math.abs(dy))*.9);
+      ctx.globalAlpha=fade*(.4+pulse*.25);ctx.fillStyle='#a1a1b1';
+      if(!affected(dx-1,dy))ctx.fillRect(tx,ty,4,TILE_SIZE);
+      if(!affected(dx+1,dy))ctx.fillRect(tx+TILE_SIZE-4,ty,4,TILE_SIZE);
+      if(!affected(dx,dy-1))ctx.fillRect(tx,ty,TILE_SIZE,4);
+      if(!affected(dx,dy+1))ctx.fillRect(tx,ty+TILE_SIZE-4,TILE_SIZE,4);
+    }
+    ctx.restore();
+    ctx.save();ctx.translate(x,y);ctx.shadowBlur=0;
+    ctx.globalAlpha=fade;drawCelestialCast(ctx,'devourer',0,0,0,tickN);
+    for(let i=0;i<16;i++){
+      const life=((tickN+i*19)%100)/100,angle=i*2.4-life*3,r=20+(1-life)*SPECIAL_SINGULARITY_RADIUS;
+      ctx.globalAlpha=fade*Math.sin(life*Math.PI)*.65;ctx.fillStyle=i%4?'#494952':'#aaaab3';
+      ctx.fillRect(Math.round(Math.cos(angle)*r/3)*3,Math.round(Math.sin(angle)*r*.65/3)*3,6,6);
+    }
+    ctx.shadowColor='#b7b7d6';ctx.shadowBlur=6;
+    for(let i=0;i<8;i++){
+      const angle=i*Math.PI/4,life=((tickN+i*13)%96)/96,distance=35+(1-life)*(SPECIAL_SINGULARITY_RADIUS-55),dx=Math.cos(angle),dy=Math.sin(angle);
+      ctx.globalAlpha=fade*Math.sin(life*Math.PI)*.65;
+      drawEnergyPixelRay(ctx,Math.round(dx*distance/3)*3,Math.round(dy*distance/3)*3,-dx,-dy,i%2?'#88889e':'#d9d9eb',.8);
+    }
+    ctx.restore();
+  }
+  if(state.celestialField){
+    const field=state.celestialField,r=SPECIAL_WEAVER_RADIUS,x=field.x-camX,y=field.y-camY;
+    ctx.save();ctx.shadowBlur=0;
+    const fade=Math.min(1,field.ticks/90),left=(field.x-r)/TILE_SIZE,top=(field.y-r)/TILE_SIZE,side=r*2/TILE_SIZE;
+    const affected=(tx:number,ty:number)=>tx>=left&&tx<left+side&&ty>=top&&ty<top+side&&(state.map[ty]?.[tx]??T_WALL)!==T_WALL;
+    for(let ty=top;ty<top+side;ty++)for(let tx=left;tx<left+side;tx++){
+      if(!affected(tx,ty))continue;
+      const px=Math.round(tx*TILE_SIZE-camX),py=Math.round(ty*TILE_SIZE-camY);
+      const pulse=.5+.5*Math.sin(tickN*.065-(Math.abs(tx-left-(side-1)/2)+Math.abs(ty-top-(side-1)/2))*.9);
+      ctx.globalAlpha=fade*(.07+pulse*.07);ctx.fillStyle=(tx+ty)%2?'#83c965':'#b0e582';ctx.fillRect(px,py,TILE_SIZE,TILE_SIZE);
+      ctx.globalAlpha=fade*(.4+pulse*.25);ctx.fillStyle='#a8e77b';
+      if(!affected(tx-1,ty))ctx.fillRect(px,py,4,TILE_SIZE);
+      if(!affected(tx+1,ty))ctx.fillRect(px+TILE_SIZE-4,py,4,TILE_SIZE);
+      if(!affected(tx,ty-1))ctx.fillRect(px,py,TILE_SIZE,4);
+      if(!affected(tx,ty+1))ctx.fillRect(px,py+TILE_SIZE-4,TILE_SIZE,4);
+      if((tx+ty)%3===0){
+        const growth=.5+.5*Math.sin(tickN*.05+tx*2+ty),cx=px+TILE_SIZE/2,cy=py+TILE_SIZE/2;
+        ctx.globalAlpha=fade*(.15+growth*.22);ctx.fillStyle='#c8efa5';
+        ctx.fillRect(cx-2,cy-6,4,14);ctx.fillRect(cx-8,cy-5,6,4);ctx.fillRect(cx+2,cy,6,4);
+      }
+    }
+    const directions=[[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+    ctx.shadowColor='#8bcd65';ctx.shadowBlur=8;
+    for(let i=0;i<8;i++)for(let shard=0;shard<2;shard++){
+      const [dx,dy]=directions[i],life=((tickN+i*9+shard*48)%96)/96;
+      const distance=18+Math.floor(life*((r-30)/6))*6,px=Math.round(x+dx*distance),py=Math.round(y+dy*distance);
+      if(!affected(Math.floor((px+camX)/TILE_SIZE),Math.floor((py+camY)/TILE_SIZE)))continue;
+      ctx.globalAlpha=fade*(1-life)*.75;
+      drawEnergyPixelRay(ctx,px,py,dx,dy,shard?'#e4fac8':'#8bcd65',1.5);
+    }
+    ctx.restore();
+  }
+
+
   // Meteorite warning: flash chamber on main canvas
   if (state.meteoriteWarning >= 0) {
     const pulse = Math.floor(tickN / 8) % 2 === 0;
@@ -2273,7 +3423,7 @@ function drawGame(
         (c2 - c1 + 1) * TILE_SIZE, (r2 - r1 + 1) * TILE_SIZE);
       // Chamber border flash
       ctx.strokeStyle = 'rgba(255,80,0,0.7)';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4;
       ctx.strokeRect(c1 * TILE_SIZE - camX + 1, r1 * TILE_SIZE - camY + 1,
         (c2 - c1 + 1) * TILE_SIZE - 2, (r2 - r1 + 1) * TILE_SIZE - 2);
     }
@@ -2288,13 +3438,12 @@ function drawGame(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const warning = Math.ceil(state.meteoriteStrikeIn / 60);
-    ctx.fillText(`☄ INCOMING! ${warning}s`, cx2, cy2 - 20);
+    ctx.fillText(`INCOMING! ${warning}s`, cx2, cy2 - 20);
     ctx.fillText(CHAMBER_LABELS[state.meteoriteWarning], cx2, cy2 + 10);
     ctx.shadowBlur = 0;
 
     // GIGANTIC falling meteor — grows from tiny dot to nearly chamber-sized
     const strikeProg = 1 - state.meteoriteStrikeIn / METEORITE_WARNING;
-    const chamW = (c2 - c1 - 1) * TILE_SIZE;
     // meteor grows from 2 tiles to 11 tiles wide as it falls
     const metSz = Math.floor(TILE_SIZE * (2 + 9 * strikeProg));
     const startY = (r1 - 1) * TILE_SIZE - camY - metSz;
@@ -2302,65 +3451,13 @@ function drawGame(
     const metY = Math.round(startY + (endY - startY) * strikeProg);
     const metX = Math.round(cx2);
     if (metY < endY) {
-      const tailH = Math.min(viewH, metSz * 3);
-      const tailW = Math.max(4, Math.floor(metSz * 0.55));
-      // Fire tail stretching above
-      const tailAlpha = 0.35 + 0.3 * strikeProg;
-      ctx.globalAlpha = tailAlpha;
-      ctx.fillStyle = '#ff4400';
-      ctx.fillRect(metX - tailW / 2, metY - tailH, tailW, tailH);
-      ctx.globalAlpha = tailAlpha * 0.5;
-      ctx.fillStyle = '#ff8800';
-      ctx.fillRect(metX - tailW * 0.35, metY - tailH * 0.7, tailW * 0.7, tailH * 0.7);
-      ctx.globalAlpha = 1;
-      // Main meteor body
-      ctx.shadowColor = '#ff3300';
-      ctx.shadowBlur = 40 + Math.floor(strikeProg * 40);
-      ctx.fillStyle = '#cc2200';
-      ctx.fillRect(metX - metSz / 2, metY - metSz / 2, metSz, metSz);
-      // Cracked inner detail
-      const ip = Math.max(4, Math.floor(metSz * 0.12));
-      ctx.fillStyle = '#661100';
-      ctx.fillRect(metX - metSz / 2 + ip, metY - metSz / 2 + ip, metSz - ip * 2, metSz - ip * 2);
-      ctx.fillStyle = '#ff6600';
-      ctx.fillRect(metX - ip / 2, metY - metSz / 2 + ip, ip, metSz - ip * 2); // vertical crack
-      ctx.shadowBlur = 0;
-      // Small debris pieces
-      for (let d = 0; d < 3; d++) {
-        const dSz = Math.floor(metSz * (0.15 + d * 0.08));
-        const dox = [- chamW * 0.28, chamW * 0.22, -chamW * 0.12][d];
-        const doy = [-metSz * 0.8, -metSz * 1.2, -metSz * 0.5][d];
-        ctx.fillStyle = '#ff4400';
-        ctx.fillRect(Math.round(metX + dox - dSz / 2), Math.round(metY + doy - dSz / 2), dSz, dSz);
-      }
+      drawMeteor(ctx,metX,metY,metSz,strikeProg,tickN);
     }
   }
 
-  // Resources
-  for (const r of state.resources) {
-    const sx = r.tileX * TILE_SIZE - camX + TILE_SIZE / 2;
-    const sy = r.tileY * TILE_SIZE - camY + TILE_SIZE / 2;
-    const pulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.07 + r.tileX));
-    if (r.type === 'health') {
-      ctx.shadowColor = '#ff3355';
-      ctx.shadowBlur = 18 * pulse;
-      ctx.fillStyle = '#ff4466';
-      const hcw = Math.floor(TILE_SIZE * 0.58), hch = Math.floor(TILE_SIZE * 0.22);
-      ctx.fillRect(sx - hcw / 2, sy - hch / 2, hcw, hch); // horizontal
-      ctx.fillRect(sx - hch / 2, sy - hcw / 2, hch, hcw); // vertical
-      // Bright center dot
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(sx - 2, sy - 2, 4, 4);
-    } else {
-      ctx.shadowColor = '#4488ff';
-      ctx.shadowBlur = 18 * pulse;
-      const boltSz = Math.floor(TILE_SIZE * 0.72);
-      drawPixelBolt(ctx, sx, sy, boltSz, '#66aaff');
-      // Highlight core
-      ctx.shadowBlur = 8;
-      drawPixelBolt(ctx, sx, sy, boltSz, '#bbddff');
-    }
-    ctx.shadowBlur = 0;
+  // Resource bodies stay sharp; only isolated glints glow.
+  for(const resource of state.resources){
+    drawResourcePickup(ctx,(resource.tileX+.5)*TILE_SIZE-camX,(resource.tileY+.5)*TILE_SIZE-camY,resource.type==='health',tickN+resource.tileX);
   }
 
   // Placed bomb
@@ -2369,6 +3466,8 @@ function drawGame(
     const bsy = state.bomb.tileY * TILE_SIZE - camY;
     // Highlight all the area that bomb can affect
     const radiusTiles = state.bomb.powered ? BOMB_RADIUS_PWR : BOMB_RADIUS;
+    const inRange=(dx:number,dy:number)=>Math.hypot(dx,dy)<=radiusTiles;
+    ctx.save();ctx.shadowBlur=0;
     ctx.fillStyle = (state.bomb.powered ? '#ffcc00' : '#ff6600') + '22';
     for (let dy = -radiusTiles; dy <= radiusTiles; dy++) {
       for (let dx = -radiusTiles; dx <= radiusTiles; dx++) {
@@ -2379,57 +3478,19 @@ function drawGame(
         }
       }
     }
-
-    // Bomb body — completely blocky like ruby core
-    const bombCol = state.bomb.powered ? '#ffcc00' : '#ff6600';
-    const innerCol = state.bomb.powered ? '#885500' : '#883300';
-    const bodyW = Math.floor(TILE_SIZE * 0.45);
-    const bodyCX = Math.round(bsx + TILE_SIZE / 2);
-    const bodyCY = Math.round(bsy + TILE_SIZE / 2 + TILE_SIZE * 0.06);
-    const bw = bodyW * 1.5;
-
-    // Colored outline
-    ctx.shadowColor = bombCol;
-    ctx.shadowBlur = 6;
-    ctx.fillStyle = bombCol;
-    ctx.fillRect(bodyCX - bw / 2 - 2, bodyCY - bw / 2 - 2, bw + 4, bw + 4);
-    ctx.shadowBlur = 0;
-
-    // Dark orangeish fill
-    ctx.fillStyle = innerCol;
-    ctx.fillRect(bodyCX - bw / 2 + 2, bodyCY - bw / 2 + 2, bw - 4, bw - 4);
-
-    // Highlight corner
-    ctx.fillStyle = state.bomb.powered ? '#ffeedd' : '#ffbb88';
-    ctx.fillRect(bodyCX - bw / 2 + 5, bodyCY - bw / 2 + 5, 3, 3);
-    // Fuse rope (line from top of circle to spark)
-    const fuseX = bodyCX + Math.floor(bodyW * 0.22);
-    const fuseTopY = Math.round(bodyCY - bodyW / 2 - Math.floor(TILE_SIZE * 0.18));
-    const fuseBottomY = Math.round(bodyCY - bodyW / 2);
-    ctx.fillStyle = '#997744';
-    ctx.fillRect(fuseX, fuseTopY, 2, fuseBottomY - fuseTopY);
-    // Spark dot
-    const sparkOn = Math.floor(tickN * 0.2) % 2 === 0;
-    ctx.shadowColor = bombCol;
-    ctx.shadowBlur = sparkOn ? 12 : 0;
-    ctx.fillStyle = sparkOn ? '#ffffff' : bombCol;
-    ctx.fillRect(fuseX - 1, fuseTopY - 3, 4, 4);
-    ctx.shadowBlur = 0;
-    // 7-pointed star inside body
-    ctx.fillStyle = bombCol;
-    ctx.beginPath();
-    const starOuter = bodyW * 0.4;
-    const starInner = bodyW * 0.18;
-    for (let i = 0; i < 14; i++) {
-      const radius = i % 2 === 0 ? starOuter : starInner;
-      const angle = (i * Math.PI) / 7 - Math.PI / 2;
-      const x = bodyCX + radius * Math.cos(angle);
-      const y = bodyCY + radius * Math.sin(angle);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    ctx.globalAlpha=.6+.15*Math.abs(Math.sin(tickN*.06));
+    ctx.fillStyle=state.bomb.powered?'#edc75b':'#ee925b';
+    for(let dy=-radiusTiles;dy<=radiusTiles;dy++)for(let dx=-radiusTiles;dx<=radiusTiles;dx++){
+      if(!inRange(dx,dy))continue;
+      const px=Math.round(bsx+dx*TILE_SIZE),py=Math.round(bsy+dy*TILE_SIZE);
+      if(!inRange(dx-1,dy))ctx.fillRect(px,py,4,TILE_SIZE);
+      if(!inRange(dx+1,dy))ctx.fillRect(px+TILE_SIZE-4,py,4,TILE_SIZE);
+      if(!inRange(dx,dy-1))ctx.fillRect(px,py,TILE_SIZE,4);
+      if(!inRange(dx,dy+1))ctx.fillRect(px,py+TILE_SIZE-4,TILE_SIZE,4);
     }
-    ctx.closePath();
-    ctx.fill();
+    ctx.restore();
+
+    drawBombDevice(ctx,bsx+TILE_SIZE/2,bsy+TILE_SIZE/2,state.bomb.powered,tickN);
   }
 
   // Ruby (placed)
@@ -2437,6 +3498,14 @@ function drawGame(
     const rsx = state.rubyTileX * TILE_SIZE - camX + TILE_SIZE / 2;
     const rsy = state.rubyTileY * TILE_SIZE - camY + TILE_SIZE / 2;
     drawRubyGem(ctx, rsx, rsy, tickN);
+    if(state.rubyPlacedFlashTicks>0){
+      const progress=1-state.rubyPlacedFlashTicks/120,half=25+Math.floor(progress*5)*3;
+      ctx.save();ctx.globalAlpha=(1-progress)*.8;ctx.strokeStyle='#ff88ad';ctx.lineWidth=3;
+      ctx.shadowColor='#ff3366';ctx.shadowBlur=8;ctx.strokeRect(rsx-half,rsy-half,half*2,half*2);
+      ctx.shadowBlur=0;ctx.fillStyle='#ffe4ed';
+      for(const dx of [-1,1])for(const dy of [-1,1])ctx.fillRect(rsx+dx*half-3,rsy+dy*half-3,6,6);
+      ctx.restore();
+    }
     // Ruby HP bar
     const barW = TILE_SIZE - 2;
     const bx = rsx - barW / 2;
@@ -2446,6 +3515,10 @@ function drawGame(
     const pct = state.rubyHP / RUBY_MAX_HP;
     ctx.fillStyle = pct > 0.5 ? '#ff1155' : pct > 0.25 ? '#ff6622' : '#ff3300';
     ctx.fillRect(bx, by, barW * pct, 4);
+    if (state.rubyShieldHP > 0) {
+      if(state.rubySaturnShield)drawSaturnShield(ctx,rsx,rsy,TILE_SIZE*.7,tickN);
+      else drawRewardShield(ctx, rsx, rsy, TILE_SIZE * 0.7, tickN, '#00ddcc');
+    }
   }
 
   // Enemies
@@ -2472,141 +3545,20 @@ function drawGame(
   ctx.shadowBlur = 0;
   ctx.globalAlpha = 1;
 
-  // Enemy attack lasers — drawn after enemies, over them
-  for (const e of state.enemies) {
-    if (e.shootTicks <= 0) continue;
-    const alpha = e.shootTicks / 14;
-    const exs = e.x - camX;
-    const eys = e.y - camY;
-    const tgtX = e.targeting === 'ruby' && state.rubyTileX !== -1
-      ? state.rubyTileX * TILE_SIZE + TILE_SIZE / 2 - camX
-      : state.playerX - camX;
-    const tgtY = e.targeting === 'ruby' && state.rubyTileX !== -1
-      ? state.rubyTileY * TILE_SIZE + TILE_SIZE / 2 - camY
-      : state.playerY - camY;
-    const ecol = ENEMY_CONFIGS[e.type].color;
+  // Ordinary attacks only: each boss has a dedicated beam, strike, wave or field.
+  for(const enemy of state.enemies){
+    if(enemy.shootTicks<=0||isBossType(enemy.type)||enemy.type==='queen_echo')continue;
+    const x=enemy.x-camX,y=enemy.y-camY;
+    const targetX=enemy.targeting==='ruby'&&state.rubyTileX!==-1?(state.rubyTileX+.5)*TILE_SIZE-camX:(state.lunarDecoy?.x??state.playerX)-camX;
+    const targetY=enemy.targeting==='ruby'&&state.rubyTileY!==-1?(state.rubyTileY+.5)*TILE_SIZE-camY:(state.lunarDecoy?.y??state.playerY)-camY;
+    drawMobAttack(ctx,enemy.type,x,y,targetX,targetY,enemy.shootTicks,ENEMY_CONFIGS[enemy.type].color);
+  }
 
-    if (e.type === 'ghost') {
-      const t = 1 - (e.shootTicks / 14); // 0 to 1 progress
-      const dx = tgtX - exs;
-      const dy = tgtY - eys;
-      const totalLen = Math.sqrt(dx * dx + dy * dy) || 1;
-      const nx = dx / totalLen;
-      const ny = dy / totalLen;
-
-      const traveled = t * totalLen;
-      const bx = exs + nx * traveled; // front of bullet
-      const by = eys + ny * traveled;
-
-      const maxTailLen = TILE_SIZE * 0.4; // much shorter tail
-      const tailLen = Math.min(maxTailLen, traveled);
-
-      const startX = bx - nx * tailLen;
-      const startY = by - ny * tailLen;
-      const endX = bx;
-      const endY = by;
-
-      const size = Math.max(2, Math.floor(TILE_SIZE * 0.15)); // smaller bullet
-
-      ctx.globalAlpha = 0.8;
-      ctx.shadowColor = ecol;
-      ctx.shadowBlur = 16;
-      ctx.strokeStyle = ecol;
-      ctx.lineWidth = size;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(endX, endY);
-      ctx.stroke();
-
-      ctx.globalAlpha = 1;
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = size * 0.4;
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.lineTo(endX, endY);
-      ctx.stroke();
-
-      ctx.lineCap = 'butt';
-    } else if (e.type === 'splitter' || e.type === 'armored') {
-      const t = 1 - (e.shootTicks / 14); // 0 to 1 progress
-      const dx = tgtX - exs;
-      const dy = tgtY - eys;
-      const totalLen = Math.sqrt(dx * dx + dy * dy) || 1;
-      const nx = dx / totalLen;
-      const ny = dy / totalLen;
-
-      const traveled = t * totalLen;
-      const bx = exs + nx * traveled; // center of ball
-      const by = eys + ny * traveled;
-
-      const ballRadius = Math.max(4, Math.floor(TILE_SIZE * 0.22));
-
-      ctx.globalAlpha = 0.85;
-      ctx.shadowColor = ecol;
-      ctx.shadowBlur = 16;
-      ctx.fillStyle = ecol;
-      ctx.beginPath();
-      ctx.arc(bx, by, ballRadius, 0, 2 * Math.PI);
-      ctx.fill();
-
-      ctx.globalAlpha = 1;
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(bx, by, ballRadius * 0.45, 0, 2 * Math.PI);
-      ctx.fill();
-    } else if (e.type === 'normal' || e.type === 'mini_splitter') {
-      const alpha = e.shootTicks / 14;
-      const progress = 1 - alpha; // 0 to 1
-      const angle = Math.atan2(tgtY - eys, tgtX - exs);
-      const sweepRadius = TILE_SIZE * 0.4 + (TILE_SIZE * 0.8 * progress); // expands outward
-      const arcSpread = Math.PI * 0.6; // 108 degrees wide
-
-      ctx.globalAlpha = alpha * 0.9;
-      ctx.shadowColor = ecol;
-      ctx.shadowBlur = 12;
-      ctx.strokeStyle = ecol;
-      ctx.lineWidth = Math.max(3, TILE_SIZE * 0.25 * alpha);
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.arc(exs, eys, sweepRadius, angle - arcSpread / 2, angle + arcSpread / 2);
-      ctx.stroke();
-
-      ctx.globalAlpha = alpha;
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(1, TILE_SIZE * 0.08 * alpha);
-      ctx.beginPath();
-      ctx.arc(exs, eys, sweepRadius, angle - arcSpread / 2, angle + arcSpread / 2);
-      ctx.stroke();
-
-      // Fix: reset alpha and line cap
-      ctx.globalAlpha = 1;
-      ctx.lineCap = 'butt';
-    } else {
-      ctx.globalAlpha = alpha * 0.75;
-      ctx.shadowColor = ecol;
-      ctx.shadowBlur = 16;
-      ctx.strokeStyle = ecol;
-      ctx.lineWidth = Math.max(4, Math.floor(TILE_SIZE * 0.22));
-      ctx.lineCap = 'square';
-      ctx.beginPath();
-      ctx.moveTo(exs, eys);
-      ctx.lineTo(tgtX, tgtY);
-      ctx.stroke();
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(exs, eys);
-      ctx.lineTo(tgtX, tgtY);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = 1;
-      ctx.lineCap = 'butt';
-    }
+  if(state.lunarDecoy){
+    const decoy=state.lunarDecoy,x=decoy.x-camX,y=decoy.y-camY;
+    ctx.save();ctx.globalAlpha=decoy.flashTicks>0?.95:decoy.invulnerableTicks>0?.5+.2*Math.abs(Math.sin(tickN*.7)):.8;
+    drawPlayer(ctx,x,y,{...state,specialSkill:'splitter_queen',playerCastTicks:0,playerCastKind:null,runnerEnergyFlashTicks:0,starEnergy:0,poweredTicks:0,speedActiveTicks:0,playerCarryingRuby:false,playerShieldHP:0,laserCooldown:0,bulletCooldown:0,electricBuffTicks:0,thornPoisonTicks:0,seaHealingDebuffTicks:0},tickN);
+    ctx.restore();ctx.save();ctx.shadowBlur=0;ctx.fillStyle='#39214e';ctx.fillRect(x-23,y-35,46,4);ctx.fillStyle='#b278f3';ctx.fillRect(x-23,y-35,46*decoy.hitsLeft/decoy.maxHits,4);ctx.restore();
   }
 
   // Player
@@ -2616,6 +3568,10 @@ function drawGame(
   const psx = state.playerX - camX + jiggle;
   const psy = state.playerY - camY;
   drawPlayer(ctx, psx, psy, state, tickN, chargingMs);
+  drawRewardPulses(ctx, state, camX, camY);
+  drawPrayerRitual(ctx, state, camX, camY, tickN);
+  drawPrayerMagic(ctx, state, camX, camY, tickN);
+  drawSeaSongEffects(ctx, state, camX, camY, tickN);
 
   // Frozen by a Frost Warden ice tile — blocky ice-block overlay encasing the player
   if (state.playerFrozenTicks > 0) {
@@ -2634,401 +3590,104 @@ function drawGame(
     ctx.restore();
   }
 
-  // Laser bullets
-  for (const b of state.laserBullets || []) {
-    const shadowCol = b.powered ? '#ffaa00' : '#00ffff';
-    const strokeOut = b.powered ? '#ffcc00' : '#44ddff';
-    const strokeIn = b.powered ? '#ffee88' : '#aaffff';
-
-    const cx = b.x * TILE_SIZE - camX;
-    const cy = b.y * TILE_SIZE - camY;
-
-    // Streak from previous position to slightly ahead
-    const len = Math.sqrt(b.dx * b.dx + b.dy * b.dy) || 1;
-    const nx = b.dx / len;
-    const ny = b.dy / len;
-    const maxTailLen = TILE_SIZE * 1.5;
-    const traveled = b.ticks * BULLET_SPEED * TILE_SIZE;
-    const tailLen = Math.min(maxTailLen, traveled);
-
-    const startX = cx - nx * tailLen;
-    const startY = cy - ny * tailLen;
-    const endX = cx + nx * TILE_SIZE * 0.4;
-    const endY = cy + ny * TILE_SIZE * 0.4;
-
-    const size = b.powered ? 24 : 12;
-
-    // Outermost soft glow
-    ctx.globalAlpha = 0.4;
-    ctx.shadowColor = shadowCol;
-    ctx.shadowBlur = 25;
-    ctx.strokeStyle = shadowCol;
-    ctx.lineWidth = size * 1.8;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    // Outer bright layer
-    ctx.globalAlpha = 0.8;
-    ctx.shadowBlur = 12;
-    ctx.strokeStyle = strokeOut;
-    ctx.lineWidth = size;
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    // Inner bright core
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = strokeIn;
-    ctx.lineWidth = size * 0.4;
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
+  // Player bullets use the same crisp pixel vocabulary as celestial effects.
+  for(const bullet of state.laserBullets || []){
+    drawPlayerBullet(ctx,bullet.x*TILE_SIZE-camX,bullet.y*TILE_SIZE-camY,bullet.dx,bullet.dy,bullet.powered,bullet.ticks);
   }
 
-  // Lightning arcs — chain from sniper kill
-  for (const arc of state.lightningArcs) {
-    const progress = arc.ticks / 22;
-    ctx.globalAlpha = progress * 0.9;
-    ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 14;
-    ctx.strokeStyle = '#ffffaa'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(arc.fromX - camX, arc.fromY - camY);
-    // Zigzag midpoint for electric look
-    const midX = (arc.fromX + arc.toX) / 2 - camX + (Math.random() - 0.5) * 16;
-    const midY = (arc.fromY + arc.toY) / 2 - camY + (Math.random() - 0.5) * 16;
-    ctx.lineTo(midX, midY);
-    ctx.lineTo(arc.toX - camX, arc.toY - camY);
-    ctx.stroke();
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(arc.fromX - camX, arc.fromY - camY);
-    ctx.lineTo(midX, midY);
-    ctx.lineTo(arc.toX - camX, arc.toY - camY);
-    ctx.stroke();
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  // Player electric buff chains have stable pixel steps and pale cores.
+  for(const arc of state.lightningArcs){
+    drawPlayerChain(ctx,arc.fromX-camX,arc.fromY-camY,arc.toX-camX,arc.toY-camY,arc.ticks);
   }
 
-  // Storm Reaper's melee strike — a big double electric slash (X-cut), not a laser beam
-  for (const slash of state.slashEffects) {
-    const progress = slash.ticks / slash.maxTicks; // 1 -> 0
-    const sxp = slash.x - camX, syp = slash.y - camY;
-    const radius = TILE_SIZE * (0.9 + 0.65 * (1 - progress)); // swipes outward as it fades
-    const arcSpan = 1.5; // radians of the crescent
-
-    ctx.save();
-    ctx.translate(sxp, syp);
-    ctx.globalAlpha = progress;
-
-    // Impact flash — bright burst at the moment of the hit, gone within a couple ticks
-    if (progress > 0.82) {
-      const flashT = (progress - 0.82) / 0.18; // 1 -> 0 fast
-      ctx.globalAlpha = flashT;
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 30;
-      ctx.beginPath();
-      ctx.arc(0, 0, TILE_SIZE * 0.7 * flashT, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = progress;
-    }
-
-    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = 20;
-
-    // Two crossed crescents (X-slash) for a bigger, more dramatic hit than a single swipe
-    for (const rot of [slash.angle - 0.35, slash.angle + 0.35]) {
-      ctx.save();
-      ctx.rotate(rot);
-      ctx.strokeStyle = '#00c8e0'; ctx.lineWidth = 10; ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.arc(0, 0, radius, -arcSpan / 2, arcSpan / 2);
-      ctx.stroke();
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius, -arcSpan / 2, arcSpan / 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Forking electric bolts jutting off the slash — denser spray than before
-    ctx.save();
-    ctx.rotate(slash.angle);
-    ctx.strokeStyle = '#aefcff'; ctx.lineWidth = 1.5;
-    for (const t of [-0.7, -0.45, -0.2, 0.05, 0.3, 0.55]) {
-      const bx = Math.cos(t) * radius, by = Math.sin(t) * radius;
-      const forkLen = 10 + Math.random() * 6;
-      ctx.beginPath();
-      ctx.moveTo(bx, by);
-      ctx.lineTo(bx + Math.cos(t) * forkLen + (Math.random() - 0.5) * 10, by + Math.sin(t) * forkLen + (Math.random() - 0.5) * 10);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
-    ctx.restore();
+  // Storm Reaper melee: crisp stepped lightning cuts replace curved crescents.
+  for(const slash of state.slashEffects){
+    drawStormReaperStrike(ctx,slash.x-camX,slash.y-camY,slash.angle,slash.ticks/slash.maxTicks);
   }
 
   // Laser beams — player=cyan, powered=gold, sniper=red, boss=dark red
   for (const beam of state.laserBeams) {
-    const isEnemy = !!beam.color;
-    const isBossLaser = beam.color === '#cc0022';
-    const isQueenLaser = beam.color === '#cc33ff' || beam.color === '#dd88ff';
-    const isDevourerLaser = beam.color === '#6b2fa8';
-    const isFrostLaser = beam.color === '#aaeeff';
-    const maxTicks = isEnemy ? 22 : 18;
-    const alpha = beam.ticks / maxTicks;
-    const shadowCol = isBossLaser ? '#ff6600' : isQueenLaser ? '#dd44ff' : isDevourerLaser ? '#88ff44' : isFrostLaser ? '#aaeeff' : isEnemy ? '#ff2200' : beam.powered ? '#ffaa00' : '#00ffff';
-    const strokeOut = isBossLaser ? '#cc2200' : isQueenLaser ? '#cc33ff' : isDevourerLaser ? '#6b2fa8' : isFrostLaser ? '#66ccff' : isEnemy ? '#ff4400' : beam.powered ? '#ffcc00' : '#44ddff';
-    const strokeIn = isBossLaser ? '#ff8800' : isQueenLaser ? '#ee99ff' : isDevourerLaser ? '#88ff44' : isFrostLaser ? '#cceeff' : isEnemy ? '#ff8844' : beam.powered ? '#ffee88' : '#aaffff';
-    const coreCol = isBossLaser ? '#ffee88' : isDevourerLaser ? '#c8ff88' : '#ffffff';
-
-    // Boss laser flickers like a guttering flame column; Queen laser shimmers like arcane current
-    const fireFlicker = isBossLaser ? 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.7)) : 1;
-    const queenShimmer = isQueenLaser ? 0.75 + 0.25 * Math.abs(Math.sin(tickN * 0.35)) : 1;
-
-    const outerW = isBossLaser ? Math.floor(TILE_SIZE * 1.2 * fireFlicker) : isDevourerLaser ? Math.floor(TILE_SIZE * 0.5) : isFrostLaser ? Math.floor(TILE_SIZE * 0.7) : isEnemy ? Math.max(4, Math.floor(TILE_SIZE * 0.25)) : TILE_SIZE;
-    const innerW = isBossLaser ? Math.floor(TILE_SIZE * 0.6 * fireFlicker) : isDevourerLaser ? Math.floor(TILE_SIZE * 0.3) : isFrostLaser ? Math.floor(TILE_SIZE * 0.4) : Math.max(4, Math.floor(TILE_SIZE * 0.35));
-    const coreW = isBossLaser ? 4 : isDevourerLaser ? 3 : isFrostLaser ? 4 : 2;
-
-    ctx.lineCap = 'square';
-    ctx.globalAlpha = alpha * 0.45 * fireFlicker * queenShimmer;
-    ctx.shadowColor = shadowCol;
-    ctx.shadowBlur = isBossLaser ? Math.floor(32 * fireFlicker) : 18;
-    ctx.strokeStyle = strokeOut;
-    ctx.lineWidth = outerW;
-    ctx.beginPath();
-    ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
-    ctx.lineTo(beam.endX - camX, beam.endY - camY);
-    ctx.stroke();
-
-    ctx.globalAlpha = alpha * 0.85 * fireFlicker;
-    ctx.strokeStyle = strokeIn;
-    ctx.lineWidth = innerW;
-    ctx.beginPath();
-    ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
-    ctx.lineTo(beam.endX - camX, beam.endY - camY);
-    ctx.stroke();
-
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = coreCol;
-    ctx.lineWidth = coreW;
-    ctx.beginPath();
-    ctx.moveTo(beam.fromX - camX, beam.fromY - camY);
-    ctx.lineTo(beam.endX - camX, beam.endY - camY);
-    ctx.stroke();
-
-    // Arcane ripple — a shimmering wavy line riding alongside the Queen's bolt (heat-shimmer,
-    // but magical): several short zigzag segments offset by a traveling sine wave
-    if (isQueenLaser) {
-      const rdx = beam.endX - beam.fromX, rdy = beam.endY - beam.fromY;
-      const rlen = Math.sqrt(rdx * rdx + rdy * rdy) || 1;
-      const rnx = -rdy / rlen, rny = rdx / rlen;
-      ctx.globalAlpha = alpha * 0.5 * queenShimmer;
-      ctx.strokeStyle = '#ffccff';
-      ctx.lineWidth = 1.5;
-      ctx.shadowColor = '#ee66ff'; ctx.shadowBlur = 10;
-      ctx.beginPath();
-      const rippleSegs = 8;
-      for (let i = 0; i <= rippleSegs; i++) {
-        const t = i / rippleSegs;
-        const wob = Math.sin(t * Math.PI * 4 + tickN * 0.4) * 4;
-        const px = beam.fromX + rdx * t - camX + rnx * wob;
-        const py = beam.fromY + rdy * t - camY + rny * wob;
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+    if(beam.color==='#ff3300'){
+      ctx.save();const fade=Math.min(1,beam.ticks/22);ctx.lineCap='square';ctx.shadowColor='#ff2200';ctx.shadowBlur=18;ctx.globalAlpha=fade*.65;ctx.strokeStyle='#ff4400';ctx.lineWidth=12;
+      ctx.beginPath();ctx.moveTo(beam.fromX-camX,beam.fromY-camY);ctx.lineTo(beam.endX-camX,beam.endY-camY);ctx.stroke();ctx.shadowBlur=0;ctx.globalAlpha=fade;ctx.strokeStyle='#ffbb88';ctx.lineWidth=4;ctx.stroke();ctx.restore();continue;
     }
-
-    // Queen bolt magic dust storm — a dense scatter of twinkling motes riding the whole beam,
-    // matching her orbiting-mote body effect: lots of them, varied size/color, drifting and twinkling
-    if (isQueenLaser) {
-      const bdx = beam.endX - beam.fromX, bdy = beam.endY - beam.fromY;
-      const blen = Math.sqrt(bdx * bdx + bdy * bdy) || 1;
-      const nx = -bdy / blen, ny = bdx / blen; // perpendicular unit vector
-      const sparkleCount = 22;
-      const sparkleColors = ['#ffccff', '#ee99ff', '#ffffff'];
-      for (let s = 0; s < sparkleCount; s++) {
-        const t = (s + 0.5) / sparkleCount + Math.sin(s * 2.7) * 0.02;
-        const cycle = 18 + (s % 5) * 3;
-        const phase = (tickN * 0.7 + s * 6.1) % cycle;
-        const life = phase / cycle; // 0 -> 1 twinkle lifespan
-        const wobble = Math.sin(tickN * 0.3 + s * 1.7) * 6 + (life - 0.5) * 10; // drifts outward as it twinkles
-        const px = beam.fromX + bdx * t - camX + nx * wobble;
-        const py = beam.fromY + bdy * t - camY + ny * wobble;
-        const sSz = Math.max(1, 3 - Math.floor(life * 2));
-        ctx.globalAlpha = alpha * Math.sin(life * Math.PI);
-        ctx.shadowColor = '#ee66ff'; ctx.shadowBlur = 8;
-        ctx.fillStyle = sparkleColors[s % sparkleColors.length];
-        ctx.fillRect(px - sSz / 2, py - sSz / 2, sSz, sSz);
-      }
+    if(!beam.color){
+      drawPlayerLaser(ctx,beam.fromX-camX,beam.fromY-camY,beam.endX-camX,beam.endY-camY,!!beam.powered,beam.ticks);
+      continue;
     }
-
-    // Boss laser ember storm — a dense scatter of embers riding the whole beam, matching the
-    // rising-ember effect on his body: lots of them, varied size/color, some rising, some falling
-    if (isBossLaser) {
-      const bdx = beam.endX - beam.fromX, bdy = beam.endY - beam.fromY;
-      const blen2 = Math.sqrt(bdx * bdx + bdy * bdy) || 1;
-      const bnx = -bdy / blen2, bny = bdx / blen2; // perpendicular unit vector
-      const emberCount = 22;
-      for (let s = 0; s < emberCount; s++) {
-        const t = (s + 0.5) / emberCount + Math.sin(s * 3.1) * 0.02;
-        const cycle = 16 + (s % 5) * 3;
-        const phase = (tickN * 0.8 + s * 7.3) % cycle;
-        const life = phase / cycle; // 0 -> 1 over this ember's lifespan
-        const rising = s % 2 === 0;
-        const drift = (rising ? -1 : 1) * life * 16; // half rise, half fall off the beam line
-        const jitter = Math.sin(tickN * 0.3 + s * 2.3) * 4;
-        const px = beam.fromX + bdx * t - camX + bnx * jitter;
-        const py = beam.fromY + bdy * t - camY + bny * jitter + drift;
-        const eSz = Math.max(1, 3 - Math.floor(life * 2));
-        const eAlpha = alpha * Math.sin(life * Math.PI); // fades in, peaks mid-life, fades out
-        ctx.globalAlpha = eAlpha;
-        ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 8;
-        ctx.fillStyle = life < 0.4 ? '#ffee00' : life < 0.7 ? '#ff8800' : '#ff3300';
-        ctx.fillRect(px - eSz / 2, py - eSz / 2, eSz, eSz);
-      }
+    if(beam.color==='#ffdd22'){
+      ctx.save();const fade=Math.min(1,beam.ticks/18);ctx.lineCap='square';
+      ctx.globalAlpha=fade*.55;ctx.shadowColor='#ffdd22';ctx.shadowBlur=16;ctx.strokeStyle='#ffdd55';ctx.lineWidth=12;
+      ctx.beginPath();ctx.moveTo(beam.fromX-camX,beam.fromY-camY);ctx.lineTo(beam.endX-camX,beam.endY-camY);ctx.stroke();
+      ctx.globalAlpha=fade;ctx.shadowBlur=5;ctx.strokeStyle='#fff6cf';ctx.lineWidth=4;ctx.stroke();ctx.restore();continue;
     }
-
-    // Frost Warden ice-laser — a dense scatter of drifting ice-crystal shards riding the
-    // whole beam, matching her shield's shard-orbit effect rather than embers or magic dust
-    if (isFrostLaser) {
-      const fdx = beam.endX - beam.fromX, fdy = beam.endY - beam.fromY;
-      const flen2 = Math.sqrt(fdx * fdx + fdy * fdy) || 1;
-      const fnx = -fdy / flen2, fny = fdx / flen2;
-      const shardCount = 24;
-      for (let s = 0; s < shardCount; s++) {
-        const t = (s + 0.5) / shardCount + Math.sin(s * 2.9) * 0.02;
-        const cycle = 14 + (s % 4) * 3;
-        const phase = (tickN * 0.7 + s * 5.7) % cycle;
-        const life = phase / cycle;
-        const jitter = Math.sin(tickN * 0.25 + s * 2.1) * 10;
-        const px = beam.fromX + fdx * t - camX + fnx * jitter;
-        const py = beam.fromY + fdy * t - camY + fny * jitter;
-        const fAlpha = alpha * Math.sin(life * Math.PI);
-        const fSz = Math.max(1, 4 - Math.floor(life * 2));
-        ctx.globalAlpha = fAlpha;
-        ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
-        ctx.fillStyle = s % 3 === 0 ? '#ffffff' : s % 3 === 1 ? '#aaeeff' : '#66ccff';
-        ctx.fillRect(px - fSz / 2, py - fSz / 2, fSz, fSz);
-      }
+    const kind=beam.color==='#cc0022'?'king':beam.color==='#cc33ff'||beam.color==='#dd88ff'?'queen':beam.color==='#6b2fa8'?'devourer':beam.color==='#aaeeff'?'warden':null;
+    if(kind){
+      const duration=kind==='queen'?20:kind==='devourer'?20:kind==='warden'?30:22;
+      drawBossBeam(ctx,kind,beam.fromX-camX,beam.fromY-camY,beam.endX-camX,beam.endY-camY,beam.ticks/duration,tickN);
+    }else{
+      ctx.save();ctx.shadowColor=beam.color;ctx.shadowBlur=12;ctx.strokeStyle=beam.color;ctx.globalAlpha=Math.min(1,beam.ticks/22);ctx.lineWidth=6;
+      ctx.beginPath();ctx.moveTo(beam.fromX-camX,beam.fromY-camY);ctx.lineTo(beam.endX-camX,beam.endY-camY);ctx.stroke();ctx.restore();
     }
-
-    // Devourer sound-wave — several traveling concentric arcs pulsing along the beam path,
-    // reading as an audio waveform/shout rather than a solid bolt like the King/Queen's
-    if (isDevourerLaser) {
-      const sdx = beam.endX - beam.fromX, sdy = beam.endY - beam.fromY;
-      const slen = Math.sqrt(sdx * sdx + sdy * sdy) || 1;
-      const snx = -sdy / slen, sny = sdx / slen;
-      const ringCount = 6;
-      for (let r = 0; r < ringCount; r++) {
-        const t = ((tickN * 0.06 + r / ringCount) % 1);
-        ctx.globalAlpha = alpha * Math.sin(t * Math.PI);
-        ctx.strokeStyle = '#c8ff88';
-        ctx.lineWidth = 4;
-        ctx.shadowColor = '#88ff44'; ctx.shadowBlur = 16;
-        ctx.beginPath();
-        const segs = 14;
-        let started = false;
-        for (let i = 0; i <= segs; i++) {
-          const segT = t - 0.13 + (i / segs) * 0.26; // a short wavy arc segment riding along the beam
-          if (segT < 0 || segT > 1) continue;
-          const wob = Math.sin(i / segs * Math.PI) * 18;
-          const px = beam.fromX + sdx * segT - camX + snx * wob;
-          const py = beam.fromY + sdy * segT - camY + sny * wob;
-          if (!started) { ctx.moveTo(px, py); started = true; } else { ctx.lineTo(px, py); }
-        }
-        ctx.stroke();
-      }
-      ctx.shadowBlur = 0;
-    }
-
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
-    ctx.lineCap = 'butt';
   }
 
-  // Wave effects (expanding SQUARE ring)
-  for (const w of state.waveEffects) {
-    const progress = 1 - w.ticks / 30;
-    const alpha = (w.ticks / 30) * 0.9;
-    const wx = w.cx - camX, wy = w.cy - camY, r = w.radius;
-    const hue = w.powered ? Math.round(40 + progress * 20) : Math.round(180 + progress * 100);
-    const ringColor = `hsl(${hue}, 100%, 75%)`;
-    const glowColor = `hsl(${hue}, 100%, 60%)`;
-
-    // Outer glow ring
-    ctx.globalAlpha = Math.min(1, alpha * 1.5);
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = 40;
-    ctx.strokeStyle = ringColor;
-    ctx.lineWidth = 14;
-    ctx.strokeRect(wx - r, wy - r, r * 2, r * 2);
-
-    // Bright core ring
-    ctx.globalAlpha = Math.min(1, alpha * 1.2);
-    ctx.shadowBlur = 20;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(wx - r, wy - r, r * 2, r * 2);
-
-    // Inner secondary ring (lags behind at 70% radius)
-    const r2 = r * 0.7;
-    ctx.globalAlpha = alpha * 0.8;
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = 20;
-    ctx.strokeStyle = ringColor;
-    ctx.lineWidth = 6;
-    ctx.strokeRect(wx - r2, wy - r2, r2 * 2, r2 * 2);
-
-    // Wave faint fill
-    ctx.globalAlpha = alpha * 0.3;
-    ctx.fillStyle = glowColor;
-    ctx.fillRect(wx - r, wy - r, r * 2, r * 2);
-
-    // Tinted fill
-    ctx.globalAlpha = alpha * 0.12;
-    ctx.fillStyle = ringColor;
-    ctx.fillRect(wx - r, wy - r, r * 2, r * 2);
-
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
+  // Player charge waves keep square silhouettes and sharp layered bands.
+  for(const wave of state.waveEffects){
+    drawPlayerWave(ctx,wave.cx-camX,wave.cy-camY,wave.radius,!!wave.powered,wave.ticks);
   }
 
-  // Bomb blasts (blocky square explosion)
-  for (const b of state.bombBlasts) {
-    const alpha = (b.ticks / 28) * 0.9;
-    const bwx = b.cx - camX, bwy = b.cy - camY, r = b.radius;
-    ctx.globalAlpha = Math.min(1, alpha * 1.5);
-    ctx.strokeStyle = '#ffee77';
-    ctx.shadowColor = '#ff3300';
-    ctx.shadowBlur = 40;
-    ctx.lineWidth = 6;
-    ctx.strokeRect(bwx - r, bwy - r, r * 2, r * 2);
-    ctx.globalAlpha = Math.min(1, alpha * 1.2);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(bwx - r * 0.5, bwy - r * 0.5, r, r);
-    ctx.globalAlpha = alpha * 0.6;
-    ctx.fillStyle = '#ff3300';
-    ctx.fillRect(bwx - r, bwy - r, r * 2, r * 2);
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
+  // Crisp stepped blast and separated ember rays, with no blanket blur.
+  for(const blast of state.bombBlasts){
+    drawBombBlast(ctx,blast.cx-camX,blast.cy-camY,blast.radius,blast.ticks);
+  }
+
+  for(const fx of state.specialEffects){
+    const age=1-fx.ticks/(fx.kind==='splitter_queen'?54:fx.kind==='fiery_king'?48:36);
+    const x=fx.kind==='blind_prayer'?state.playerX:fx.x,y=fx.kind==='blind_prayer'?state.playerY:fx.y;
+    drawCelestialCast(ctx,fx.kind,x-camX,y-camY,age,tickN);
+    if(fx.kind==='frost_warden' && state.rubyTileX!==-1)drawCelestialCast(ctx,fx.kind,(state.rubyTileX+.5)*TILE_SIZE-camX,(state.rubyTileY+.5)*TILE_SIZE-camY,age,tickN);
   }
 
   ctx.restore(); // back to true physical-pixel space — unaffected by the world zoom above
+  drawKingArenaEffects(ctx, state, canvasW, canvasH);
+  for(const fx of state.specialEffects)if(fx.kind==='blind_prayer'&&fx.ticks>15){
+    const remaining=(fx.ticks-15)/21;
+    ctx.save();ctx.globalAlpha=.42*remaining*remaining;ctx.fillStyle='#ffe45c';ctx.fillRect(0,0,canvasW,canvasH);ctx.restore();
+  }
+  for(const fx of state.specialEffects)if(fx.kind==='fiery_king'){
+    ctx.save();const alpha=fx.ticks/48;ctx.fillStyle='rgba(255,72,72,'+alpha*.09+')';ctx.fillRect(0,0,canvasW,canvasH);
+    ctx.shadowColor='#ff6666';ctx.shadowBlur=8;
+    for(let i=0;i<24;i++){
+      const x=(i*137%997)/997*canvasW,y=(i*239%991)/991*canvasH;
+      ctx.globalAlpha=alpha*.65;ctx.fillStyle=i%3?'#ff8c85':'#ffe5df';ctx.fillRect(x-4,y-1,9,2);ctx.fillRect(x-1,y-4,2,9);
+    }
+    ctx.restore();
+  }
 
   // Minimap — drawn in true pixel space, with its own independent (smaller) mobile sizing
   drawMinimap(ctx, state, canvasW, tickN, isMobileTouch);
 }
 
 // ─── Mobile ability button ────────────────────────────────────────────────────
+
+function BossSpawnButton({ type, onSpawn }: { type: BossType; onSpawn: () => void }) {
+  const iconRef=useRef<HTMLCanvasElement>(null);
+  useEffect(()=>{
+    const ctx=iconRef.current?.getContext('2d');if(!ctx)return;
+    const cfg=ENEMY_CONFIGS[type];
+    const enemy: GameState['enemies'][number]={
+      id:0,type,x:0,y:0,tileX:0,tileY:0,targetTileX:0,targetTileY:0,stepProgress:0,hp:cfg.maxHp,maxHp:cfg.maxHp,
+      path:[],pathTimer:0,attackTimer:200,targeting:'player',pushDirX:0,pushDirY:0,pushTiles:0,
+      flashTicks:0,healFlashTicks:0,shootTicks:0,exploding:false,explodeTick:0,windupTicks:0,
+      chargeDirX:0,chargeDirY:0,shieldTargetId:-1,phaseTimer:10000,icyShieldHP:0,
+    };
+    ctx.clearRect(0,0,36,36);ctx.save();ctx.translate(18,21);const scale=type==='splitter_queen'?.44:.3;ctx.scale(scale,scale);drawEnemy(ctx,enemy,0,0,40);ctx.restore();
+  },[type]);
+  return <button title={'Spawn '+BOSS_NAMES[type]} aria-label={'Spawn '+BOSS_NAMES[type]} onClick={onSpawn}
+    style={{ width:40,height:40,padding:1,background:'#242830',border:'1px solid '+ENEMY_CONFIGS[type].color,borderRadius:3,cursor:'pointer',display:'grid',placeItems:'center' }}>
+    <canvas ref={iconRef} width={36} height={36} aria-hidden="true" style={{width:36,height:36}} />
+  </button>;
+}
 
 function TouchAbilityButton({ label, color, size = 56, onDown, onUp, className, style }: {
   label: React.ReactNode; color: string; size?: number; onDown: () => void; onUp?: () => void;
@@ -3042,7 +3701,7 @@ function TouchAbilityButton({ label, color, size = 56, onDown, onUp, className, 
       onPointerCancel={onUp}
       onContextMenu={(e) => e.preventDefault()}
       style={{
-        width: size, height: size, borderRadius: '50%', flexShrink: 0,
+        width: size, height: size, borderRadius: '3px', flexShrink: 0,
         border: `2px solid ${color}`, background: 'rgba(10,10,20,0.55)',
         color, fontFamily: 'var(--font-pixel)', fontWeight: 700, fontSize: size < 44 ? '0.4rem' : '0.65rem',
         boxShadow: `0 0 12px ${color}55`,
@@ -3131,7 +3790,7 @@ export default function RubyStarPage() {
     useLaser(state);
     rerender();
   };
-  const handleTouchLaserUp = () => { mouseDownTimeRef.current = 0; };
+  const handleTouchLaserUp = () => { mouseDownTimeRef.current = 0; stopChargeSound(); };
   const handleTouchBullet = () => {
     const state = stateRef.current;
     if (!state || state.gamePhase !== 'playing') return;
@@ -3153,12 +3812,17 @@ export default function RubyStarPage() {
     if (!state || state.gamePhase !== 'playing') return;
     toggleCarryRuby(state); rerender();
   };
-  // HEAL also doubles as the TELEPORT button — identical priority to the Space key
-  // (teleport if standing on a pad, otherwise heal).
+  // Healing and teleporting have separate controls, including on a pad.
   const handleTouchHeal = () => {
     const state = stateRef.current;
     if (!state || state.gamePhase !== 'playing') return;
-    if (!tryActivateTeleport(state)) healRuby(state);
+    healRuby(state);
+    rerender();
+  };
+  const handleTouchTeleport = () => {
+    const state = stateRef.current;
+    if (!state || state.gamePhase !== 'playing') return;
+    tryActivateTeleport(state);
     rerender();
   };
 
@@ -3184,9 +3848,21 @@ export default function RubyStarPage() {
     }
   }, []);
 
+  useEffect(() => {
+    const cancelCharge = () => { mouseDownTimeRef.current = 0; stopChargeSound(); };
+    const onVisibility = () => { if (document.hidden) { cancelCharge(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); } };
+    window.addEventListener('blur', cancelCharge);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('blur', cancelCharge);
+      document.removeEventListener('visibilitychange', onVisibility);
+      cancelCharge();
+    };
+  }, []);
+
   // ── Game loop ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (showRules) return;
+    if (showRules) { stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const TARGET_MS = 1000 / 60;
@@ -3206,16 +3882,10 @@ export default function RubyStarPage() {
         activateWave(state);
         mouseDownTimeRef.current = Date.now();
       }
-      // Charge build-up sound — the same simple tone already used for the LASER's charge
-      // hits, played once every ~120ms while charging. A custom rising-pitch oscillator was
-      // tried twice here and regressed to sounding "slowed" even when not chilled both times
-      // (likely from creating a fresh AudioContext on every single tick instead of reusing
-      // one) — not worth re-chasing, this simple version is proven correct.
+      // One slowed play fills the remaining charge window, without looping its intro.
       if (chargingMsNow >= 200 && state.waveCooldown <= 0 && state.gamePhase === 'playing') {
-        const chargeSlot = Math.floor(chargingMsNow / 120);
-        const prevChargeSlot = Math.floor((chargingMsNow - 16) / 120);
-        if (chargeSlot !== prevChargeSlot) playSFX_charge();
-      }
+        startChargeSound((waveChargeMsNow - 200) / 1000);
+      } else stopChargeSound();
       // Lock movement while ACTIVELY charging (not during cooldown)
       if (chargingMsNow >= 200 && state.waveCooldown <= 0) {
         state.playerQueuedDirX = 0;
@@ -3227,6 +3897,7 @@ export default function RubyStarPage() {
         useBullet(state);
       }
       if (state.gamePhase !== 'lost') tick(state);
+      if (state.gamePhase !== 'playing') stopChargeSound();
     }
 
     function loop(ts: number) {
@@ -3264,7 +3935,7 @@ export default function RubyStarPage() {
       if (t % 6 === 0) rerender();
     }
     rafRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafRef.current);
+    return () => { cancelAnimationFrame(rafRef.current); stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); };
   }, [showRules, rerender]);
 
   // ── Canvas resize ─────────────────────────────────────────────────────────
@@ -3292,7 +3963,12 @@ export default function RubyStarPage() {
 
       // Teleport menu
       if (state.gamePhase === 'teleporting') {
-        if (e.key === 'Escape' || e.code === 'Space') { cancelTeleport(state); rerender(); return; }
+        if (e.key === 'Escape' || e.key === 'x' || e.key === 'X') {
+          e.preventDefault();
+          if(!e.repeat){cancelTeleport(state);rerender();}
+          return;
+        }
+        if(e.code==='Space'){e.preventDefault();return;}
         const numMap: Record<string, number> = { '1': 0, '2': 1, '3': 2, '4': 3 };
         const dest = numMap[e.key];
         if (dest !== undefined && state.teleportDestOptions.includes(dest)) {
@@ -3318,15 +3994,20 @@ export default function RubyStarPage() {
 
       if (e.key === ' ') {
         e.preventDefault();
-        if (tryActivateTeleport(state)) { rerender(); return; }
         healRuby(state);
         rerender();
         return;
       }
-      if (e.key === 'Shift' || e.key === 'r' || e.key === 'R') { e.preventDefault(); useSpeedBoost(state); rerender(); return; }
-      if (e.key === 'e' || e.key === 'E' || e.key === 'f' || e.key === 'F') {
+      if (e.key === 'x' || e.key === 'X') {
+        e.preventDefault();
+        if(!e.repeat){tryActivateTeleport(state);rerender();}
+        return;
+      }
+      if (e.key === 'Shift' || e.key === 'Control' || e.key === 'r' || e.key === 'R') { e.preventDefault(); useSpeedBoost(state); rerender(); return; }
+      if (e.key === 'e' || e.key === 'E') {
         toggleCarryRuby(state); rerender(); return;
       }
+      if (e.key === 'f' || e.key === 'F') { e.preventDefault(); if (!e.repeat) useSpecialSkill(state); rerender(); return; }
       if (e.key === 'q' || e.key === 'Q') { useBomb(state); rerender(); return; }
     };
 
@@ -3375,10 +4056,13 @@ export default function RubyStarPage() {
     if (e.button === 2) { rightMouseHeldRef.current = false; return; }
     if (e.button !== 0) return;
     mouseDownTimeRef.current = 0; // cancel any in-progress charge
+    stopChargeSound();
   };
 
   const handleMouseLeave = () => {
     rightMouseHeldRef.current = false;
+    mouseDownTimeRef.current = 0;
+    stopChargeSound();
   };
 
   // ── Touch swipe ───────────────────────────────────────────────────────────
@@ -3415,6 +4099,8 @@ export default function RubyStarPage() {
   const handleRestart = () => {
     const s = createInitialState();
     s.godMode = stateRef.current?.godMode ?? false;
+    s.noMobs = stateRef.current?.noMobs ?? false;
+    s.noBossSpawns = stateRef.current?.noBossSpawns ?? false;
     stateRef.current = s;
     tickRef.current = 0;
     rightMouseHeldRef.current = false;
@@ -3426,7 +4112,7 @@ export default function RubyStarPage() {
   const timeSurvived = Math.floor(state?.score ?? 0);
 
   // Guards the teleport overlay's backdrop-tap-to-cancel against the mobile "ghost click":
-  // the same touch that opened the menu (tapping HEAL/TP) can generate a trailing synthetic
+  // the same touch that opened the menu (tapping TP) can generate a trailing synthetic
   // click at the same screen coordinates, landing on the backdrop that just appeared there
   // and instantly cancelling it. Ignore backdrop clicks within a short window of opening.
   useEffect(() => {
@@ -3436,6 +4122,15 @@ export default function RubyStarPage() {
   const rubyHealAvail = state ? canHealRuby(state) : false;
   const powered = (state?.poweredTicks ?? 0) > 0 || (state?.starEnergy ?? 0) >= STAR_ENERGY_MAX;
   const carrying = state?.playerCarryingRuby ?? true;
+  const godPanelTop = MAP_ROWS * (isMobileTouchRef.current ? 3 : 4) + 20;
+  const playerStatuses: { key: string; label: string; color: string; seconds?: number; progress?: number }[] = [];
+  if(state){
+    if(state.playerFrozenTicks>0)playerStatuses.push({key:'frozen',label:'FROZEN',color:'#b4eaff',seconds:state.playerFrozenTicks/60,progress:state.playerFrozenTicks/90});
+    else if(isPlayerChilled(state))playerStatuses.push({key:'chilled',label:'CHILLED · MOVE & ATTACK SLOW',color:'#8ecfe9'});
+    if(isMovementReversed(state))playerStatuses.push({key:'reversed',label:'CONTROLS REVERSED',color:'#ffe477'});
+    if(state.seaHealingDebuffTicks>0)playerStatuses.push({key:'healing',label:'HEALING REDUCED',color:'#8bc8ff',seconds:state.seaHealingDebuffTicks/60,progress:state.seaHealingDebuffTicks/180});
+    if(state.rubyPlacedFlashTicks>0)playerStatuses.push({key:'ruby-placed',label:'RUBY PLACED',color:'#ffa5c3',progress:state.rubyPlacedFlashTicks/120});
+  }
 
   // HP percentages
   const playerHpPct = Math.max(0, Math.min(100, ((state?.playerHP ?? PLAYER_MAX_HP) / PLAYER_MAX_HP) * 100));
@@ -3446,12 +4141,58 @@ export default function RubyStarPage() {
   const rubyBattColor = rubyHpPct > 60 ? '#ff4488' : rubyHpPct > 30 ? '#ff7700' : '#ff2200';
 
   return (
-    <div style={{
+    <div className="ruby-star-ui" style={{
       display: 'flex', flexDirection: 'column',
       position: 'fixed', inset: 0,
       background: 'var(--void)', overflow: 'hidden', touchAction: 'none',
     }}>
       <style>{`
+        .ruby-star-ui .btn, .ruby-star-ui .modal-content { border-radius: 2px; }
+        .ruby-star-ui .battery { border-width: 2px; border-radius: 2px; background: #090f1c; }
+        .ruby-star-ui .battery-fill, .ruby-star-ui .battery-nub { border-radius: 0; }
+        .ruby-star-ui .modal-content { border-width: 2px; background: #0b1120; box-shadow: 0 0 18px rgba(0,212,255,.16); }
+        .ruby-star-ui .modal-content { max-width: 720px; max-height: 88dvh; display: flex; flex-direction: column; overflow: hidden; }
+        .ruby-star-ui .modal-header, .ruby-star-ui .modal-footer { flex-shrink: 0; }
+        .ruby-star-ui .modal-body { overflow-y: auto; min-height: 0; overscroll-behavior: contain; touch-action: pan-y; }
+        .rs-guide { font-family: var(--font-mono); color: #bcc9db; font-size: .88rem; line-height: 1.6; }
+        .rs-guide h3, .rs-guide h4, .rs-guide h5, .rs-guide p { margin: 0; }
+        .rs-guide-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+        .rs-guide-nav h3 { font-family: var(--font-pixel); font-size: .64rem; color: #dbeaff; }
+        .rs-guide-nav .btn, .rs-guide-back { font-size: .67rem; padding: 8px 10px; }
+        .rs-guide-nav .rs-guide-link { min-height: 44px; padding: 11px 14px; font-size: .72rem; color: #d4f7ff; background: #12384b; border: 2px solid #45cce9; box-shadow: 0 0 12px #30c7ef33; }
+        .rs-guide-nav .rs-guide-link:hover { background: #194b61; border-color: #a1eeff; color: #fff; box-shadow: 0 0 16px #30c7ef55; }
+        .rs-guide-intro { padding: 14px 0; }
+        .rs-guide h4 { color: #8ad7ef; font-size: .75rem; letter-spacing: .08em; font-weight: 700; }
+        .rs-guide-section { border-top: 1px solid #263346; padding: 12px 0; }
+        .rs-guide-section p { margin-top: 6px; }
+        .rs-guide-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 22px; margin: 10px 0; }
+        .rs-guide-controls > div { display: grid; grid-template-columns: minmax(105px, .8fr) 1fr; gap: 8px; align-items: baseline; }
+        .rs-guide-controls dt { color: #e6edf7; font-weight: 700; font-size: .8rem; }
+        .rs-guide-controls dd { margin: 0; }
+        .rs-guide .rs-guide-note { color: #8d9eb5; font-size: .8rem; }
+        .rs-guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; }
+        .rs-guide-hints { padding: 12px; border: 1px solid #68552c; background: #dba84808; }
+        .rs-guide-hints h4 { color: #f1cd75; }
+        .rs-guide-hints ul { padding-left: 18px; margin: 6px 0 0; }
+        .rs-guide-group-title { padding: 12px 0 8px; }
+        .rs-guide-entry { border-left: 3px solid; padding: 9px 12px; margin-bottom: 12px; background: #111b2b; }
+        .rs-guide-entry h5 { font-size: .88rem; font-weight: 700; margin-bottom: 4px; }
+        .rs-guide .rs-guide-skill { margin-top: 9px; padding-top: 8px; border-top: 1px solid #263346; font-size: .8rem; }
+        .rs-guide-skill strong { display: block; font-size: .73rem; letter-spacing: .025em; }
+        .rs-guide-back { margin-top: 4px; }
+        @media (max-width: 600px) {
+          .rs-guide-controls, .rs-guide-grid { grid-template-columns: 1fr; }
+          .ruby-star-ui .modal-body { padding: 14px; }
+          .rs-guide-nav h3 { font-size: .58rem; }
+        }
+        .ruby-star-ui .rs-hud { background: #090f1c; border-bottom: 1px solid rgba(124,158,196,.24); }
+        .ruby-star-ui .rs-special-slot { min-height: 32px; border-radius: 2px; }
+        .rs-player-status { position: absolute; top: 12px; left: 12px; display: flex; flex-wrap: wrap; gap: 7px; max-width: calc(100% - 240px); pointer-events: none; }
+        .rs-status-tag { position: relative; padding: 6px 9px 8px; background: #0b1320ed; border: 1px solid; font-family: var(--font-mono); font-size: .78rem; font-weight: 700; line-height: 1.4; }
+        .rs-status-time { margin-left: 8px; opacity: .8; font-weight: 400; }
+        .rs-status-progress { position: absolute; bottom: 0; left: 0; height: 2px; background: currentColor; }
+        .ruby-star-ui button:focus-visible { outline: 2px solid #cceeff; outline-offset: 3px; }
+
         :root {
           --bar-pad: 8px 12px;
           --font-stat: 0.75rem;
@@ -3509,179 +4250,11 @@ export default function RubyStarPage() {
         onClose={() => { setShowRules(false); bgmRef.current?.playMusic(); }}
         title=":: RUBY STAR"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <p style={{ fontSize: '0.7rem', color: 'var(--text-dim)', lineHeight: 1.7 }}>
-            Survive as long as possible in a 4-chamber space station under alien attack.
-            Guard the <span style={{ color: RUBY_COLOR }}>Ruby Core</span> — if it or you run out of HP, it&apos;s over.
-          </p>
-
-          {/* CONTROLS & ABILITIES */}
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-            <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              CONTROLS &amp; ABILITIES
-            </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.9 }}>
-              <span style={{ color: 'var(--cyan)' }}>WASD / Arrows / Swipe</span> — Move<br />
-              <span style={{ color: 'var(--cyan)' }}>E / F</span> — Carry or place the Ruby Core (pick up within 2 tiles)<br />
-              <span style={{ color: 'var(--cyan)' }}>SPACE</span> — Heal nearby Ruby (if no enemies close) · or Teleport (if on ✦ pad)<br />
-              <span style={{ color: '#ffcc44' }}>Left-click</span> — <span style={{ color: '#ffcc44' }}>LASER</span> — beam forward, pierces enemies<br />
-              <span style={{ color: '#aaddff' }}>Hold-click</span> — <span style={{ color: '#aaddff' }}>WAVE</span> — charged ring blast (hold ~1s to auto-fire)<br />
-              <span style={{ color: '#ffee44' }}>Shift</span> — <span style={{ color: '#ffee44' }}>SPEED</span> — brief speed burst<br />
-              <span style={{ color: BOMB_COLOR }}>Q</span> — <span style={{ color: BOMB_COLOR }}>BOMB</span> — place first, press again to detonate. Its blast also hurts <em>you</em> if you&apos;re still in range (the Ruby is never damaged by it)<br />
-              <span style={{ color: '#ff9944' }}>Right-click</span> — <span style={{ color: '#ff9944' }}>BULLET</span> — fast low-damage burst<br />
-              <span style={{ color: 'var(--text-muted)' }}>1–4</span> — Select teleport destination after menu opens · ESC to cancel<br />
-              <span style={{ color: 'var(--text-muted)' }}>Mobile</span> — on-screen joystick (move) + ability buttons replace keyboard/mouse; same abilities, same cooldowns
-            </p>
-          </div>
-
-          {/* RUBY CORE */}
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-            <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              RUBY CORE &amp; HEALING
-            </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
-              <span style={{ color: RUBY_COLOR }}>Carry it</span> — movement slows but enemies only target you.<br />
-              <span style={{ color: '#ffaa00' }}>Place it</span> — enemies can attack the ruby directly.<br />
-              Stand near the ruby with no enemies close, then press{' '}
-              <span style={{ color: '#ff88aa' }}>SPACE</span> to slowly heal both yourself and the Ruby Core.
-            </p>
-          </div>
-
-          {/* STAR ENERGY & TELEPORT */}
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-            <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              STAR ENERGY ✦ &amp; TELEPORT
-            </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
-              Kill enemies (not meteors) and collect <span style={{ color: '#66aaff' }}>energy crystals</span> to fill your star gauge.
-              When full, your next ability is <span style={{ color: '#ffcc00' }}>POWERED UP</span> for extra damage or range.<br />
-              Each chamber has a <span style={{ color: 'var(--cyan)' }}>✦ teleport pad</span> at its center.
-              Step on one and press SPACE to jump instantly between any of the 4 chambers.
-              Opening the destination menu <span style={{ color: '#ffcc00' }}>pauses the game</span> — enemies, timers, and the meteorite/boss clocks all freeze until you pick a chamber or cancel.
-            </p>
-          </div>
-
-          {/* METEORITE */}
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-            <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              METEORITE ☄
-            </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.6 }}>
-              Every ~30 seconds a chamber is targeted, cycling clockwise (ALPHA → BETA → DELTA → GAMMA → repeat). You have{' '}
-              <span style={{ color: 'var(--danger)' }}>5 seconds to escape</span> — watch the minimap and the warning banner!
-              Every enemy in the struck chamber is wiped out (all boss types instead lose 75% of their max HP — dying outright if already at or below that, except the Soul Devourer who a meteor alone can never finish off below 5% HP).
-            </p>
-          </div>
-
-          {/* STRATEGY TIPS */}
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-            <p style={{ fontSize: '0.6rem', color: '#ffcc00', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              ★ HINT
-            </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.8 }}>
-              Meteorite and teleportation could create a good synergy!
-            </p>
-          </div>
-
-          {/* ENEMIES */}
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
-            <p style={{ fontSize: '0.6rem', color: 'var(--text-dim)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>
-              ENEMIES
-            </p>
-            <p style={{ fontSize: '0.65rem', color: 'var(--text-dim)', lineHeight: 1.9 }}>
-              <span style={{ color: '#44ee44' }}>■ NORMAL</span> — Standard attacker. Fast and fragile.<br />
-              <span style={{ color: '#4488ff' }}>■ ARMORED</span> — Tanky with a damage shield. Slow but hits hard. Drops more energy.<br />
-              <span style={{ color: '#ff8844' }}>■ FAST</span> — Extremely quick and fragile. Don&apos;t let it swarm you.<br />
-              <span style={{ color: '#cc44ff' }}>■ BOMBER</span> — Self-destructs in a wide blast on arrival. Keep your distance.<br />
-              <span style={{ color: '#ffdd44' }}>■ SNIPER</span> — Long-range shot with windup telegraph. Kill it for a 5s electric chain buff.<br />
-              <span style={{ color: '#ff4444' }}>■ HEALER</span> — Heals nearby allies. Prioritize it. Kill rewards +20 player HP.<br />
-              <span style={{ color: '#ff6600' }}>■ CHARGER</span> — Locks on and charges at high speed. Kill rewards a speed burst.<br />
-              <span style={{ color: '#aaaaaa' }}>■ GHOST</span> — Phases through walls. Semi-transparent and hard to track. Kill restores +15 ruby HP.<br />
-              <span style={{ color: '#ee8822' }}>■ SPLITTER</span> — Splits into 2 Mini Splitters on death. Tanky stacked-box design.<br />
-              <span style={{ color: '#cc6611' }}>■ MINI SPLITTER</span> — Spawned from Splitter death. Small and fast.<br />
-              <span style={{ color: '#44ddff' }}>■ SHIELDER</span> — Shields the most-injured ally, halving all damage it takes. Kill grants ~2.5s invincibility.<br />
-              <span style={{ color: '#cc0022' }}>■ FIERY KING</span> — High HP, high damage, speeds up the longer he's alive.<br />
-              <span style={{ color: '#cc33ff' }}>■ SHADOW QUEEN</span> — Teleports between chambers and leaves a decoy behind that keeps attacking.<br />
-              <span style={{ color: '#00eaff' }}>■ STORM REAPER</span> — Fast, only hunts you (never the ruby), can seal a hallway shut to trap you.<br />
-              <span style={{ color: '#6b2fa8' }}>■ SOUL DEVOURER</span> — Eats nearby enemies to grow bigger, tankier, and stronger — don't let her feast.<br />
-              <span style={{ color: '#aaeeff' }}>■ FROST WARDEN</span> — Never attacks directly. Chills her chamber (slows you and your attack speed), scatters freezing ice tiles, and shields nearby allies.
-            </p>
-          </div>
-        </div>
+        <RubyStarGuide />
       </RulesModal>
 
-      {/* God Mode UI */}
-      {isGodQuery && (
-        <div style={{
-          position: 'absolute', top: 10, right: 230,
-          background: 'rgba(0,0,0,0.85)', border: '1px solid #ffcc00',
-          padding: '12px', borderRadius: '4px', zIndex: 1000,
-          display: 'flex', flexDirection: 'column', gap: '8px'
-        }}>
-          <div style={{ color: '#ffcc00', fontWeight: 'bold', fontSize: '0.8rem', textAlign: 'center' }}>GOD MODE</div>
-          <button
-            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: stateRef.current?.godMode ? '#ffcc00' : '#444', color: stateRef.current?.godMode ? '#000' : '#fff', border: 'none', borderRadius: '4px' }}
-            onClick={() => {
-              if (stateRef.current) stateRef.current.godMode = !stateRef.current.godMode;
-              rerender();
-            }}>
-            Immortal: {stateRef.current?.godMode ? 'ON' : 'OFF'}
-          </button>
-          <button
-            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #ffcc00', borderRadius: '4px' }}
-            onClick={() => {
-              if (stateRef.current) {
-                stateRef.current.starEnergy = STAR_ENERGY_MAX;
-              }
-              rerender();
-            }}>
-            Full Energy
-          </button>
-          <button
-            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #cc0022', borderRadius: '4px' }}
-            onClick={() => {
-              if (stateRef.current) godSpawnBoss(stateRef.current, 'fiery_king');
-              rerender();
-            }}>
-            Spawn Fiery King
-          </button>
-          <button
-            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #cc33ff', borderRadius: '4px' }}
-            onClick={() => {
-              if (stateRef.current) godSpawnBoss(stateRef.current, 'splitter_queen');
-              rerender();
-            }}>
-            Spawn Shadow Queen
-          </button>
-          <button
-            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #00eaff', borderRadius: '4px' }}
-            onClick={() => {
-              if (stateRef.current) godSpawnBoss(stateRef.current, 'storm_reaper');
-              rerender();
-            }}>
-            Spawn Storm Reaper
-          </button>
-          <button
-            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #6b2fa8', borderRadius: '4px' }}
-            onClick={() => {
-              if (stateRef.current) godSpawnBoss(stateRef.current, 'devourer');
-              rerender();
-            }}>
-            Spawn Soul Devourer
-          </button>
-          <button
-            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #aaeeff', borderRadius: '4px' }}
-            onClick={() => {
-              if (stateRef.current) godSpawnBoss(stateRef.current, 'frost_warden');
-              rerender();
-            }}>
-            Spawn Frost Warden
-          </button>
-        </div>
-      )}
-
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
-      <div style={{
+      <div className="rs-hud" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: 'var(--bar-pad)', flexShrink: 0, gap: '8px',
       }}>
@@ -3736,8 +4309,8 @@ export default function RubyStarPage() {
             }}>
               <div style={{
                 height: '100%', width: `${energyPct}%`,
-                background: powered ? '#ffffff' : 'linear-gradient(90deg, #4488ff, #88ccff)',
-                boxShadow: powered ? '0 0 10px #00ffff' : 'none', transition: 'background 0.3s'
+                background: powered ? '#ffffff' : '#66aaff',
+                boxShadow: powered ? '0 0 10px #00ffff' : '0 0 8px #4488ff66', transition: 'background 0.3s'
               }} />
               <div style={{
                 position: 'absolute', right: -2, top: '25%', width: 4, height: '50%',
@@ -3746,14 +4319,18 @@ export default function RubyStarPage() {
             </div>
           </div>
 
-          {/* Score */}
+          {/* Time */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <span style={{ fontSize: 'var(--font-stat)', color: 'var(--text-dim)', fontWeight: 700 }}>TIME</span>
             <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: 'var(--cyan)' }}>
               {timeSurvived}s
             </span>
-            <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: '#ffaa00' }}>
-              +{state?.killScore ?? 0}
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <span style={{ fontSize: 'var(--font-stat)', color: 'var(--text-dim)', fontWeight: 700 }}>STAGE</span>
+            <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: '#cc88ff' }}>
+              {(state?.bossesKilled ?? 0) + 1}
             </span>
           </div>
 
@@ -3770,6 +4347,13 @@ export default function RubyStarPage() {
               <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: BOMB_COLOR }}>READY</span>
             )}
           </div>
+          <button className="rs-special-slot" disabled={!state?.specialSkill} onClick={() => { if (stateRef.current) useSpecialSkill(stateRef.current); rerender(); }}
+            style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.55rem', padding: '7px 9px',
+              background: '#0b1120', border: '2px solid ' + (state?.specialSkill ? state.specialSkill==='devourer'?'#aaaab6':SPECIAL_SKILLS[state.specialSkill].color : '#454552'),
+              boxShadow: state?.specialSkill ? '0 0 10px '+(state.specialSkill==='devourer'?'#aaaab633':SPECIAL_SKILLS[state.specialSkill].color+'33') : 'none',
+              color: state?.specialSkill ? state.specialSkill==='devourer'?'#bdbdc7':SPECIAL_SKILLS[state.specialSkill].color : 'var(--text-muted)', cursor: state?.specialSkill ? 'pointer' : 'default' }}>
+            {state?.specialSkill ? '[F] ' + SPECIAL_SKILLS[state.specialSkill].name : (state?.bossesKilled ?? 0) < SPECIAL_UNLOCK_KILLS ? 'SPECIAL ' + (state?.bossesKilled ?? 0) + '/10' : 'SPECIAL EMPTY'}
+          </button>
         </div>
 
         {/* Right controls */}
@@ -3802,6 +4386,83 @@ export default function RubyStarPage() {
         onTouchCancel={handleTouchEnd}
       >
         <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+        {phase==='playing'&&playerStatuses.length>0&&<div className="rs-player-status" role="status" aria-live="polite">
+          {playerStatuses.map(status=><div key={status.key} className="rs-status-tag" data-status={status.key} style={{color:status.color,borderColor:status.color+'88'}}>
+            {status.label}
+            {status.seconds!==undefined&&<span className="rs-status-time" aria-hidden="true">{status.seconds.toFixed(1)}s</span>}
+            {status.progress!==undefined&&<span className="rs-status-progress" aria-hidden="true" style={{width:Math.min(100,status.progress*100)+'%'}} />}
+          </div>)}
+        </div>}
+
+      {/* God Mode UI */}
+      {isGodQuery && (
+        <div className="rs-god-panel" aria-label="God mode controls"
+          onMouseDown={e => e.stopPropagation()} onMouseUp={e => e.stopPropagation()}
+          onTouchStart={e => e.stopPropagation()} onTouchMove={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}
+          onKeyDown={e => e.stopPropagation()}
+          style={{
+          position: 'absolute', top: godPanelTop, right: 8,
+          background: 'rgba(0,0,0,0.85)', border: '1px solid #ffcc00',
+          padding: '8px', width:194, boxSizing:'border-box', maxHeight:`calc(100% - ${godPanelTop + 8}px)`, overflowY:'auto', touchAction:'pan-y', borderRadius: '2px', zIndex: 20,
+          display: 'flex', flexDirection: 'column', gap: '6px'
+        }}>
+          <div style={{ color: '#ffcc00', fontWeight: 'bold', fontSize: '0.8rem', textAlign: 'center' }}>GOD MODE</div>
+          <button
+            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: stateRef.current?.godMode ? '#ffcc00' : '#444', color: stateRef.current?.godMode ? '#000' : '#fff', border: 'none', borderRadius: '4px' }}
+            onClick={() => {
+              if (stateRef.current) stateRef.current.godMode = !stateRef.current.godMode;
+              rerender();
+            }}>
+            Immortal: {stateRef.current?.godMode ? 'ON' : 'OFF'}
+          </button>
+          <div style={{display:'flex',gap:4}}>
+            <button style={{flex:1,minWidth:0,padding:'6px 2px',fontSize:'.65rem',cursor:'pointer',background:state?.noMobs?'#b89b12':'#333',color:'#fff',border:'1px solid #ffcc00',borderRadius:3}}
+              onClick={()=>{if(stateRef.current)godSetNoMobs(stateRef.current,!stateRef.current.noMobs);rerender();}}>
+              No Mobs: {state?.noMobs?'ON':'OFF'}
+            </button>
+            <button style={{flex:1,minWidth:0,padding:'6px 2px',fontSize:'.65rem',cursor:'pointer',background:state?.noBossSpawns?'#744395':'#333',color:'#fff',border:'1px solid #bb88ee',borderRadius:3}}
+              onClick={()=>{if(stateRef.current)godSetNoBossSpawns(stateRef.current,!stateRef.current.noBossSpawns);rerender();}}>
+              No Boss: {state?.noBossSpawns?'ON':'OFF'}
+            </button>
+          </div>
+          <button
+            style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #ffcc00', borderRadius: '4px' }}
+            onClick={() => {
+              if (stateRef.current) {
+                stateRef.current.starEnergy = STAR_ENERGY_MAX;
+              }
+              rerender();
+            }}>
+            Full Energy
+          </button>
+          <div style={{ display:'grid',gridTemplateColumns:'repeat(4, 40px)',gap:4,justifyContent:'center' }}>
+            {BOSS_TYPES.map(type => <BossSpawnButton key={type} type={type} onSpawn={() => {
+              if(stateRef.current)godSpawnBoss(stateRef.current,type);rerender();
+            }} />)}
+          </div>
+
+          <button style={{ padding: '7px', background: '#30213f', color: '#e8c7ff', border: '1px solid #bb88ee', cursor: 'pointer' }}
+            onClick={() => { if (stateRef.current) godEnterAscension(stateRef.current); rerender(); }}>Enter Ascension · Boss 10</button>
+
+          <select aria-label="Grant test special" value="" style={{ background: '#333', color: '#dfc3ff', padding: '6px',width:'100%',fontSize:'.7rem' }} onChange={e => {
+            if (stateRef.current && e.target.value in SPECIAL_SKILLS) {
+              stateRef.current.specialSkill = e.target.value as keyof typeof SPECIAL_SKILLS;
+              stateRef.current.specialDevourerStacks = stateRef.current.enemies.find(enemy => enemy.type === 'devourer')?.chargeDirX ?? 0;
+            }
+            rerender();
+          }}>
+            <option value="">Grant celestial skill…</option>
+            {Object.entries(SPECIAL_SKILLS).map(([key, skill]) => <option key={key} value={key}>{skill.name}</option>)}
+          </select>
+          {state?.specialSkill === 'devourer' && <label style={{ color: '#c8a4ee', fontSize: '.7rem' }}>
+            Absorptions: {state.specialDevourerStacks}
+            <input aria-label="Test Singularity absorption stacks" type="range" min="0" max="20" value={state.specialDevourerStacks} onChange={e => {
+              if(stateRef.current)stateRef.current.specialDevourerStacks=Number(e.target.value);rerender();
+            }} />
+          </label>}
+        </div>
+      )}
+
 
         {/* Teleport overlay */}
         {phase === 'teleporting' && state && (
@@ -3853,18 +4514,55 @@ export default function RubyStarPage() {
             </div>
             <button className="btn btn-ghost" style={{ fontSize: '0.7rem', padding: '6px 14px' }}
               onClick={() => { cancelTeleport(state); rerender(); }}>
-              ESC — STAY
+              ESC / X — STAY
             </button>
           </div>
         )}
 
-        {/* Meteorite warning banner */}
+        {phase === 'playing' && (state?.ascensionBannerTicks ?? 0) > 0 && (
+          <div role="status" style={{ position: 'absolute', top: '72px', left: '50%', transform: 'translateX(-50%)',
+            width: 'max-content', maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box', textAlign: 'center', pointerEvents: 'none',
+            padding: '14px 22px', background: 'rgba(12,9,22,.94)', border: '2px solid #d7a5ff', boxShadow: '0 0 24px rgba(180,100,255,.3)', borderRadius: '2px' }}>
+            <div style={{ fontFamily: 'var(--font-pixel)', color: '#ebcbff', fontSize: '1rem', lineHeight: 1.8 }}>ASCENSION</div>
+            <div style={{ fontFamily: 'var(--font-mono)', color: '#e5d4f4', fontSize: '0.75rem', lineHeight: 1.7 }}>
+              10 BOSSES DEFEATED<br />Celestial skills unlocked · Press F to use<br />Meteors now deal 45% damage to bosses
+            </div>
+          </div>
+        )}
+
+        {phase === 'playing' && (state?.bossSpawnTicks ?? 0) > 0 && (state?.ascensionBannerTicks ?? 0) <= 0 && (
+          <div role="status" style={{
+            position: 'absolute', top: '80px', left: '50%', transform: 'translateX(-50%)',
+            width: 'max-content', maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box',
+            background: 'rgba(5,5,10,0.92)', border: `2px solid ${state?.bossSpawnColor}`,
+            boxShadow: `0 0 28px ${state?.bossSpawnColor}88`, borderRadius: '2px', padding: '8px 24px',
+            fontFamily: 'var(--font-pixel)', fontSize: '0.9rem', color: state?.bossSpawnColor,
+            textAlign: 'center', lineHeight: 1.6, pointerEvents: 'none',
+          }}>
+            {state?.bossSpawnName} SPAWNED
+          </div>
+        )}
+
+        {phase === 'playing' && (state?.enemies.find(e => e.type === 'fiery_king' && e.hp > 0)?.king?.arenaWindupTicks ?? 0) > 0 && (
+          <div role="status" style={{
+            position: 'absolute', top: '80px', left: '50%', transform: 'translateX(-50%)',
+            width: 'max-content', maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box',
+            background: 'rgba(25,0,0,0.92)', border: '2px solid #ff6622',
+            borderRadius: '2px', padding: '8px 16px', textAlign: 'center',
+            fontFamily: 'var(--font-pixel)', fontSize: '0.75rem', lineHeight: 1.6,
+            color: '#ffbb66', pointerEvents: 'none',
+          }}>
+            KING’S WRATH — HIT THE KING!
+          </div>
+        )}
+
+        {/* Boss warning banner */}
         {phase === 'playing' && (state?.bossWarningTicks ?? 0) > 0 && (
           <div style={{
             position: 'absolute', top: '50px', left: '50%', transform: 'translateX(-50%)',
             background: 'rgba(20,0,0,0.92)', border: '2px solid #cc0022',
             boxShadow: '0 0 28px #cc002288',
-            borderRadius: '6px', padding: '8px 24px',
+            borderRadius: '2px', padding: '8px 24px',
             display: 'flex', alignItems: 'center', gap: '14px',
             animation: 'pulseGlow 0.35s ease-in-out infinite',
             pointerEvents: 'none',
@@ -3882,7 +4580,7 @@ export default function RubyStarPage() {
           <div style={{
             position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
             background: 'rgba(5,0,0,0.7)', border: '1px solid #884400',
-            borderRadius: '6px', padding: '5px 14px',
+            borderRadius: '2px', padding: '5px 14px',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px',
             pointerEvents: 'none',
           }}>
@@ -3912,7 +4610,7 @@ export default function RubyStarPage() {
             position: 'absolute', top: '10px', left: '50%', transform: 'translateX(-50%)',
             background: 'rgba(5,0,0,0.9)', border: '2px solid #ff4400',
             boxShadow: '0 0 20px #ff440088',
-            borderRadius: '6px', padding: '8px 20px',
+            borderRadius: '2px', padding: '8px 20px',
             display: 'flex', alignItems: 'center', gap: '12px',
             animation: 'pulseGlow 0.5s ease-in-out infinite',
             pointerEvents: 'none',
@@ -3929,7 +4627,19 @@ export default function RubyStarPage() {
         {/* Game over */}
         {phase === 'lost' && (
           <div className="game-over-overlay" style={{ position: 'absolute' }}>
-            <div className="game-over-title" style={{ color: 'var(--danger)' }}>RUBY STAR LOST</div>
+            <div className="game-over-title" style={{ color: 'var(--danger)' }}>RUBY STAR</div>
+            <div style={{
+              textAlign: 'center', padding: '14px 32px', minWidth: '190px',
+              background: 'rgba(112,45,174,0.12)', border: '1px solid rgba(204,136,255,0.4)',
+              borderRadius: '2px',
+            }}>
+              <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.65rem', color: '#d9b1ff', letterSpacing: '0.08em', lineHeight: 1.8 }}>
+                STAGE
+              </div>
+              <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 'clamp(2rem, 6vw, 3rem)', color: '#e5caff', lineHeight: 1.5, textShadow: '0 0 18px rgba(185,100,255,0.4)' }}>
+                {(state?.bossesKilled ?? 0) + 1}
+              </div>
+            </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-dim)', textAlign: 'center', lineHeight: 2 }}>
               <div>TIME: <span style={{ color: 'var(--cyan)' }}>{timeSurvived}s</span></div>
               <div>KILLS: <span style={{ color: '#ffaa00' }}>{state?.killScore ?? 0}</span></div>
@@ -3994,19 +4704,28 @@ export default function RubyStarPage() {
             className="rs-touch-controls"
             style={{ position: 'fixed', right: '8px', bottom: '110px', zIndex: 60 }}
           />
-          {/* RUBY — carry/place toggle, identical to E/F */}
+          {state?.specialSkill && <TouchAbilityButton label="SPECIAL" color={SPECIAL_SKILLS[state.specialSkill].color} size={60}
+            onDown={() => { if (stateRef.current) useSpecialSkill(stateRef.current); rerender(); }} className="rs-touch-controls"
+            style={{ position: 'fixed', right: '176px', bottom: '96px', zIndex: 61 }} />}
+          {/* RUBY — carry/place toggle, identical to E */}
           <TouchAbilityButton
             label="RUBY" color={RUBY_COLOR} size={60}
             onDown={handleTouchRuby}
             className="rs-touch-controls"
             style={{ position: 'fixed', right: '176px', bottom: '16px', zIndex: 60 }}
           />
-          {/* HEAL/TP — teleport-or-heal, identical to Space */}
+          {/* HEAL — always heals, including on teleport pads. */}
           <TouchAbilityButton
-            label={<>HEAL<br />TP</>} color="#ff88aa" size={60}
+            label="HEAL" color="#ff88aa" size={60}
             onDown={handleTouchHeal}
             className="rs-touch-controls"
             style={{ position: 'fixed', right: '252px', bottom: '16px', zIndex: 60 }}
+          />
+          <TouchAbilityButton
+            label="TP" color={state&&state.map[state.playerTileY]?.[state.playerTileX]===T_TELEPORT?'#8ad7ef':COOLDOWN_GRAY} size={48}
+            onDown={handleTouchTeleport}
+            className="rs-touch-controls"
+            style={{ position: 'fixed', right: '252px', bottom: '92px', zIndex: 60 }}
           />
           <TouchAbilityButton
             label="SPD" color={(state?.speedCooldown ?? 0) > 0 ? COOLDOWN_GRAY : '#ffee44'} size={48}
