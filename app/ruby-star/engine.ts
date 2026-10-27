@@ -1,3 +1,6 @@
+import { createAmbientEvents, updateAmbientEvents, isEclipseActive, type AmbientEventState } from './events';
+export { AMBIENT_EVENTS, STAR_FALL_TICKS, triggerAmbientEvent } from './events';
+export type { AmbientEventKind } from './events';
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
   SpecialSkill, SPECIAL_UNLOCK_KILLS, SPECIAL_SKILLS, SPECIAL_REAPER_RADIUS, SPECIAL_WARDEN_SHIELD,
@@ -15,13 +18,13 @@ import {
   SPEED_DURATION, SPEED_DURATION_PWR, SPEED_MULT, SPEED_COOLDOWN,
   BOMB_RADIUS, BOMB_RADIUS_PWR, BOMB_DMG, BOMB_DMG_PWR,
   BULLET_COOLDOWN, BULLET_DMG, BULLET_DMG_PWR, BULLET_SPEED,
-  STAR_ENERGY_MAX, STAR_ENERGY_PER_KILL,
+  STAR_ENERGY_MAX, STAR_ENERGY_PER_KILL, ENERGY_LEECH_DRAIN,
   RESOURCE_SPAWN_INTERVAL, RESOURCE_MAX_ON_MAP, HEAL_AMOUNT, ENERGY_AMOUNT,
   RUBY_HEAL_AMOUNT, RUBY_HEAL_COOLDOWN, RUBY_HEAL_RANGE, RUBY_HEAL_CLEAR_RANGE,
   METEORITE_CYCLE, METEORITE_WARNING, METEORITE_PLAYER_DMG, METEORITE_RUBY_DMG,
   SNIPER_ATTACK_RANGE, SNIPER_WINDUP_TICKS, SNIPER_CHAIN_RANGE, SNIPER_CHAIN_DMG,
   HEALER_HEAL_RADIUS, HEALER_HEAL_AMOUNT, HEALER_HEAL_INTERVAL,
-  CHARGER_CHARGE_SPEED, CHARGER_SIGHT_RANGE, CHARGER_STUN_TICKS,
+  CHARGER_CHARGE_SPEED, CHARGER_WINDUP_TICKS, CHARGER_CHARGE_TILES, CHARGER_SIGHT_RANGE, CHARGER_STUN_TICKS,
   SHIELDER_SHIELD_RANGE, KILL_SHIELD_HP,
   BOSS_SPAWN_INTERVAL, BOSS_WARNING_TICKS, BOSS_METEOR_DMG, BOSS_LATE_METEOR_DMG, BOSS_ATTACK_RANGE, BOSS_FIRST_SPAWN_TIMER,
   BOSS_ANNOUNCEMENT_TICKS, BOSS_NAMES, BOSS_TYPES, BossType, isBossType, PRAYER_FLEE_REPATH_TICKS,
@@ -49,6 +52,65 @@ import {
 // Chamber indices are 0=ALPHA(TL), 1=BETA(TR), 2=DELTA(BL), 3=GAMMA(BR) — see constants.ts.
 // Clockwise strike order: ALPHA(TL) -> BETA(TR) -> GAMMA(BR) -> DELTA(BL).
 export const METEOR_CLOCKWISE_ORDER = [0, 1, 3, 2];
+
+export const CONSTELLATIONS = {
+  healing: { name: 'Ophiuchus', description: 'Manual healing recharges 20% faster.', color: '#ff9cae' },
+  laser: { name: 'Lyra', description: 'Lasers deal 20% more damage.', color: '#7ee8f5' },
+  speed: { name: 'Pegasus', description: 'Move 8% faster, including while carrying Ruby.', color: '#89e5c6' },
+  energy: { name: 'Aquarius', description: 'Gain 20% more energy from alien kills and blue shards.', color: '#8aafff' },
+  bomb: { name: 'Perseus', description: 'Bomb radius grows by one tile. Stay clear of your blast!', color: '#ffb778' },
+  bullets: { name: 'Orion', description: 'Bullets deal 25% more damage.', color: '#7ecbff' },
+  wave: { name: 'Draco', description: 'Waves deal 25% more damage.', color: '#bba0ff' },
+  ruby: { name: 'Cassiopeia', description: 'Ruby takes 15% less damage, including hits to its shields.', color: '#ff8dbb' },
+  power: { name: 'Phoenix', description: 'Powered mode lasts one extra second, including Sirius Surge.', color: '#ffd477' },
+  laserRate: { name: 'Aquila', description: 'Laser cooldown is 15% shorter.', color: '#8fe7ff' },
+  waveReach: { name: 'Cygnus', description: 'Waves reach one tile farther and push one extra tile.', color: '#a0c7ff' },
+  bombDamage: { name: 'Scorpius', description: 'Bombs deal 20% more damage. Your own blast hurts more too.', color: '#ffa08c' },
+  burstDuration: { name: 'Taurus', description: 'All speed bursts last 25% longer.', color: '#8de6b1' },
+  burstRate: { name: 'Vela', description: 'Speed-burst cooldown is 20% shorter.', color: '#a0ead8' },
+  waveRate: { name: 'Centaurus', description: 'Wave cooldown is 15% shorter.', color: '#d1b1ff' },
+  playerGuard: { name: 'Delphinus', description: 'Take 10% less damage, including hits to your shields.', color: '#ffabbf' },
+  manualHealing: { name: 'Libra', description: 'Each manual heal restores 2 extra Ruby HP and 1 extra player HP.', color: '#f6b4df' },
+  killHealing: { name: 'Hercules', description: 'Ordinary alien defeats restore 2 extra player HP.', color: '#e5b48b' },
+  bombRate: { name: 'Cepheus', description: 'Bomb cooldown is 20% shorter.', color: '#ffc88a' },
+  laserRange: { name: 'Crux', description: 'Lasers reach two tiles farther.', color: '#9ce7ef' },
+} as const;
+export type Constellation = keyof typeof CONSTELLATIONS;
+export const CONSTELLATION_INTERVAL = 3;
+
+export function constellationBonus(state: GameState, kind: Constellation): number {
+  return state.constellations.includes(kind) ? 1 : 0;
+}
+
+export function getBombRadius(state: GameState, powered: boolean): number {
+  return (powered ? BOMB_RADIUS_PWR : BOMB_RADIUS) + constellationBonus(state, 'bomb');
+}
+
+// Extra health applies only to new regular aliens, including Splitter children.
+export function constellationAlienHPMult(state: GameState): number {
+  return 1 + Math.min(6, Math.floor(state.bossesKilled / CONSTELLATION_INTERVAL)) * 0.05;
+}
+
+function offerConstellation(state: GameState) {
+  if (state.bossesKilled % CONSTELLATION_INTERVAL !== 0 || state.gamePhase === 'lost') return;
+  const pool = (Object.keys(CONSTELLATIONS) as Constellation[]).filter(kind => !state.constellations.includes(kind));
+  if (!pool.length) return;
+  const choices: Constellation[] = [];
+  while (choices.length < 2 && pool.length) choices.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  state.constellationChoices = choices;
+  state.gamePhase = 'constellation';
+  state.playerQueuedDirX = state.playerQueuedDirY = 0;
+  stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound();
+}
+
+export function chooseConstellation(state: GameState, kind: Constellation): boolean {
+  if (state.gamePhase !== 'constellation' || !state.constellationChoices.includes(kind) || state.constellations.includes(kind)) return false;
+  state.constellations.push(kind);
+  state.constellationChoices = [];
+  state.playerQueuedDirX = state.playerQueuedDirY = 0;
+  state.gamePhase = 'playing';
+  return true;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -137,6 +199,10 @@ export interface Enemy {
   // charger specific
   chargeDirX: number; // locked charge direction; 0 = not charging
   chargeDirY: number;
+  chargeWindupTicks?: number; // locked warning before a Charger rush; windupTicks remains its recovery
+  chargeTilesLeft?: number;
+  // Energy Leech: only energy actually removed from the player is stored/refunded.
+  stolenEnergy?: number;
   // shielder specific
   shieldTargetId: number; // ID of ally being shielded; -1 = none
   // splitter_queen specific — countdown to her next phase-jump; unused for queen_echo (echoes are permanent)
@@ -218,7 +284,7 @@ export interface DeathParticle {
   color: string;
 }
 
-export type GamePhase = 'playing' | 'teleporting' | 'lost';
+export type GamePhase = 'playing' | 'teleporting' | 'constellation' | 'lost';
 
 export interface RewardEffect {
   target: 'player' | 'ruby';
@@ -227,6 +293,7 @@ export interface RewardEffect {
 }
 
 export interface GameState {
+  ambientEvents: AmbientEventState;
   map: number[][];
   gameTick: number;
   gamePhase: GamePhase;
@@ -293,6 +360,7 @@ export interface GameState {
   resourceTimer: number;
 
   // Meteorite
+  meteoriteImpact: { chamber: number; ticks: number } | null;
   meteoriteTimer: number;   // countdown to next strike
   meteoriteWarning: number; // -1 = no warning; 0-3 = chamber index
   meteoriteStrikeIn: number; // ticks remaining in warning phase
@@ -360,6 +428,8 @@ export interface GameState {
   bossSpawnName: string;
   bossSpawnColor: string;
   bossSpawnTicks: number;   // remaining ticks of the post-spawn name banner
+  constellations: Constellation[];
+  constellationChoices: Constellation[];
   bossesKilled: number;     // tracks how many bosses have been killed (each +15 HP)
   bossPool: BossType[];     // natural spawns draw every boss once before reshuffling
   lastNaturalBoss: BossType | null;
@@ -734,6 +804,7 @@ export function createInitialState(): GameState {
     map,
     gameTick: 0,
     gamePhase: 'playing',
+    ambientEvents: createAmbientEvents(),
     score: 0,
     killScore: 0,
     difficultyLevel: 0,
@@ -790,6 +861,7 @@ export function createInitialState(): GameState {
     resources: [],
     resourceTimer: 0,
 
+    meteoriteImpact: null,
     meteoriteTimer: METEORITE_CYCLE,
     meteoriteWarning: -1,
     meteoriteStrikeIn: 0,
@@ -835,6 +907,8 @@ export function createInitialState(): GameState {
     bossSpawnName: '',
     bossSpawnColor: '',
     bossSpawnTicks: 0,
+    constellations: [],
+    constellationChoices: [],
     bossesKilled: 0,
     bossPool: [],
     lastNaturalBoss: null,
@@ -871,6 +945,7 @@ function damageLunarDecoy(state: GameState, amount: number) {
 function damagePlayer(state: GameState, amount: number) {
   if(state.enemyDecoyActive){damageLunarDecoy(state,amount);return;}
   if (state.godMode) return;
+  amount *= state.constellations.includes('playerGuard') ? 0.9 : 1;
   const absorbed = Math.min(state.playerShieldHP, amount);
   state.playerShieldHP -= absorbed;
   if(state.playerShieldHP<=0)state.playerSaturnShield=false;
@@ -885,6 +960,7 @@ function damagePlayer(state: GameState, amount: number) {
 function damageRuby(state: GameState, amount: number) {
   if (state.godMode) return;
   if (state.rubyTileX === -1) return; // carried — ruby not vulnerable
+  amount *= 1 - 0.15 * constellationBonus(state, 'ruby');
   const absorbed = Math.min(state.rubyShieldHP, amount);
   state.rubyShieldHP -= absorbed;
   if(state.rubyShieldHP<=0)state.rubySaturnShield=false;
@@ -987,7 +1063,7 @@ function spawnEnemy(state: GameState) {
     const typeIdx = Math.floor(Math.random() * tier.spawnTypes.length);
     const type: EnemyType = tier.spawnTypes[typeIdx];
     const cfg = ENEMY_CONFIGS[type];
-    const hpScaled = Math.ceil(cfg.maxHp * tier.hpMult) * REGULAR_ENEMY_HP_MULT;
+    const hpScaled = Math.ceil(cfg.maxHp * tier.hpMult) * REGULAR_ENEMY_HP_MULT * constellationAlienHPMult(state);
 
     const enemy: Enemy = {
       id: state.nextEnemyId++,
@@ -1826,7 +1902,7 @@ function updateEnemies(state: GameState) {
       // so the resumed movement (or charger's charge) doesn't lerp toward a
       // stale pre-push tile (which visibly dragged the enemy across walls).
       e.targetTileX = e.tileX; e.targetTileY = e.tileY; e.stepProgress = 0;
-      if (e.type === 'charger') { e.chargeDirX = 0; e.chargeDirY = 0; }
+      if (e.type === 'charger') { e.chargeDirX = 0; e.chargeDirY = 0; e.chargeWindupTicks=0; e.chargeTilesLeft=0; }
       e.pushTiles = Math.max(0, e.pushTiles - 1);
       continue;
     }
@@ -2326,24 +2402,24 @@ function updateEnemies(state: GameState) {
     // ── Charger special logic ─────────────────────────────────────────────
     if (e.type === 'charger') {
       const cCfg = ENEMY_CONFIGS.charger;
+      if (e.attackTimer > 0) e.attackTimer--;
       // Stunned after hitting wall or player
       if (e.windupTicks > 0) { e.windupTicks--; continue; }
+      if ((e.chargeWindupTicks ?? 0) > 0) { e.chargeWindupTicks!--; continue; }
+      const recover=(wall:boolean)=>{
+        e.chargeDirX=0;e.chargeDirY=0;e.chargeTilesLeft=0;
+        e.windupTicks=wall?CHARGER_STUN_TICKS:Math.floor(CHARGER_STUN_TICKS/2);
+        e.attackTimer=cCfg.attackCooldown;e.path=[];e.pathTimer=0;
+      };
 
       // Currently charging
       if (e.chargeDirX !== 0 || e.chargeDirY !== 0) {
         if (e.tileX === e.targetTileX && e.tileY === e.targetTileY) {
           const nx = e.tileX + e.chargeDirX;
           const ny = e.tileY + e.chargeDirY;
-          const hitWall   = !isFloorTile(state.map, nx, ny);
-          const hitPlayer = nx === state.playerTileX && ny === state.playerTileY;
-          const hasRubyC  = !state.enemyDecoyActive && state.rubyTileX !== -1;
-          const hitRuby   = hasRubyC && nx === state.rubyTileX && ny === state.rubyTileY;
-          if (hitWall || hitPlayer || hitRuby) {
-            if (hitPlayer) { playSFX_enemyAttack(); damagePlayer(state, cCfg.damageToPlayer); e.attackTimer = cCfg.attackCooldown; e.shootTicks = 14; }
-            if (hitRuby && !hitPlayer) { playSFX_enemyAttack(); damageRuby(state, cCfg.damageToRuby); e.attackTimer = cCfg.attackCooldown; e.shootTicks = 14; }
-            e.chargeDirX = 0; e.chargeDirY = 0;
-            e.windupTicks = hitWall ? CHARGER_STUN_TICKS : Math.floor(CHARGER_STUN_TICKS / 2);
-          } else {
+          if (!isFloorTile(state.map, nx, ny)) recover(true);
+          else if ((e.chargeTilesLeft ?? CHARGER_CHARGE_TILES) <= 0) recover(false);
+          else {
             e.targetTileX = nx; e.targetTileY = ny; e.stepProgress = 0;
           }
         } else {
@@ -2356,19 +2432,27 @@ function updateEnemies(state: GameState) {
             e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2;
             e.y = e.tileY * TILE_SIZE + TILE_SIZE / 2;
             e.stepProgress = 0;
+            e.chargeTilesLeft=(e.chargeTilesLeft ?? CHARGER_CHARGE_TILES)-1;
+            // Contact damage happens on arrival, rather than a tile before impact.
+            const hitPlayer=e.tileX===state.playerTileX&&e.tileY===state.playerTileY;
+            const hitRuby=!state.enemyDecoyActive&&state.rubyTileX!==-1&&e.tileX===state.rubyTileX&&e.tileY===state.rubyTileY;
+            if(hitPlayer||hitRuby){
+              playSFX_enemyAttack();if(hitPlayer)damagePlayer(state,cCfg.damageToPlayer);else damageRuby(state,cCfg.damageToRuby);
+              e.shootTicks=14;recover(false);
+            }
           }
         }
         continue;
       }
 
       // Idle — watch for player LoS and charge
-      if (e.attackTimer > 0) e.attackTimer--;
       const cDist = tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY);
       const cLoS  = hasLineOfSight(state.map, e.tileX, e.tileY, state.playerTileX, state.playerTileY);
-      if (e.attackTimer === 0 && cDist <= CHARGER_SIGHT_RANGE && cLoS) {
+      if (e.attackTimer === 0 && e.tileX===e.targetTileX && e.tileY===e.targetTileY && cDist <= CHARGER_SIGHT_RANGE && cLoS) {
         const ddx = state.playerTileX - e.tileX, ddy = state.playerTileY - e.tileY;
         if (Math.abs(ddx) >= Math.abs(ddy)) { e.chargeDirX = ddx > 0 ? 1 : -1; e.chargeDirY = 0; }
         else { e.chargeDirX = 0; e.chargeDirY = ddy > 0 ? 1 : -1; }
+        e.chargeWindupTicks=CHARGER_WINDUP_TICKS;e.chargeTilesLeft=CHARGER_CHARGE_TILES;e.path=[];
       } else {
         e.pathTimer--;
         if (e.pathTimer <= 0) { e.path = bfs(state.map, e.targetTileX, e.targetTileY, state.playerTileX, state.playerTileY); e.pathTimer = 35 + Math.floor(Math.random() * 20); }
@@ -2507,7 +2591,7 @@ function updateEnemies(state: GameState) {
 
     // Determine target
     const hasPlacedRuby = state.rubyTileX !== -1;
-    if (playerCarrying || !hasPlacedRuby) {
+    if (e.type === 'energy_leech' || playerCarrying || !hasPlacedRuby) {
       e.targeting = 'player';
     } else {
       // Closest to player? target player; else target ruby
@@ -2540,6 +2624,17 @@ function updateEnemies(state: GameState) {
       } else if (adjPlayer && e.targeting === 'player') {
         if (e.type === 'bomber') {
           e.exploding = true; e.explodeTick = 45;
+        } else if (e.type === 'energy_leech') {
+          // Echo attracts the bite, but contains no real star energy to steal.
+          if (state.enemyDecoyActive) damageLunarDecoy(state, 1);
+          else if (!state.godMode) {
+            const stolen = Math.min(ENERGY_LEECH_DRAIN, state.starEnergy);
+            state.starEnergy -= stolen;
+            e.stolenEnergy = (e.stolenEnergy ?? 0) + stolen;
+          }
+          playSFX_enemyAttack();
+          e.attackTimer = cfg.attackCooldown;
+          e.shootTicks = 14;
         } else {
           playSFX_enemyAttack();
           damagePlayer(state, cfg.damageToPlayer);
@@ -2709,16 +2804,19 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
   spawnDeathParticles(state, e);
 
   const skipRewards = fromMeteor;
+  const recoveredEnergy = e.type === 'energy_leech' ? (e.stolenEnergy ?? 0) : 0;
+  const wasMax = state.starEnergy >= STAR_ENERGY_MAX;
+  const energyGain = (skipRewards ? 0 : (STAR_ENERGY_PER_KILL + (e.type === 'fast' ? 8 : 0)) * (1 + 0.2 * constellationBonus(state, 'energy'))) + recoveredEnergy;
+  state.starEnergy = Math.min(STAR_ENERGY_MAX, state.starEnergy + energyGain);
+  if (!wasMax && state.starEnergy >= STAR_ENERGY_MAX && !isBossType(e.type)) playSFX_powerUp();
+  // Stolen energy is returned even when a meteor defeats the Leech.
+  if (recoveredEnergy > 0) state.runnerEnergyFlashTicks = 60;
   if (!skipRewards) {
     state.killScore += ENEMY_CONFIGS[e.type].scoreValue;
-    const wasMax = state.starEnergy >= STAR_ENERGY_MAX;
-    const energyGain = STAR_ENERGY_PER_KILL + (e.type === 'fast' ? 8 : 0);
-    state.starEnergy = Math.min(STAR_ENERGY_MAX, state.starEnergy + energyGain);
-    if (!wasMax && state.starEnergy >= STAR_ENERGY_MAX && !isBossType(e.type)) playSFX_powerUp();
 
     // Passive sustain — every kill heals a small flat amount, stacking on top of any
     // type-specific reward below (e.g. a healer kill grants this +24 more, not instead of).
-    healPlayer(state, 5, false);
+    healPlayer(state, 5 + 2 * constellationBonus(state, 'killHealing'), false);
 
     // ── Kill effects by type ─────────────────────────────────────────────
     if (e.type === 'bomber') {
@@ -2777,7 +2875,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
           id: state.nextEnemyId++, type: 'mini_splitter',
           x: tx * TILE_SIZE + TILE_SIZE / 2, y: ty * TILE_SIZE + TILE_SIZE / 2,
           tileX: tx, tileY: ty, targetTileX: tx, targetTileY: ty, stepProgress: 0,
-          hp: miniCfg.maxHp * REGULAR_ENEMY_HP_MULT, maxHp: miniCfg.maxHp * REGULAR_ENEMY_HP_MULT,
+          hp: miniCfg.maxHp * REGULAR_ENEMY_HP_MULT * constellationAlienHPMult(state), maxHp: miniCfg.maxHp * REGULAR_ENEMY_HP_MULT * constellationAlienHPMult(state),
           path: [], pathTimer: 0, attackTimer: 0, targeting: 'player',
           pushDirX: 0, pushDirY: 0, pushTiles: 0,
           flashTicks: 0, healFlashTicks: 0, shootTicks: 0, exploding: false, explodeTick: 0,
@@ -2792,6 +2890,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false) {
   // meteor strike finishing it off), unlike the score/energy rewards above which meteor kills skip.
   if (isBossType(e.type)) {
     state.bossesKilled++;
+    offerConstellation(state);
     if (state.bossesKilled === SPECIAL_UNLOCK_KILLS) state.ascensionBannerTicks = 360;
     if (state.bossesKilled >= SPECIAL_UNLOCK_KILLS && e.type in SPECIAL_SKILLS) {
       state.specialSkill = e.type as SpecialSkill;
@@ -2850,7 +2949,7 @@ function updatePlayer(state: GameState) {
     state.playerCarryingRuby ? PLAYER_CARRY_MULT : 1.0) *
     (chilled ? FROST_CHILL_SPEED_MULT : 1) * (isPlayerInThorns(state) ? THORN_SLOW_MULT : 1);
   const knockback = state.playerKnockback;
-  const baseSpeed = knockback?.started ? PRAYER_KNOCKBACK_SPEED : PLAYER_BASE_SPEED * speedMultiplier;
+  const baseSpeed = knockback?.started ? PRAYER_KNOCKBACK_SPEED : PLAYER_BASE_SPEED * speedMultiplier * (1 + 0.08 * constellationBonus(state, 'speed'));
 
   if (state.playerTileX === state.playerTargetX && state.playerTileY === state.playerTargetY) {
 
@@ -2919,7 +3018,7 @@ function updatePlayer(state: GameState) {
         playSFX_healPickup();
       } else {
         const wasMax = state.starEnergy >= STAR_ENERGY_MAX;
-        state.starEnergy = Math.min(STAR_ENERGY_MAX, state.starEnergy + ENERGY_AMOUNT);
+        state.starEnergy = Math.min(STAR_ENERGY_MAX, state.starEnergy + ENERGY_AMOUNT * (1 + 0.2 * constellationBonus(state, 'energy')));
         showRewardEffect(state, 'player', 'energy');
         if (!wasMax && state.starEnergy >= STAR_ENERGY_MAX) {
           playSFX_powerUp();
@@ -2948,6 +3047,7 @@ function updateMeteorite(state: GameState) {
     if (state.meteoriteStrikeIn <= 0) {
       // STRIKE
       const ch = state.meteoriteWarning;
+      state.meteoriteImpact = { chamber: ch, ticks: 60 };
       playSFX_meteorite();
       // Kill all enemies in that chamber (boss only takes heavy damage)
       for (let i = state.enemies.length - 1; i >= 0; i--) {
@@ -2999,7 +3099,7 @@ function updateMeteorite(state: GameState) {
 // Grants a free speed burst that ignores/doesn't touch the SPEED ability's own cooldown —
 // used as a passive bonus (energy pickups, entering the powered-up state), not a manual cast.
 function grantInstantSpeedBoost(state: GameState, withSound = true) {
-  state.speedActiveTicks = Math.max(state.speedActiveTicks, SPEED_DURATION);
+  state.speedActiveTicks = Math.max(state.speedActiveTicks, SPEED_DURATION * (state.constellations.includes('burstDuration') ? 1.25 : 1));
   state.speedFlashTicks = 30;
   if (withSound) playSFX_speed();
 }
@@ -3008,7 +3108,7 @@ function checkAndConsumePower(state: GameState): boolean {
   if (state.poweredTicks > 0) return true;
   if (state.starEnergy >= STAR_ENERGY_MAX) {
     state.starEnergy = 0;
-    state.poweredTicks = 120;
+    state.poweredTicks = 120 + 60 * constellationBonus(state, 'power');
     grantInstantSpeedBoost(state);
     return true;
   }
@@ -3016,10 +3116,11 @@ function checkAndConsumePower(state: GameState): boolean {
 }
 
 export function useLaser(state: GameState) {
+  if (state.gamePhase !== 'playing') return;
   if (state.laserCooldown > 0) return;
   const powered = checkAndConsumePower(state);
-  const range = powered ? LASER_RANGE_PWR : LASER_RANGE;
-  const dmg = powered ? LASER_DMG_PWR : LASER_DMG;
+  const range = (powered ? LASER_RANGE_PWR : LASER_RANGE) + 2 * constellationBonus(state, 'laserRange');
+  const dmg = (powered ? LASER_DMG_PWR : LASER_DMG) * (1 + 0.2 * constellationBonus(state, 'laser'));
 
   const DIRS: [number, number][] = [[1,0],[-1,0],[0,1],[0,-1]];
   let laserHit = false;
@@ -3050,12 +3151,13 @@ export function useLaser(state: GameState) {
       powered
     });
   }
-  state.laserCooldown = LASER_COOLDOWN;
+  state.laserCooldown = LASER_COOLDOWN * (state.constellations.includes('laserRate') ? 0.85 : 1);
   playSFX_laser();
   if (laserHit) playSFX_alienHit();
 }
 
 export function pressCharge(state: GameState) {
+  if (state.gamePhase !== 'playing') return;
   if (state.waveCooldown > 0) return;
   state.chargeDecayTimer = 0;
   state.chargeCount++;
@@ -3067,6 +3169,7 @@ export function pressCharge(state: GameState) {
 
 // Directly fire wave without charge count — used for hold-left-click and keyboard K
 export function activateWave(state: GameState) {
+  if (state.gamePhase !== 'playing') return;
   if (state.waveCooldown > 0) return;
   fireWave(state);
 }
@@ -3074,9 +3177,9 @@ export function activateWave(state: GameState) {
 function fireWave(state: GameState) {
   stopChargeSound();
   const powered = checkAndConsumePower(state);
-  const radius = powered ? WAVE_RADIUS_PWR : WAVE_RADIUS;
-  const dmg = powered ? WAVE_DMG_PWR : WAVE_DMG;
-  const push = powered ? WAVE_PUSH_TILES_PWR : WAVE_PUSH_TILES;
+  const radius = (powered ? WAVE_RADIUS_PWR : WAVE_RADIUS) + constellationBonus(state, 'waveReach');
+  const dmg = (powered ? WAVE_DMG_PWR : WAVE_DMG) * (1 + 0.25 * constellationBonus(state, 'wave'));
+  const push = (powered ? WAVE_PUSH_TILES_PWR : WAVE_PUSH_TILES) + constellationBonus(state, 'waveReach');
 
   state.waveEffects.push({
     cx: state.playerX, cy: state.playerY,
@@ -3101,7 +3204,7 @@ function fireWave(state: GameState) {
     }
   }
   state.chargeCount = 0;
-  state.waveCooldown = WAVE_COOLDOWN;
+  state.waveCooldown = WAVE_COOLDOWN * (state.constellations.includes('waveRate') ? 0.85 : 1);
   state.screenShakeTicks = Math.max(state.screenShakeTicks, 8);
   state.screenShakeAmt = Math.max(state.screenShakeAmt, 3);
   playSFX_wave();
@@ -3109,16 +3212,18 @@ function fireWave(state: GameState) {
 }
 
 export function useSpeedBoost(state: GameState) {
+  if (state.gamePhase !== 'playing') return;
   if (state.speedCooldown > 0) return;
   const powered = checkAndConsumePower(state);
-  const dur = powered ? SPEED_DURATION_PWR : SPEED_DURATION;
+  const dur = (powered ? SPEED_DURATION_PWR : SPEED_DURATION) * (state.constellations.includes('burstDuration') ? 1.25 : 1);
   state.speedActiveTicks = dur;
   state.speedFlashTicks = 30;
-  state.speedCooldown = SPEED_COOLDOWN;
+  state.speedCooldown = SPEED_COOLDOWN * (state.constellations.includes('burstRate') ? 0.8 : 1);
   playSFX_speed();
 }
 
 export function useBomb(state: GameState) {
+  if (state.gamePhase !== 'playing') return;
   if (state.bomb === null) {
     if (state.bombCooldown > 0) return; // still on cooldown from last explosion
     const powered = checkAndConsumePower(state);
@@ -3134,8 +3239,8 @@ export function useBomb(state: GameState) {
     // Detonate
     state.playerCastTicks = 24; state.playerCastKind = 'bomb';
     const powered = state.bomb.powered;
-    const radius = powered ? BOMB_RADIUS_PWR : BOMB_RADIUS;
-    const dmg = powered ? BOMB_DMG_PWR : BOMB_DMG;
+    const radius = getBombRadius(state, powered);
+    const dmg = (powered ? BOMB_DMG_PWR : BOMB_DMG) * (1 + 0.2 * constellationBonus(state, 'bombDamage'));
 
     const bx = state.bomb.tileX, by = state.bomb.tileY;
     playSFX_bomb();
@@ -3167,13 +3272,14 @@ export function useBomb(state: GameState) {
       damagePlayer(state, Math.floor(dmg * 0.35));
     }
     state.bomb = null;
-    state.bombCooldown = 300;
+    state.bombCooldown = 300 * (state.constellations.includes('bombRate') ? 0.8 : 1);
     state.screenShakeTicks = 22;
     state.screenShakeAmt = powered ? 18 : 12;
   }
 }
 
 export function toggleCarryRuby(state: GameState) {
+  if (state.gamePhase !== 'playing') return;
   if (state.playerCarryingRuby) {
     state.rubyTileX = state.playerTileX;
     state.rubyTileY = state.playerTileY;
@@ -3260,15 +3366,16 @@ export function canHealRuby(state: GameState): boolean {
 export function healRuby(state: GameState): boolean {
   if (!canHealRuby(state)) return false;
   if (state.rubyHealCooldown > 0) return false;
-  healCore(state, RUBY_HEAL_AMOUNT);
-  healPlayer(state, 3);
-  state.rubyHealCooldown = RUBY_HEAL_COOLDOWN;
+  healCore(state, RUBY_HEAL_AMOUNT + 2 * constellationBonus(state, 'manualHealing'));
+  healPlayer(state, 3 + constellationBonus(state, 'manualHealing'));
+  state.rubyHealCooldown = RUBY_HEAL_COOLDOWN / (1 + 0.2 * constellationBonus(state, 'healing'));
   state.healJiggleTicks = 18;
   try { const a = new Audio('/sounds/deghost.wav'); a.volume = 0.32; a.play().catch(() => {}); } catch {}
   return true;
 }
 
 export function cancelTeleport(state: GameState) {
+  if (state.gamePhase !== 'teleporting') return;
   state.gamePhase = 'playing';
   state.teleportDestOptions = [];
   state.teleportCooldown = 0;
@@ -3289,6 +3396,7 @@ export function tick(state: GameState) {
   if (state.gamePhase !== 'playing') { stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
 
   state.gameTick++;
+  if (state.meteoriteImpact && --state.meteoriteImpact.ticks <= 0) state.meteoriteImpact = null;
   if(state.lunarDecoy){
     if(state.lunarDecoy.flashTicks>0)state.lunarDecoy.flashTicks--;
     if(state.lunarDecoy.invulnerableTicks>0)state.lunarDecoy.invulnerableTicks--;
@@ -3410,6 +3518,15 @@ export function tick(state: GameState) {
     }
   }
 
+  // Minor events use the real player position before any Lunar AI substitution.
+  if (updateAmbientEvents(state)) {
+    healPlayer(state, 20); healCore(state, 20);
+    state.starEnergy = STAR_ENERGY_MAX;
+    grantInstantSpeedBoost(state, false);
+    showRewardEffect(state, 'player', 'energy');
+    playSFX_powerUp();
+  }
+
   // Player movement + resource pickup
   updatePlayer(state);
 
@@ -3424,10 +3541,12 @@ export function tick(state: GameState) {
   // Enemy AI + attacks
   updateSingularity(state);
   updateCelestialField(state);
-  updateEnemyTargets(state);
-  updateSeaSongWaves(state);
-  updateThornHazards(state);
-  updatePoisonSound(state);
+  if (!isEclipseActive(state)) {
+    updateEnemyTargets(state);
+    updateSeaSongWaves(state);
+    updateThornHazards(state);
+    updatePoisonSound(state);
+  } else stopPoisonSound();
 
   // Meteorite
   updateMeteorite(state);
@@ -3450,7 +3569,7 @@ export function tick(state: GameState) {
       state.laserBullets.splice(i, 1);
       continue;
     }
-    const dmg = b.powered ? BULLET_DMG_PWR : BULLET_DMG;
+    const dmg = (b.powered ? BULLET_DMG_PWR : BULLET_DMG) * (1 + 0.25 * constellationBonus(state, 'bullets'));
     let hit = false;
     for (let j = state.enemies.length - 1; j >= 0; j--) {
       const e = state.enemies[j];
@@ -3513,6 +3632,14 @@ export function godSetNoMobs(state: GameState, enabled: boolean) {
 // God-mode debug tool: force-spawn a specific boss type at a random valid spawn tile,
 // removing whichever boss-tier enemy currently exists (queen decoys are left alone —
 // they persist independently of their queen per normal rules).
+export function godAdvanceStage(state: GameState) {
+  if (state.gamePhase !== 'playing') return;
+  state.bossesKilled++;
+  state.difficultyLevel = Math.max(state.difficultyLevel, Math.min(DIFFICULTY_TIERS.length - 1, 3 + state.bossesKilled));
+  if (state.bossesKilled === SPECIAL_UNLOCK_KILLS) state.ascensionBannerTicks = 360;
+  offerConstellation(state);
+}
+
 export function godEnterAscension(state: GameState) {
   if(state.gamePhase!=='playing')return;
   state.bossesKilled=Math.max(state.bossesKilled,SPECIAL_UNLOCK_KILLS);
@@ -3611,7 +3738,7 @@ export function useSpecialSkill(state: GameState): boolean {
   }
   if (kind === 'blind_prayer') {
     playSFX_powerUp();
-    state.starEnergy=0;state.poweredTicks=Math.max(state.poweredTicks,SPECIAL_PRAYER_DURATION);
+    state.starEnergy=0;state.poweredTicks=Math.max(state.poweredTicks,SPECIAL_PRAYER_DURATION+60*constellationBonus(state,'power'));
     state.laserCooldown=0;state.bulletCooldown=0;state.waveCooldown=0;
     state.bombCooldown=0;state.speedCooldown=0;
     grantInstantSpeedBoost(state, false);return true;
@@ -3642,6 +3769,7 @@ export function useSpecialSkill(state: GameState): boolean {
 }
 
 export function useBullet(state: GameState) {
+  if (state.gamePhase !== 'playing') return;
   if (state.bulletCooldown > 0) return;
   const powered = checkAndConsumePower(state);
   

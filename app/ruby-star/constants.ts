@@ -200,7 +200,9 @@ export function hallwayOfTile(tileX: number, tileY: number): number {
 
 // ─── Enemy types ─────────────────────────────────────────────────────────────
 
-export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'fiery_king' | 'splitter_queen' | 'queen_echo' | 'storm_reaper' | 'devourer' | 'frost_warden' | 'blind_prayer' | 'sea_chanter' | 'thorn_weaver';
+export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'energy_leech' | 'fiery_king' | 'splitter_queen' | 'queen_echo' | 'storm_reaper' | 'devourer' | 'frost_warden' | 'blind_prayer' | 'sea_chanter' | 'thorn_weaver';
+
+export const ENERGY_LEECH_DRAIN = 20;
 
 export interface EnemyConfig {
   maxHp: number;
@@ -271,6 +273,11 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     maxHp: 10, speed: 0.44, color: '#00ddcc', shieldColor: '#00ddcc',
     bodyFraction: 0.74, scoreValue: 20, damageToPlayer: 0, damageToRuby: 0,
     attackCooldown: 999, attackRange: 0, bombExplodeRange: 0,
+  },
+  energy_leech: {
+    maxHp: 8, speed: 1.8, color: '#c77aff', shieldColor: '#e7baff',
+    bodyFraction: 0.66, scoreValue: 20, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 75, attackRange: 1, bombExplodeRange: 0,
   },
   fiery_king: {
     maxHp: 121, speed: 0.48, color: '#cc0022', shieldColor: '#ff4444',
@@ -410,7 +417,9 @@ export const HEALER_HEAL_INTERVAL = 60; // ticks between heals (~1s)
 export const SNIPER_ATTACK_RANGE = 10; // tiles — fires from this distance
 export const SNIPER_WINDUP_TICKS = 50; // telegraph before firing (~0.83s)
 
-export const CHARGER_CHARGE_SPEED = 2.45; // px/tick during charge (very fast)
+export const CHARGER_CHARGE_SPEED = 7.5; // px/tick during the committed rush
+export const CHARGER_WINDUP_TICKS = 30; // half-second locked-lane warning
+export const CHARGER_CHARGE_TILES = 8; // recover after a missed rush instead of charging forever
 export const CHARGER_SIGHT_RANGE = 7;   // tiles — triggers charge when player in LoS
 export const CHARGER_STUN_TICKS = 55;  // ticks stunned after hitting wall
 
@@ -464,10 +473,10 @@ export const DIFFICULTY_TIERS: DifficultyTier[] = [
   { spawnInterval: 150, maxEnemies: 9, spawnTypes: ['normal'], hpMult: 1.0, spawnCount: 1 }, // after 10s
   { spawnInterval: 120, maxEnemies: 11, spawnTypes: ['normal', 'normal', 'armored', 'healer'], hpMult: 1.0, spawnCount: 1 }, // after 25s
   { spawnInterval: 100, maxEnemies: 16, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'healer', 'charger'], hpMult: 1.2, spawnCount: 1 }, // after 45s
-  { spawnInterval: 80, maxEnemies: 18, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'sniper', 'healer', 'charger', 'ghost', 'shielder'], hpMult: 1.3, spawnCount: 2 }, // stage 2
-  { spawnInterval: 65, maxEnemies: 21, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'bomber', 'sniper', 'healer', 'charger', 'ghost', 'shielder', 'splitter'], hpMult: 1.5, spawnCount: 2 }, // stage 3
-  { spawnInterval: 50, maxEnemies: 25, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'bomber', 'sniper', 'healer', 'charger', 'ghost', 'shielder', 'splitter'], hpMult: 1.7, spawnCount: 2 }, // stage 4
-  { spawnInterval: 38, maxEnemies: 31, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'bomber', 'sniper', 'healer', 'charger', 'ghost', 'shielder', 'splitter'], hpMult: 2.0, spawnCount: 3 }, // stage 5+
+  { spawnInterval: 80, maxEnemies: 18, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'sniper', 'healer', 'charger', 'ghost', 'shielder', 'energy_leech'], hpMult: 1.3, spawnCount: 2 }, // stage 1
+  { spawnInterval: 65, maxEnemies: 21, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'bomber', 'sniper', 'healer', 'charger', 'ghost', 'shielder', 'splitter', 'energy_leech'], hpMult: 1.5, spawnCount: 2 }, // stage 2
+  { spawnInterval: 50, maxEnemies: 25, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'bomber', 'sniper', 'healer', 'charger', 'ghost', 'shielder', 'splitter', 'energy_leech'], hpMult: 1.7, spawnCount: 2 }, // stage 3
+  { spawnInterval: 38, maxEnemies: 31, spawnTypes: ['normal', 'normal', 'armored', 'fast', 'bomber', 'sniper', 'healer', 'charger', 'ghost', 'shielder', 'splitter', 'energy_leech'], hpMult: 2.0, spawnCount: 3 }, // stage 4+
 ];
 
 export const DIFFICULTY_RAMP_TICKS = 600; // first opening increase, preserving first-boss timing

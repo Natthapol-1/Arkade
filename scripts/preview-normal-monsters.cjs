@@ -7,11 +7,13 @@ const renderer=new Module(path.resolve('app/ruby-star/mob-preview.cjs'),module);
 renderer._compile(ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,renderer.filename);
 const output=process.argv[2]||'.',prefix=process.argv[3]||'normal-monsters';
 const state=engine.createInitialState();engine.godSpawnBoss(state,'fiery_king');const template=state.enemies[0];
-const types=['normal','armored','fast','bomber','sniper','healer','charger','ghost','splitter','mini_splitter','shielder'];
+const types=['normal','armored','fast','bomber','sniper','healer','charger','ghost','splitter','mini_splitter','shielder','energy_leech'];
 function enemy(type,extra={}){return {...template,type,hp:c.ENEMY_CONFIGS[type].maxHp,maxHp:c.ENEMY_CONFIGS[type].maxHp,phaseTimer:100000,path:[],shootTicks:0,attackTimer:100,windupTicks:0,chargeDirX:0,chargeDirY:0,icyShieldHP:0,shieldTargetId:-1,...extra};}
 const samples=types.map(type=>[type.toUpperCase(),enemy(type),false]);
 samples.push(['SHIELDED',enemy('normal'),true],['ICE SHIELD',enemy('normal',{icyShieldHP:15}),false],['HEAL FLASH',enemy('normal',{healFlashTicks:12}),false],['BOMBER WARNING',enemy('bomber',{exploding:true,explodeTick:24}),false],['SNIPER AIM',enemy('sniper',{windupTicks:20}),false]);
-const canvas=createCanvas(1200,1040),ctx=canvas.getContext('2d');ctx.fillStyle='#101923';ctx.fillRect(0,0,1200,1040);
+samples.push(['LEECH CHARGED',enemy('energy_leech',{stolenEnergy:60}),false]);
+const height=Math.ceil(samples.length/4)*260;
+const canvas=createCanvas(1200,height),ctx=canvas.getContext('2d');ctx.fillStyle='#101923';ctx.fillRect(0,0,1200,height);
 for(const [i,[label,mob,shielded]]of samples.entries()){
  const x=i%4*300,y=Math.floor(i/4)*260;ctx.strokeStyle='#26303c';ctx.strokeRect(x+8,y+8,284,244);
  ctx.fillStyle=c.ENEMY_CONFIGS[mob.type].color;ctx.font='14px monospace';ctx.textAlign='center';ctx.fillText(label,x+150,y+35);
@@ -22,7 +24,7 @@ fs.writeFileSync(path.join(output,prefix+'.png'),canvas.toBuffer('image/png'));
 // Actual game renderer exercises attack overlays at several life stages.
 const scene=createCanvas(1000,700);state.noMobs=true;state.frostIceTiles=[];state.screenShakeTicks=0;
 state.playerTileX=state.playerTargetX=11;state.playerTileY=state.playerTargetY=10;state.playerX=11.5*c.TILE_SIZE;state.playerY=10.5*c.TILE_SIZE;
-state.enemies=['normal','ghost','armored','splitter','sniper'].map((type,i)=>enemy(type,{id:100+i,x:(8.5+i%3*3)*c.TILE_SIZE,y:(8.5+Math.floor(i/3)*5)*c.TILE_SIZE,tileX:8+i%3*3,targetTileX:8+i%3*3,tileY:8+Math.floor(i/3)*5,targetTileY:8+Math.floor(i/3)*5,targeting:'player',shootTicks:8}));
+state.enemies=['normal','ghost','armored','splitter','sniper','energy_leech'].map((type,i)=>enemy(type,{id:100+i,x:(8.5+i%3*3)*c.TILE_SIZE,y:(8.5+Math.floor(i/3)*5)*c.TILE_SIZE,tileX:8+i%3*3,targetTileX:8+i%3*3,tileY:8+Math.floor(i/3)*5,targetTileY:8+Math.floor(i/3)*5,targeting:'player',shootTicks:8}));
 state.laserBeams=[{fromX:state.enemies[4].x,fromY:state.enemies[4].y,endX:state.playerX,endY:state.playerY,dirX:0,dirY:0,ticks:16,color:'#ff3300'}];
 for(const tick of [12,40,88])renderer.exports.drawGame(scene.getContext('2d'),state,1000,700,tick);
 fs.writeFileSync(path.join(output,prefix+'-attacks.png'),scene.toBuffer('image/png'));

@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import PixelArrow from '@/components/PixelArrow';
 import { BOSS_NAMES, BOSS_TYPES, ENEMY_CONFIGS, SPECIAL_SKILLS, type BossType, type EnemyType } from './constants';
 
 const controls = [
   ['WASD / Arrows', 'Move'],
-  ['Left-click', 'Fire lasers'],
-  ['Hold left-click', 'Charge a wave'],
-  ['Right-click', 'Fire a bullet'],
+  ['Left-click / K', 'Fire lasers'],
+  ['Hold left-click / K', 'Charge a wave'],
+  ['Right-click / L', 'Fire a bullet'],
   ['R / Shift / Ctrl', 'Speed burst'],
   ['Q', 'Place bomb · press again to explode'],
   ['E', 'Carry or place Ruby'],
@@ -18,16 +19,17 @@ const controls = [
 
 const aliens: { type: EnemyType; name: string; description: string }[] = [
   { type: 'normal', name: 'Normal', description: 'Chases you or Ruby. Easy to defeat.' },
-  { type: 'armored', name: 'Armored', description: 'Tough and shielded. Defeat it for a player shield.' },
+  { type: 'armored', name: 'Armored', description: 'Slow and tough. Defeat it for a player shield.' },
   { type: 'fast', name: 'Runner', description: 'Very fast but fragile. Gives extra star energy.' },
   { type: 'bomber', name: 'Bomber', description: 'Explodes up close or when defeated. Keep your distance.' },
   { type: 'sniper', name: 'Sniper', description: 'Charges a long-range shot. Defeat it for chain lightning.' },
   { type: 'healer', name: 'Healer', description: 'Heals nearby aliens. Defeat it to recover HP.' },
-  { type: 'charger', name: 'Charger', description: 'Rushes straight at you. Dodge sideways; defeat it for a speed burst.' },
+  { type: 'charger', name: 'Charger', description: 'Marks a lane, then rushes straight ahead. Dodge sideways or bait it into a wall. Defeat it for a speed burst.' },
   { type: 'ghost', name: 'Ghost', description: 'Moves through walls. Defeat it to heal a placed Ruby.' },
   { type: 'splitter', name: 'Splitter', description: 'Splits into two smaller aliens when defeated.' },
   { type: 'mini_splitter', name: 'Mini Splitter', description: 'A small, quick attacker left by a Splitter.' },
   { type: 'shielder', name: 'Shielder', description: 'Protects another alien. Defeat it for a Ruby shield.' },
+  { type: 'energy_leech', name: 'Energy Leech', description: 'Hunts you and steals star energy up close. Defeat it to recover the stolen energy. Leaves HP and Ruby unharmed.' },
   { type: 'queen_echo', name: 'Queen Echo', description: 'A Queen copy that keeps shooting until defeated.' },
 ];
 
@@ -79,12 +81,14 @@ export default function RubyStarGuide() {
     <div className="rs-guide-nav">
       <h3>{sheet === 'main' ? 'HOW TO PLAY' : 'ALIENS & BOSSES'}</h3>
       <button type="button" className="btn rs-guide-link" onClick={() => setSheet(sheet === 'main' ? 'aliens' : 'main')}>
-        {sheet === 'main' ? 'ALIENS & BOSSES →' : '← MAIN RULES'}
+        {sheet !== 'main' && <PixelArrow direction="left" />}
+        <span>{sheet === 'main' ? 'ALIENS & BOSSES' : 'MAIN RULES'}</span>
+        {sheet === 'main' && <PixelArrow />}
       </button>
     </div>
 
     {sheet === 'main' ? <>
-      <p className="rs-guide-intro">Survive the station and defeat bosses to advance stages. If you or Ruby run out of HP, the run ends.</p>
+      <p className="rs-guide-intro">Defeat bosses. Keep yourself and Ruby alive.</p>
       <section className="rs-guide-section" aria-labelledby="rs-controls-title">
         <h4 id="rs-controls-title">CONTROLS</h4>
         <dl className="rs-guide-controls">
@@ -95,34 +99,34 @@ export default function RubyStarGuide() {
 
       <div className="rs-guide-grid">
         <section className="rs-guide-section"><h4>RUBY & HEALING</h4>
-          <p>Carry Ruby to protect it, at the cost of speed. Place it to move faster.</p>
-          <p>With enemies clear, press Space while carrying or near Ruby to heal both of you.</p>
+          <p>Carrying Ruby keeps it safe but slows you down. With enemies clear, press Space near Ruby or while carrying it to heal both.</p>
         </section>
         <section className="rs-guide-section"><h4>METEORS</h4>
-          <p>Meteors move clockwise.</p>
-          <p>A chamber flashes before a meteor hits. You have five seconds to leave—with Ruby.</p>
-          <p>Meteors clear most aliens and deal heavy damage to bosses.</p>
+          <p>Meteors move clockwise. Leave the flashing chamber with Ruby before impact.</p>
         </section>
         <section className="rs-guide-section"><h4>TELEPORT</h4>
-          <p>Stand on a chamber pad and press X (TP on mobile). Choose a destination with 1–4 or tap it. Esc or X cancels.</p>
-          <p>A carried Ruby is placed on the destination pad.</p>
-          <p>The game pauses while you choose.</p>
+          <p>Press X on a pad to choose a chamber. Carried Ruby travels with you and is placed on arrival.</p>
         </section>
         <section className="rs-guide-section"><h4>STAR ENERGY</h4>
-          <p>Defeat aliens and collect blue shards to fill the star gauge. Your next ability starts a short power boost.</p>
-          <p>Red shards restore health.</p>
+          <p>Kills and blue shards fill energy. When full, your next ability starts a power boost. Red shards heal you.</p>
         </section>
       </div>
 
+      <section className="rs-guide-section"><h4>SPACE EVENTS</h4>
+        <p>Occasional events warn first. Watch for gravity, eclipses and a golden shard to collect.</p>
+      </section>
+      <section className="rs-guide-section"><h4>CONSTELLATIONS</h4>
+        <p>Every 3 stages, choose an upgrade that lasts for the run. Each constellation can be chosen once.</p>
+      </section>
       <section className="rs-guide-section"><h4>ASCENSION</h4>
-        <p>Defeat your tenth boss to unlock celestial skills. Each boss then grants its own skill. Press F to use it; a new skill replaces the one you hold.</p>
-        <p className="rs-guide-note">Find each skill in the Aliens & Bosses sheet.</p>
+        <p>From stage 10, killing a boss grants you a single-use celestial skill. Press F to use it. You can hold one at a time.</p>
+        <p className="rs-guide-note">See more details in the Aliens &amp; Bosses page.</p>
       </section>
       <section className="rs-guide-hints"><h4>HINTS</h4>
         <ul>
-          <li>Use teleport pads to escape a meteor and leave enemies behind.</li>
-          <li>Place a bomb, move away, then detonate—it can hurt you too.</li>
-          <li>Make room to heal before the next boss arrives.</li>
+          <li>Teleport and meteors work well together: escape with Ruby and leave aliens in the blast.</li>
+          <li>Move away before detonating your bomb.</li>
+          <li>Clear space to heal.</li>
         </ul>
       </section>
     </> : <>
@@ -139,11 +143,11 @@ export default function RubyStarGuide() {
           {BOSS_TYPES.map(type => <article key={type} className="rs-guide-entry" style={{ borderLeftColor: ENEMY_CONFIGS[type].color }}>
             <h5 style={{ color: ENEMY_CONFIGS[type].color }}>{BOSS_NAMES[type]}</h5>
             <p>{bosses[type].description}</p>
-            <p className="rs-guide-skill"><strong style={{ color: type === 'devourer' ? '#c3c3d4' : SPECIAL_SKILLS[type].color }}>Ascension skill: {SPECIAL_SKILLS[type].name}</strong>{bosses[type].skill}</p>
+            <p className="rs-guide-skill"><strong style={{ color: type === 'devourer' ? '#c3c3d4' : SPECIAL_SKILLS[type].color }}>Celestial skill: {SPECIAL_SKILLS[type].name}</strong>{bosses[type].skill}</p>
           </article>)}
         </div>
       </section>
-      <button type="button" className="btn btn-ghost rs-guide-back" onClick={() => setSheet('main')}>← MAIN RULES</button>
+      <button type="button" className="btn btn-ghost rs-guide-back" onClick={() => setSheet('main')}><PixelArrow direction="left" /> MAIN RULES</button>
     </>}
   </div>;
 }

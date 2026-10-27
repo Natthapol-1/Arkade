@@ -28,7 +28,7 @@ test('opening difficulty rises at 10, 25 and 45 seconds then waits for boss prog
   while(elapsed<tick){e.tick(s);elapsed++;}assert.equal(s.difficultyLevel,tier);
  }
 });
-test('later difficulty tiers follow stages 2 through 5, pause and respect the cap',()=>{
+test('later difficulty tiers follow stages 1 through 4, pause and respect the cap',()=>{
  const s=fresh();s.difficultyTimer=599;s.gamePhase='teleporting';e.tick(s);assert.equal(s.difficultyLevel,0);assert.equal(s.difficultyTimer,599);
  s.gamePhase='playing';
  for(const [kills,tier]of [[1,4],[2,5],[3,6],[4,7],[20,7]]){s.bossesKilled=kills;e.tick(s);assert.equal(s.difficultyLevel,tier);}

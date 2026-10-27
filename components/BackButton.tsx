@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import type { ReactNode } from 'react';
 
 function playClick() {
   if (typeof window !== 'undefined') {
@@ -10,7 +11,7 @@ function playClick() {
   }
 }
 
-export default function BackButton() {
+export default function BackButton({ arrow = '←' }: { arrow?: ReactNode }) {
   const router = useRouter();
 
   return (
@@ -43,7 +44,7 @@ export default function BackButton() {
       }}
       aria-label="Back to lobby"
     >
-      ← EXIT
+      {arrow} EXIT
     </button>
   );
 }

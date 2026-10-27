@@ -2,8 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import BackButton from '@/components/BackButton';
+import PixelArrow from '@/components/PixelArrow';
 import RulesModal from '@/components/RulesModal';
 import RubyStarGuide from './RubyStarGuide';
+import ConstellationChoice from './ConstellationChoice';
+import BombStatus from './BombStatus';
+import HudIcon from './HudIcon';
 import BGMController, { BGMControllerHandle } from '@/components/BGMController';
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
@@ -15,15 +19,16 @@ import {
   PLAYER_MAX_HP, RUBY_MAX_HP,
   LASER_COOLDOWN,
   STAR_ENERGY_MAX,
-  METEORITE_WARNING, METEORITE_CYCLE, BOMB_RADIUS, BOMB_RADIUS_PWR, BULLET_COOLDOWN, BULLET_SPEED,
-  HEALER_HEAL_INTERVAL, QUEEN_WINDUP_TICKS, QUEEN_PHASE_TELEGRAPH,
+  METEORITE_WARNING, METEORITE_CYCLE, BULLET_COOLDOWN, BULLET_SPEED,
+  HEALER_HEAL_INTERVAL, QUEEN_WINDUP_TICKS, QUEEN_PHASE_TELEGRAPH, CHARGER_WINDUP_TICKS, CHARGER_CHARGE_TILES,
   PRAYER_RUBY_WINDUP, PRAYER_ESCAPE_WINDUP, SEA_SONG_WINDUP, SEA_SONG_BLAST_RADIUS, SEA_SONG_BLAST_TICKS, SEA_ALLY_HEAL_RADIUS,
   KING_ARENA_WINDUP, KING_ARENA_FX_TICKS,
   THORN_WINDUP, THORN_RADIUS, THORN_LIFETIME, getThornFieldBounds,
 } from './constants';
 import {
-  GameState, createInitialState, tick,
-  useLaser, useBullet, activateWave, useSpeedBoost, useBomb, useSpecialSkill, godSpawnBoss, godSetNoMobs, godSetNoBossSpawns, godEnterAscension,
+  GameState, createInitialState, tick, CONSTELLATIONS, chooseConstellation, getBombRadius,
+  AMBIENT_EVENTS, STAR_FALL_TICKS, triggerAmbientEvent, AmbientEventKind,
+  useLaser, useBullet, activateWave, useSpeedBoost, useBomb, useSpecialSkill, godSpawnBoss, godSetNoMobs, godSetNoBossSpawns, godAdvanceStage,
   toggleCarryRuby, tryActivateTeleport, doTeleport, cancelTeleport,
   healRuby, canHealRuby, isPlayerChilled, isMovementReversed, isSeaChanterDiving, isEnemyVisibleOnMinimap, startChargeSound, stopChargeSound, stopPoisonSound, stopSingularitySound, stopGaiaFieldSound,
   METEOR_CLOCKWISE_ORDER,
@@ -36,6 +41,236 @@ const BOMB_COLOR = '#ff6600';
 const COOLDOWN_GRAY = '#5a5a66'; // mobile ability buttons dim to this while their ability is on cooldown
 
 // ─── Drawing ──────────────────────────────────────────────────────────────────
+
+function drawStellarStar(ctx: CanvasRenderingContext2D, x: number, y: number, pixel: number, color: string) {
+  x = Math.round(x); y = Math.round(y); const p = Math.max(1, Math.round(pixel));
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 5 * p, y - p, 10 * p, 2 * p);
+  ctx.fillRect(x - 3 * p, y - 2 * p, 6 * p, 4 * p);
+  ctx.fillRect(x - 2 * p, y - 3 * p, 4 * p, 6 * p);
+  ctx.fillRect(x - p, y - 5 * p, 2 * p, 10 * p);
+}
+
+function drawAmbientMinimap(ctx: CanvasRenderingContext2D, state: GameState, mx: number, my: number, scale: number) {
+  const event = state.ambientEvents.warning || state.ambientEvents.active;
+  if (!event) return;
+  ctx.save(); ctx.strokeStyle = AMBIENT_EVENTS[event.kind].color; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 2;
+  for (const point of event.points) {
+    const x = mx + (point.x + .5) * scale, y = my + (point.y + .5) * scale;
+    if (event.kind === 'shootingStar') {
+      ctx.shadowColor = '#ffc95c'; ctx.shadowBlur = 3;
+      drawStellarStar(ctx, x, y, 1, '#ffe49b');
+      ctx.shadowBlur = 0; continue;
+    }
+    ctx.strokeRect(Math.round(x - 4), Math.round(y - 4), 8, 8);
+    if (event.kind === 'blackhole') { ctx.fillStyle = '#070411'; ctx.fillRect(x - 2, y - 2, 4, 4); }
+  }
+  ctx.restore();
+}
+
+function drawEventSquare(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, step: number, color: string) {
+  const half = Math.floor(size / 2), p = step;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x - half + p * 2, y - half); ctx.lineTo(x + half - p * 2, y - half);
+  ctx.lineTo(x + half - p * 2, y - half + p); ctx.lineTo(x + half - p, y - half + p);
+  ctx.lineTo(x + half - p, y - half + p * 2); ctx.lineTo(x + half, y - half + p * 2);
+  ctx.lineTo(x + half, y + half - p * 2); ctx.lineTo(x + half - p, y + half - p * 2);
+  ctx.lineTo(x + half - p, y + half - p); ctx.lineTo(x + half - p * 2, y + half - p);
+  ctx.lineTo(x + half - p * 2, y + half); ctx.lineTo(x - half + p * 2, y + half);
+  ctx.lineTo(x - half + p * 2, y + half - p); ctx.lineTo(x - half + p, y + half - p);
+  ctx.lineTo(x - half + p, y + half - p * 2); ctx.lineTo(x - half, y + half - p * 2);
+  ctx.lineTo(x - half, y - half + p * 2); ctx.lineTo(x - half + p, y - half + p * 2);
+  ctx.lineTo(x - half + p, y - half + p); ctx.lineTo(x - half + p * 2, y - half + p);
+  ctx.closePath(); ctx.fill();
+}
+
+function drawAmbientEvents(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, width: number, height: number) {
+  const event = state.ambientEvents.warning || state.ambientEvents.active;
+  if (!event || event.kind === 'eclipse') return;
+  const warning = !!state.ambientEvents.warning;
+  const age = state.ambientEvents.active?.age ?? 180 - state.ambientEvents.warning!.ticks;
+  const color = AMBIENT_EVENTS[event.kind].color;
+  const snap = (v: number) => Math.round(v / 4) * 4;
+  const fade = warning ? 1 : Math.min(1, age / 18, event.ticks / 36);
+  ctx.save();
+  for (let index = 0; index < event.points.length; index++) {
+    const point = event.points[index], x = Math.round((point.x + .5) * TILE_SIZE - camX), y = Math.round((point.y + .5) * TILE_SIZE - camY);
+    ctx.fillStyle = color; ctx.strokeStyle = color;
+    if (warning) {
+      const progress = age / 180, half = event.kind === 'blackhole' ? 128 : 32;
+      ctx.globalAlpha = .18 + progress * .3; ctx.lineWidth = 4;
+      ctx.strokeRect(x - half, y - half, half * 2, half * 2);
+      // Detached luminous corners gather toward the future event.
+      const radius = half + snap((1 - progress) * 90);
+      ctx.globalAlpha = .55 + progress * .35;
+      for (const dx of [-1, 1]) for (const dy of [-1, 1]) {
+        const px = x + dx * radius, py = y + dy * radius;
+        ctx.fillRect(px - (dx > 0 ? 16 : 0), py, 16, 4);
+        ctx.fillRect(px, py - (dy > 0 ? 16 : 0), 4, 16);
+      }
+      for (let i = 0; i < 8; i++) {
+        const angle = i * Math.PI / 4, d = half + ((180 - age + i * 19) % 60) * 2;
+        ctx.globalAlpha = .4; drawEnergyPixelRay(ctx, x + snap(Math.cos(angle) * d), y + snap(Math.sin(angle) * d), Math.round(Math.cos(angle)), Math.round(Math.sin(angle)), color, 1.4);
+      }
+      ctx.globalAlpha = 1;
+      continue;
+    }
+    if (event.kind === 'blackhole') {
+      // A broad, inward-moving gravity field surrounds a much larger central void.
+      for (let i = 0; i < 144; i++) {
+        const life = ((age * 1.4 + i * 23) % 180) / 180, angle = i * 2.4 + life * .6;
+        const radius = 110 + (1 - life) * TILE_SIZE * 27;
+        const px = x + snap(Math.cos(angle) * radius), py = y + snap(Math.sin(angle) * radius);
+        if (px < -30 || py < -30 || px > width + 30 || py > height + 30) continue;
+        ctx.globalAlpha = fade * (.3 + life * .6);
+        drawEnergyPixelRay(ctx, px, py, Math.round(Math.cos(angle)), Math.round(Math.sin(angle)), i % 4 ? '#bc8aef' : '#f6dbff', 1.6 + life);
+      }
+      for (let i = 0; i < 3; i++) {
+        const life = ((age * 1.8 + i * 80) % 240) / 240, half = snap(130 + (1 - life) * 480);
+        ctx.globalAlpha = fade * (.05 + life * .14); ctx.strokeStyle = '#a66ae8'; ctx.lineWidth = 4;
+        ctx.strokeRect(x - half, y - half, half * 2, half * 2);
+      }
+      ctx.globalAlpha = fade; ctx.shadowColor = '#bd72ff'; ctx.shadowBlur = 18;
+      drawEventSquare(ctx, x, y, 256, 12, '#b075ed');
+      ctx.shadowBlur = 0;
+      drawEventSquare(ctx, x, y, 232, 10, '#1b0c2e');
+      // A stepped stellar mantle and dark hot core echo the Solar suit construction.
+      drawEventSquare(ctx, x, y, 176, 12, '#47205f');
+      drawEventSquare(ctx, x, y, 152, 10, '#7b3b9f');
+      drawEventSquare(ctx, x, y, 128, 8, '#c17bec');
+      drawEventSquare(ctx, x, y, 104, 8, '#edb8ff');
+      drawEventSquare(ctx, x, y, 80, 6, '#77358f');
+      drawEventSquare(ctx, x, y, 56, 4, '#190b28');
+      ctx.fillStyle = '#ffe9ff'; ctx.fillRect(x - 48, y - 48, 24, 8); ctx.fillRect(x - 48, y - 40, 8, 16);
+      ctx.fillStyle = '#bc7cdc'; ctx.fillRect(x + 20, y + 32, 20, 8);
+      for (let i = 0; i < 20; i++) {
+        const along = (age * .8 + i * 60) % 1200, side = Math.floor(along / 300), offset = snap(along % 300 - 150);
+        const px = x + (side === 1 ? 150 : side === 3 ? -158 : offset);
+        const py = y + (side === 0 ? -158 : side === 2 ? 150 : offset);
+        ctx.globalAlpha = fade * (i % 3 ? .6 : 1); ctx.fillStyle = i % 3 ? '#ae76dd' : '#ffe0ff';
+        ctx.fillRect(px, py, side % 2 ? 8 : 16, side % 2 ? 16 : 8);
+      }
+    } else if (event.kind === 'shootingStar') {
+      if (age < STAR_FALL_TICKS) {
+        const t = age / STAR_FALL_TICKS, remaining = 1 - t * t;
+        const sx = x + snap(remaining * 240), sy = y - snap(remaining * 450);
+        const pixel = Math.round(3 + t * 4);
+        // Tapered, separated comet fragments follow the descent; the head is a star.
+        for (let i = 13; i >= 0; i--) {
+          const opacity = 1 - i / 15, px = sx + i * 12, py = sy - i * 24;
+          const width = Math.max(4, 16 - Math.floor(i / 3) * 2), length = 24 - Math.floor(i / 3) * 2;
+          ctx.globalAlpha = opacity * .8; ctx.fillStyle = i % 3 ? '#ffc95d' : '#fff0bd';
+          ctx.fillRect(px - width / 2, py - length / 2, width, length);
+          ctx.globalAlpha = opacity * .45; ctx.fillStyle = '#9bd9ff';
+          ctx.fillRect(px + 14 + i % 3 * 4, py - 12, 4, 10);
+          if (i % 2 === 0) { ctx.fillStyle = '#f5e1a3'; ctx.fillRect(px - 18, py + 6, 6, 6); }
+        }
+        ctx.globalAlpha = 1; ctx.shadowColor = '#ffcd66'; ctx.shadowBlur = 14;
+        drawStellarStar(ctx, sx, sy, pixel, '#ffd16a'); ctx.shadowBlur = 0;
+        drawStellarStar(ctx, sx, sy, Math.max(1, pixel - 2), '#fff3c7');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(sx - 3, sy - 3, 6, 6);
+        for (const [dx,dy] of [[0,-1],[1,0],[0,1],[-1,0]]) {
+          const distance = pixel * 6 + Math.floor(age % 6) * 2;
+          ctx.globalAlpha = .75; drawEnergyPixelRay(ctx,sx+dx*distance,sy+dy*distance,dx,dy,'#fff1b0',1.4);
+        }
+        ctx.globalAlpha = 1;
+        ctx.globalAlpha = .15 + t * .2; ctx.lineWidth = 3; ctx.strokeStyle = '#ffe1a1'; ctx.strokeRect(x - 24, y - 24, 48, 48);
+      } else {
+        const landingAge = age - STAR_FALL_TICKS;
+        if (landingAge < 42) {
+          const t = landingAge / 42;
+          for (let front = 0; front < 2; front++) {
+            const half = snap(20 + t * (front ? 90 : 145));
+            ctx.globalAlpha = (1 - t) * (front ? .4 : .7); ctx.strokeStyle = front ? '#9ddcff' : '#ffe4a5'; ctx.lineWidth = front ? 3 : 5;
+            ctx.strokeRect(x - half, y - half, half * 2, half * 2);
+          }
+          for (let i = 0; i < 12; i++) {
+            const angle = i * Math.PI / 6, d = 25 + t * (85 + i % 3 * 25);
+            ctx.globalAlpha = (1 - t) * .9;
+            drawEnergyPixelRay(ctx, x + snap(Math.cos(angle) * d), y + snap(Math.sin(angle) * d - t * 22), Math.round(Math.cos(angle)), Math.round(Math.sin(angle)), i % 2 ? '#ffe6a1' : '#a6dcff', 2);
+          }
+        }
+        const bob = snap(Math.sin(age * .065) * 5), shardY = y + bob;
+        const visible = event.ticks < 180 ? .4 + .6 * Math.abs(Math.sin(age * .13)) : 1;
+        // Match the full-energy aura: staggered pale/gold rays with sharp leading chips.
+        const directions = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+        for (let direction = 0; direction < directions.length; direction++) {
+          const [dx,dy] = directions[direction];
+          for (let fragment = 0; fragment < 2; fragment++) {
+            const life = ((age * 2 + direction * 5 + fragment * 18) % 36) / 36;
+            const distance = 34 + Math.floor(life * 9) * 4;
+            ctx.globalAlpha = visible * (1-life) * .95; ctx.shadowColor = '#ffcb57'; ctx.shadowBlur = fragment ? 8 : 4;
+            drawEnergyPixelRay(ctx, x + dx * distance, shardY + dy * distance, dx, dy, fragment ? '#fff4bf' : '#ffc648', 1.5);
+          }
+        }
+        ctx.globalAlpha = visible; ctx.shadowColor = '#ffcf5f'; ctx.shadowBlur = 16;
+        drawStellarStar(ctx, x, shardY, 5, '#ffd867'); ctx.shadowBlur = 0;
+        drawStellarStar(ctx, x, shardY, 3, '#fff1bc');
+        ctx.fillStyle = '#fffef1'; ctx.fillRect(x - 5, shardY - 5, 10, 10);
+
+      }
+    }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+function eclipseVisualStrength(state: GameState): number {
+  const event = state.ambientEvents.warning || state.ambientEvents.active;
+  if (event?.kind !== 'eclipse') return 0;
+  const age = state.ambientEvents.active?.age ?? 180 - event.ticks;
+  return state.ambientEvents.warning ? age / 180 * .35 : Math.min(1, .35 + age / 30, event.ticks / 45);
+}
+
+function drawEclipseShadow(ctx: CanvasRenderingContext2D, state: GameState, width: number, height: number) {
+  const event = state.ambientEvents.warning || state.ambientEvents.active;
+  if (event?.kind !== 'eclipse') return;
+  const strength = eclipseVisualStrength(state);
+  ctx.save();
+  // Shade all world layers after rendering, leaving HUD and minimap outside the shadow.
+  ctx.globalAlpha = strength * .22; ctx.fillStyle = '#4a3e9c'; ctx.fillRect(0, 0, width, height);
+  ctx.globalAlpha = strength * .55; ctx.strokeStyle = '#b1abff'; ctx.lineWidth = 4; ctx.strokeRect(4, 4, width - 8, height - 8);
+  ctx.globalAlpha = strength * .35; ctx.fillStyle = '#a5a8df';
+  for (let i = 0; i < 16; i++) {
+    const px = Math.floor((i + .5) * width / 16);
+    ctx.fillRect(px, 0, 14, 2); ctx.fillRect(width - px, height - 2, 14, 2);
+  }
+  ctx.restore();
+}
+
+function drawMeteorImpact(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number) {
+  const impact = state.meteoriteImpact;
+  if (!impact) return;
+  const age = 60 - impact.ticks, progress = age / 60;
+  const [r1, c1, r2, c2] = CHAMBER_BOUNDS[impact.chamber];
+  const left = c1 * TILE_SIZE - camX, top = r1 * TILE_SIZE - camY;
+  const width = (c2 - c1 + 1) * TILE_SIZE, height = (r2 - r1 + 1) * TILE_SIZE;
+  const x = left + width / 2, y = top + height / 2;
+  ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
+  ctx.globalAlpha = Math.max(0, 1 - age / 16) * .35; ctx.fillStyle = '#ffd28b'; ctx.fillRect(left, top, width, height);
+  for (let i = 0; i < 3; i++) {
+    const t = Math.max(0, Math.min(1, (age - i * 6) / 48));
+    if (age < i * 6) continue;
+    const half = Math.floor((35 + t * width * .62) / 12) * 12;
+    ctx.globalAlpha = (1 - t) * (i ? .5 : .9); ctx.strokeStyle = i % 2 ? '#ff963e' : '#ffe2a0'; ctx.lineWidth = i ? 6 : 10;
+    ctx.shadowColor = '#ff742e'; ctx.shadowBlur = i ? 0 : 10;
+    ctx.strokeRect(x - half, y - half, half * 2, half * 2); ctx.shadowBlur = 0;
+  }
+  if (age < 22) {
+    const half = 40 + Math.floor(age / 2) * 12;
+    ctx.globalAlpha = (1 - age / 22) * .85; ctx.fillStyle = '#ff963e'; ctx.fillRect(x - half, y - half, half * 2, half * 2);
+    ctx.fillStyle = '#fff0bd'; ctx.fillRect(x - half / 2, y - half / 2, half, half);
+  }
+  for (let i = 0; i < 64; i++) {
+    const angle = i * 2.4, speed = 4 + i % 7, distance = age * speed;
+    const px = Math.round((x + Math.cos(angle) * distance) / 4) * 4;
+    const py = Math.round((y + Math.sin(angle) * distance - age * .8) / 4) * 4;
+    ctx.globalAlpha = (1 - progress) * (i % 3 ? .8 : .5);
+    drawEnergyPixelRay(ctx, px, py, Math.round(Math.cos(angle)), Math.round(Math.sin(angle)), i % 4 ? '#ff9b42' : '#ffe9aa', 2 + i % 3);
+  }
+  ctx.restore();
+}
 
 function drawMinimap(
   ctx: CanvasRenderingContext2D,
@@ -68,7 +303,7 @@ function drawMinimap(
         ctx.fillStyle = '#060615';
       } else {
         const ch = chamberOfTile(tx, ty);
-        ctx.fillStyle = ch >= 0 ? CHAMBER_COLORS[ch] + '18' : '#0a0a1a';
+        ctx.fillStyle = ch >= 0 ? CHAMBER_COLORS[ch] + '28' : '#17283c';
       }
       ctx.fillRect(px, py, S, S);
     }
@@ -104,6 +339,35 @@ function drawMinimap(
       ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
     }
   }
+
+  // Outline room interiors and connecting corridors as one region, leaving
+  // doorways open. Ignore internal cover so it does not clutter the room outline.
+  const inRegion = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x >= MAP_COLS || y >= MAP_ROWS) return false;
+    const chamber = chamberOfTile(x, y);
+    if (chamber >= 0) {
+      const [r1, c1, r2, c2] = CHAMBER_BOUNDS[chamber];
+      if (x > c1 && x < c2 && y > r1 && y < r2) return true;
+    }
+    return state.map[y][x] !== T_WALL && (chamber >= 0 || HALLWAY_BOUNDS.some(
+      ([r1, c1, r2, c2]) => y >= r1 && y <= r2 && x >= c1 && x <= c2,
+    ));
+  };
+  ctx.save();
+  for (let y = 0; y < MAP_ROWS; y++) {
+    for (let x = 0; x < MAP_COLS; x++) {
+      if (!inRegion(x, y)) continue;
+      const chamber = chamberOfTile(x, y), px = MX + x * S, py = MY + y * S;
+      ctx.fillStyle = chamber >= 0 ? CHAMBER_COLORS[chamber] + 'b0' : '#83afcf';
+      if (!inRegion(x, y - 1)) ctx.fillRect(px, py, S, 1);
+      if (!inRegion(x, y + 1)) ctx.fillRect(px, py + S - 1, S, 1);
+      if (!inRegion(x - 1, y)) ctx.fillRect(px, py, 1, S);
+      if (!inRegion(x + 1, y)) ctx.fillRect(px + S - 1, py, 1, S);
+    }
+  }
+  ctx.restore();
+
+  drawAmbientMinimap(ctx, state, MX, MY, S);
 
   // Bomb
   if (state.bomb) {
@@ -1644,7 +1908,15 @@ function drawMobAttack(ctx: CanvasRenderingContext2D, type: string, x: number, y
   if(type==='sniper'||type==='healer'||type==='shielder'||type==='bomber')return;
   ctx.save();ctx.shadowColor=color;ctx.shadowBlur=10;
   const fade=Math.min(1,ticks/14),progress=1-fade,dx=targetX-x,dy=targetY-y,len=Math.hypot(dx,dy)||1;
-  if(type==='ghost'){
+  if(type==='energy_leech'){
+    // Energy travels into the collector, with an angular tether and square sparks.
+    ctx.globalAlpha=fade*.4;ctx.strokeStyle='#c77aff';ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(targetX,targetY);ctx.lineTo(x,targetY);ctx.lineTo(x,y);ctx.stroke();
+    for(let i=0;i<4;i++){
+      const t=(progress+i/4)%1,px=Math.round(targetX-dx*t),py=Math.round(targetY-dy*t);
+      ctx.globalAlpha=fade;ctx.shadowBlur=5;ctx.fillStyle=i%2?'#fff1ad':'#e7baff';ctx.fillRect(px-2,py-2,4,4);
+    }
+  }else if(type==='ghost'){
     const px=x+dx*progress,py=y+dy*progress;ctx.globalAlpha=.8;ctx.strokeStyle=color;ctx.lineWidth=7;ctx.lineCap='square';
     ctx.beginPath();ctx.moveTo(px-dx/len*18,py-dy/len*18);ctx.lineTo(px,py);ctx.stroke();ctx.shadowBlur=0;ctx.strokeStyle='#eee4ff';ctx.lineWidth=3;ctx.stroke();
   }else if(type==='armored'||type==='splitter'){
@@ -1684,7 +1956,9 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
         ? ((e.prayer?.escapeWindupTicks ?? 0) > 0 ? 1 - e.prayer!.escapeWindupTicks / PRAYER_ESCAPE_WINDUP : 0)
         : e.type === 'frost_warden'
           ? (e.windupTicks > 0 && e.windupTicks <= 30 ? 1 - e.windupTicks / 30 : 0)
-          : e.attackTimer > 0 && e.attackTimer <= 15 && !e.exploding ? 1 - e.attackTimer / 15 : 0;
+          : e.type==='charger'
+            ? ((e.chargeWindupTicks??0)>0?1-e.chargeWindupTicks!/CHARGER_WINDUP_TICKS:0)
+            : e.attackTimer > 0 && e.attackTimer <= 15 && !e.exploding ? 1 - e.attackTimer / 15 : 0;
   const attacking = castProgress > 0;
   const attackScale = 1 + 0.15 * castProgress;
   // Bomber explode animation: gradually swell up as fuse ticks down from 60
@@ -1762,13 +2036,11 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
     ctx.fillRect(-8, erupting ? -12 : -10, 17, erupting ? 21 : 17);
     ctx.shadowBlur = 0; ctx.fillStyle = '#14261f';
     ctx.fillRect(casting ? -1 : -4, erupting ? -10 : -8, casting ? 4 : 9, erupting ? 17 : 13);
-    // Two rows of three small rectangular eyes surround the central eye.
-    for (const eyeY of [-19, 15]) {
-      for (const eyeX of [-16, -3, 10]) {
-        ctx.shadowColor = '#d8ef9b'; ctx.shadowBlur = casting ? 6 : 3;
-        ctx.fillStyle = flash ? '#ffffff' : '#cfdf87'; ctx.fillRect(eyeX, eyeY + (casting ? 2 : 0), 7, casting ? 2 : 5);
-        ctx.shadowBlur = 0; ctx.fillStyle = '#14261f'; ctx.fillRect(eyeX + 3, eyeY + (casting ? 2 : 1), 2, casting ? 2 : 3);
-      }
+    // Four smaller eyes frame the main eye: above, below, left and right.
+    for (const [eyeX, eyeY] of [[-3, -21], [-3, 14], [-21, -4], [16, -4]]) {
+      ctx.shadowColor = '#d8ef9b'; ctx.shadowBlur = casting ? 6 : 3;
+      ctx.fillStyle = flash ? '#ffffff' : '#cfdf87'; ctx.fillRect(eyeX, eyeY + (casting ? 2 : 0), 7, casting ? 2 : 5);
+      ctx.shadowBlur = 0; ctx.fillStyle = '#14261f'; ctx.fillRect(eyeX + 3, eyeY + (casting ? 2 : 1), 2, casting ? 2 : 3);
     }
     // Asymmetric leafy hood grows up and over the pod, like a crooked seed husk.
     ctx.fillStyle = leaf; ctx.beginPath();
@@ -2799,6 +3071,15 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   ctx.shadowColor = color;
   if (e.type === 'bomber') {
     // No antenna — bald, dangerous look
+  } else if (e.type === 'energy_leech') {
+    // Inward-facing collector prongs; flat ends keep the silhouette crisp.
+    ctx.shadowBlur=4;
+    for(const side of [-1,1]){
+      const ax=sx+side*Math.floor(size*.3);
+      ctx.fillStyle=color;ctx.fillRect(ax-1,sy-half-antH,3,antH);
+      ctx.fillStyle='#e7baff';ctx.fillRect(side<0?ax-1:ax-5,sy-half-antH,7,3);
+    }
+    ctx.shadowBlur=0;
   } else if (e.type === 'fast') {
     // Twin antennas
     const fw = 2, fgap = Math.floor(size * 0.17);
@@ -2902,7 +3183,19 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   // ── Eyes / face ───────────────────────────────────────────────────────
   if (!flash) {
     const eyeY = sy - half + pad + 1;
-    if (e.type === 'sniper') {
+    if (e.type === 'energy_leech') {
+      const width=Math.floor(size*.6),left=Math.round(sx-width/2),top=Math.round(sy-1);
+      ctx.fillStyle='#f4dfff';
+      ctx.fillRect(left,eyeY,5,3);ctx.fillRect(left+width-5,eyeY,5,3);
+      // Three cells fill as it steals energy; full brightness at 60 stored energy.
+      ctx.fillStyle='#23142e';ctx.fillRect(left-1,top-1,width+2,10);
+      const cells=Math.min(3,Math.ceil((e.stolenEnergy??0)/20)),cellW=Math.max(2,Math.floor((width-4)/3));
+      for(let i=0;i<3;i++){
+        ctx.shadowColor='#ffe58b';ctx.shadowBlur=i<cells?4:0;
+        ctx.fillStyle=i<cells?'#ffe58b':'#68416d';ctx.fillRect(left+i*(cellW+2),top+1,cellW,6);
+      }
+      ctx.shadowBlur=0;
+    } else if (e.type === 'sniper') {
       // 1 large central cycloptic eye
       const eyeSz = Math.max(4, Math.floor(size * 0.34));
       const pupSz = Math.max(2, Math.floor(eyeSz * 0.55));
@@ -3127,7 +3420,10 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   }
 
   if (e.type === 'charger') {
-    if (e.chargeDirX !== 0 || e.chargeDirY !== 0) {
+    if((e.chargeWindupTicks??0)>0){
+      const progress=1-e.chargeWindupTicks!/CHARGER_WINDUP_TICKS;
+      drawMobBrackets(ctx,sx,sy,half+5,'#ffc37a',.45+progress*.5,3);
+    }else if (e.chargeDirX !== 0 || e.chargeDirY !== 0) {
       // Motion trail — two faint rects trailing behind
       for (let t = 1; t <= 2; t++) {
         const alpha = 0.25 / t;
@@ -3206,13 +3502,20 @@ function drawBattlefieldIce(ctx: CanvasRenderingContext2D, x: number, y: number,
 }
 
 function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, viewW: number, viewH: number, tick: number) {
-  ctx.save();const size=TILE_SIZE,ice=new Set(state.frostIceTiles.map(([x,y])=>x+','+y));
+  ctx.save();const size=TILE_SIZE,ice=new Set(state.frostIceTiles.map(([x,y])=>x+','+y)),eclipse=eclipseVisualStrength(state);
   const x0=Math.max(0,Math.floor(camX/size)-1),y0=Math.max(0,Math.floor(camY/size)-1),x1=Math.min(MAP_COLS-1,Math.ceil((camX+viewW)/size)+1),y1=Math.min(MAP_ROWS-1,Math.ceil((camY+viewH)/size)+1);
+  const battlefieldColor=(ch:number)=>{
+    const base=ch>=0?CHAMBER_COLORS[ch]:'#8899ff';
+    if(eclipse<=0)return base;
+    const night=ch>=0?['#7986d7','#a185c8','#748dba','#aa95cc'][ch]:'#8b8fcf';
+    const channel=(offset:number)=>Math.round(parseInt(base.slice(offset,offset+2),16)*(1-eclipse)+parseInt(night.slice(offset,offset+2),16)*eclipse).toString(16).padStart(2,'0');
+    return '#'+channel(1)+channel(3)+channel(5);
+  };
   const wall=(x:number,y:number)=>(state.map[y]?.[x]??T_WALL)===T_WALL;
   const cover=(x:number,y:number)=>{const ch=chamberOfTile(x,y);if(ch<0||!wall(x,y))return false;const [t,l,b,r]=CHAMBER_BOUNDS[ch];return x>l&&x<r&&y>t&&y<b;};
   // All base tiles are flat dark panels, keeping actors' neon silhouettes dominant.
   for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
-    const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=ch>=0?CHAMBER_COLORS[ch]:'#8899ff';ctx.shadowBlur=0;
+    const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=battlefieldColor(ch);ctx.shadowBlur=0;
     if(wall(tx,ty)){
       if(!cover(tx,ty))continue;
       ctx.fillStyle='#0f0f28';ctx.fillRect(x,y,size,size);ctx.fillStyle=color+'22';ctx.fillRect(x,y,size,size);
@@ -3225,7 +3528,7 @@ function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: 
   // Glowing colored borders follow the map's exposed edges, preserving door openings.
   for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
     if(wall(tx,ty))continue;
-    const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=ch>=0?CHAMBER_COLORS[ch]:'#8899ff';
+    const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=battlefieldColor(ch);
     ctx.shadowColor=color;ctx.shadowBlur=14;ctx.strokeStyle=color+'99';ctx.lineWidth=4;ctx.beginPath();
     if(wall(tx-1,ty)&&!cover(tx-1,ty)){ctx.moveTo(x+1,y);ctx.lineTo(x+1,y+size);}
     if(wall(tx+1,ty)&&!cover(tx+1,ty)){ctx.moveTo(x+size-1,y);ctx.lineTo(x+size-1,y+size);}
@@ -3255,6 +3558,24 @@ function drawReaperHallwaySeal(ctx: CanvasRenderingContext2D, state: GameState, 
     if(blocked){
       ctx.shadowBlur=0;ctx.fillStyle='#d6fff3';ctx.globalAlpha=fade*.8*pulse;
       ctx.fillRect(x+size/2-3,y+size/2-3,6,6);
+    }
+  }
+  ctx.restore();
+}
+
+function drawChargerWarnings(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number) {
+  ctx.save();
+  for(const enemy of state.enemies){
+    if(enemy.type!=='charger'||enemy.hp<=0||(enemy.chargeWindupTicks??0)<=0)continue;
+    const progress=1-enemy.chargeWindupTicks!/CHARGER_WINDUP_TICKS;
+    for(let step=1;step<=CHARGER_CHARGE_TILES;step++){
+      const tx=enemy.tileX+enemy.chargeDirX*step,ty=enemy.tileY+enemy.chargeDirY*step;
+      if((state.map[ty]?.[tx]??T_WALL)===T_WALL)break;
+      const x=Math.round(tx*TILE_SIZE-camX),y=Math.round(ty*TILE_SIZE-camY);
+      ctx.globalAlpha=.07+progress*.08;ctx.fillStyle='#ff913f';ctx.fillRect(x+6,y+6,TILE_SIZE-12,TILE_SIZE-12);
+      ctx.globalAlpha=(.35+progress*.45)*(1-step*.045);ctx.strokeStyle='#ffc37a';ctx.lineWidth=2;
+      ctx.strokeRect(x+6,y+6,TILE_SIZE-12,TILE_SIZE-12);
+      ctx.fillStyle='#ffe0ae';ctx.fillRect(x+TILE_SIZE/2-2,y+TILE_SIZE/2-2,4,4);
     }
   }
   ctx.restore();
@@ -3326,7 +3647,9 @@ function drawGame(
   ctx.fillRect(0, 0, viewW, viewH);
 
   drawBattlefield(ctx,state,camX,camY,viewW,viewH,tickN);
+  drawAmbientEvents(ctx,state,camX,camY,viewW,viewH);
   drawReaperHallwaySeal(ctx,state,camX,camY,tickN);
+  drawChargerWarnings(ctx,state,camX,camY);
 
   // Frost Warden chill field — persistent icy wash + frosty border over whichever chamber
   // she currently occupies, so the chill debuff is visible, not just felt
@@ -3465,7 +3788,7 @@ function drawGame(
     const bsx = state.bomb.tileX * TILE_SIZE - camX;
     const bsy = state.bomb.tileY * TILE_SIZE - camY;
     // Highlight all the area that bomb can affect
-    const radiusTiles = state.bomb.powered ? BOMB_RADIUS_PWR : BOMB_RADIUS;
+    const radiusTiles = getBombRadius(state, state.bomb.powered);
     const inRange=(dx:number,dy:number)=>Math.hypot(dx,dy)<=radiusTiles;
     ctx.save();ctx.shadowBlur=0;
     ctx.fillStyle = (state.bomb.powered ? '#ffcc00' : '#ff6600') + '22';
@@ -3648,6 +3971,8 @@ function drawGame(
     if(fx.kind==='frost_warden' && state.rubyTileX!==-1)drawCelestialCast(ctx,fx.kind,(state.rubyTileX+.5)*TILE_SIZE-camX,(state.rubyTileY+.5)*TILE_SIZE-camY,age,tickN);
   }
 
+  drawMeteorImpact(ctx, state, camX, camY);
+
   ctx.restore(); // back to true physical-pixel space — unaffected by the world zoom above
   drawKingArenaEffects(ctx, state, canvasW, canvasH);
   for(const fx of state.specialEffects)if(fx.kind==='blind_prayer'&&fx.ticks>15){
@@ -3663,6 +3988,8 @@ function drawGame(
     }
     ctx.restore();
   }
+
+  drawEclipseShadow(ctx, state, canvasW, canvasH);
 
   // Minimap — drawn in true pixel space, with its own independent (smaller) mobile sizing
   drawMinimap(ctx, state, canvasW, tickN, isMobileTouch);
@@ -3702,8 +4029,8 @@ function TouchAbilityButton({ label, color, size = 56, onDown, onUp, className, 
       onContextMenu={(e) => e.preventDefault()}
       style={{
         width: size, height: size, borderRadius: '3px', flexShrink: 0,
-        border: `2px solid ${color}`, background: 'rgba(10,10,20,0.55)',
-        color, fontFamily: 'var(--font-pixel)', fontWeight: 700, fontSize: size < 44 ? '0.4rem' : '0.65rem',
+        border: `2px solid ${color}`, background: '#172b42',
+        color, fontFamily: 'var(--font-pixel)', fontWeight: 700, fontSize: size < 44 ? '0.48rem' : '0.72rem',
         boxShadow: `0 0 12px ${color}55`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         touchAction: 'none', padding: 0, lineHeight: 1.1, textAlign: 'center',
@@ -3733,6 +4060,9 @@ export default function RubyStarPage() {
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const mouseDownTimeRef = useRef<number>(0);
   const rightMouseHeldRef = useRef<boolean>(false);
+  const pointerLaserHeldRef = useRef(false);
+  const keyboardLaserHeldRef = useRef(false);
+  const keyboardBulletHeldRef = useRef(false);
 
   // ── Mobile virtual joystick ──────────────────────────────────────────────
   const [joyThumb, setJoyThumb] = useState({ x: 0, y: 0 });
@@ -3786,11 +4116,12 @@ export default function RubyStarPage() {
   const handleTouchLaserDown = () => {
     const state = stateRef.current;
     if (!state || state.gamePhase !== 'playing') return;
-    mouseDownTimeRef.current = Date.now();
+    pointerLaserHeldRef.current = true;
+    if (!mouseDownTimeRef.current) mouseDownTimeRef.current = Date.now();
     useLaser(state);
     rerender();
   };
-  const handleTouchLaserUp = () => { mouseDownTimeRef.current = 0; stopChargeSound(); };
+  const handleTouchLaserUp = () => { pointerLaserHeldRef.current = false; if (!keyboardLaserHeldRef.current) { mouseDownTimeRef.current = 0; stopChargeSound(); } };
   const handleTouchBullet = () => {
     const state = stateRef.current;
     if (!state || state.gamePhase !== 'playing') return;
@@ -3849,7 +4180,7 @@ export default function RubyStarPage() {
   }, []);
 
   useEffect(() => {
-    const cancelCharge = () => { mouseDownTimeRef.current = 0; stopChargeSound(); };
+    const cancelCharge = () => { mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); };
     const onVisibility = () => { if (document.hidden) { cancelCharge(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); } };
     window.addEventListener('blur', cancelCharge);
     document.addEventListener('visibilitychange', onVisibility);
@@ -3862,7 +4193,7 @@ export default function RubyStarPage() {
 
   // ── Game loop ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (showRules) { stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
+    if (showRules) { mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const TARGET_MS = 1000 / 60;
@@ -3874,6 +4205,11 @@ export default function RubyStarPage() {
     // instead of being tied to however often requestAnimationFrame happens to fire.
     function runOneTick(state: GameState) {
       tickRef.current++;
+      if (state.gamePhase !== 'playing') {
+        mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false;
+      }
+      // A held click must charge afresh after cooldown; waiting out cooldown is not charging.
+      if(mouseDownTimeRef.current>0&&(state.waveCooldown>0||state.gamePhase!=='playing'))mouseDownTimeRef.current=Date.now();
       const chargingMsNow = mouseDownTimeRef.current > 0 ? Date.now() - mouseDownTimeRef.current : 0;
       // Full charge takes longer while chilled by a Frost Warden sharing the player's chamber
       const waveChargeMsNow = isPlayerChilled(state) ? 1500 : 1000;
@@ -3893,7 +4229,7 @@ export default function RubyStarPage() {
       }
       // Auto-fire bullet while right mouse button is held — fires at exactly the same rate
       // as spam-clicking, since useBullet is already self-gated by the raw bulletCooldown.
-      if (rightMouseHeldRef.current && state.gamePhase === 'playing' && state.bulletCooldown <= 0) {
+      if ((rightMouseHeldRef.current || keyboardBulletHeldRef.current) && state.gamePhase === 'playing' && state.bulletCooldown <= 0) {
         useBullet(state);
       }
       if (state.gamePhase !== 'lost') tick(state);
@@ -3961,6 +4297,8 @@ export default function RubyStarPage() {
       const state = stateRef.current;
       if (!state || state.gamePhase === 'lost') return;
 
+      if (state.gamePhase === 'constellation') return;
+
       // Teleport menu
       if (state.gamePhase === 'teleporting') {
         if (e.key === 'Escape' || e.key === 'x' || e.key === 'X') {
@@ -3975,6 +4313,20 @@ export default function RubyStarPage() {
           doTeleport(state, dest); rerender(); return;
         }
         return;
+      }
+
+      if (e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (e.repeat || keyboardLaserHeldRef.current) return;
+        keyboardLaserHeldRef.current = true;
+        if (!mouseDownTimeRef.current) mouseDownTimeRef.current = Date.now();
+        useLaser(state); rerender(); return;
+      }
+      if (e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        if (e.repeat || keyboardBulletHeldRef.current) return;
+        keyboardBulletHeldRef.current = true;
+        useBullet(state); rerender(); return;
       }
 
       // Movement
@@ -4012,6 +4364,12 @@ export default function RubyStarPage() {
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'k') {
+        keyboardLaserHeldRef.current = false;
+        if (!pointerLaserHeldRef.current) { mouseDownTimeRef.current = 0; stopChargeSound(); }
+        return;
+      }
+      if (e.key.toLowerCase() === 'l') { keyboardBulletHeldRef.current = false; return; }
       const state = stateRef.current;
       if (!state) return;
       const dirMap: Record<string, [number, number]> = {
@@ -4041,7 +4399,8 @@ export default function RubyStarPage() {
     if (!state || state.gamePhase !== 'playing') return;
     if (e.button === 0) {
 
-      mouseDownTimeRef.current = Date.now();
+      pointerLaserHeldRef.current = true;
+      if (!mouseDownTimeRef.current) mouseDownTimeRef.current = Date.now();
       useLaser(state);
       rerender();
     } else if (e.button === 2) {
@@ -4055,14 +4414,13 @@ export default function RubyStarPage() {
   const handleMouseUp = (e: React.MouseEvent) => {
     if (e.button === 2) { rightMouseHeldRef.current = false; return; }
     if (e.button !== 0) return;
-    mouseDownTimeRef.current = 0; // cancel any in-progress charge
-    stopChargeSound();
+    pointerLaserHeldRef.current = false;
+    if (!keyboardLaserHeldRef.current) { mouseDownTimeRef.current = 0; stopChargeSound(); }
   };
 
   const handleMouseLeave = () => {
-    rightMouseHeldRef.current = false;
-    mouseDownTimeRef.current = 0;
-    stopChargeSound();
+    rightMouseHeldRef.current = false; pointerLaserHeldRef.current = false;
+    if (!keyboardLaserHeldRef.current) { mouseDownTimeRef.current = 0; stopChargeSound(); }
   };
 
   // ── Touch swipe ───────────────────────────────────────────────────────────
@@ -4103,7 +4461,11 @@ export default function RubyStarPage() {
     s.noBossSpawns = stateRef.current?.noBossSpawns ?? false;
     stateRef.current = s;
     tickRef.current = 0;
-    rightMouseHeldRef.current = false;
+    rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false;
+    mouseDownTimeRef.current = 0;
+    touchStartRef.current = null;
+    joyPointerIdRef.current = null;
+    setJoyThumb({ x: 0, y: 0 });
     rerender();
   };
 
@@ -4122,7 +4484,7 @@ export default function RubyStarPage() {
   const rubyHealAvail = state ? canHealRuby(state) : false;
   const powered = (state?.poweredTicks ?? 0) > 0 || (state?.starEnergy ?? 0) >= STAR_ENERGY_MAX;
   const carrying = state?.playerCarryingRuby ?? true;
-  const godPanelTop = MAP_ROWS * (isMobileTouchRef.current ? 3 : 4) + 20;
+  const godPanelTop = 8;
   const playerStatuses: { key: string; label: string; color: string; seconds?: number; progress?: number }[] = [];
   if(state){
     if(state.playerFrozenTicks>0)playerStatuses.push({key:'frozen',label:'FROZEN',color:'#b4eaff',seconds:state.playerFrozenTicks/60,progress:state.playerFrozenTicks/90});
@@ -4185,12 +4547,89 @@ export default function RubyStarPage() {
           .ruby-star-ui .modal-body { padding: 14px; }
           .rs-guide-nav h3 { font-size: .58rem; }
         }
-        .ruby-star-ui .rs-hud { background: #090f1c; border-bottom: 1px solid rgba(124,158,196,.24); }
-        .ruby-star-ui .rs-special-slot { min-height: 32px; border-radius: 2px; }
+        .ruby-star-ui .modal-content { background: #0d192b; border: 2px solid #668eaf; border-radius: 0; box-shadow: 0 12px 50px #0009; }
+        .ruby-star-ui .modal-header { background: #15283e; border-bottom: 2px solid #385c7e; padding: 18px 22px; }
+        .ruby-star-ui .modal-header h2 { color: #dbf2ff; line-height: 1.7; }
+        .ruby-star-ui .modal-body { padding: 22px; }
+        .ruby-star-ui .modal-footer { background: #101f33; border-top: 2px solid #385c7e; }
+        .ruby-star-ui .modal-footer button { min-height: 44px; background: #23516b; color: #edfcff; border: 2px solid #75d6ec; font-size: 15px; font-weight: 700; }
+        .rs-guide { color: #d0ddec; font-size: 16px; font-weight: 600; line-height: 1.65; }
+        .rs-guide-nav h3 { font-size: 12px; line-height: 1.7; }
+        .rs-guide h4 { color: #a2e7f8; font-size: 15px; }
+        .rs-guide-entry h5 { font-size: 17px; }
+        .rs-guide-section { border-top: 2px solid #2a435e; padding: 16px 0; }
+        .rs-guide-controls > div { background: #14263d; border: 1px solid #294560; padding: 8px 10px; }
+        .rs-guide-controls dt { font-size: 14px; color: #f1f7ff; }
+        .rs-guide-controls dd { font-size: 15px; }
+        .rs-guide .rs-guide-note { color: #aabed5; font-size: 14px; }
+        .rs-guide-entry { background: #15273e; padding: 12px 14px; }
+        .rs-guide .rs-guide-skill { font-size: 15px; }
+        .rs-guide-skill strong { font-size: 14px; }
+        .rs-guide-nav button, .rs-guide-back { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 44px; }
+        .rs-guide .rs-guide-back { background: #203b58; border: 2px solid #7198be; color: #eff7ff; padding: 10px 14px; }
+        .rs-god-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .ruby-star-ui .rs-god-panel { z-index: 80 !important; }
+        .ruby-star-ui .rs-game-over { z-index: 120; background: #050a14ed; padding: 12px; box-sizing: border-box; overflow: auto; }
+        .rs-end-panel { box-sizing: border-box; width: min(620px, 100%); max-height: 100%; overflow: auto; padding: 24px; background: #0e1a2d; border: 2px solid #9a86c5; box-shadow: 0 0 28px #9966cc22; }
+        .rs-end-panel h2 { margin: 0 0 22px; color: #f1e8ff; font-family: var(--font-pixel); font-size: 22px; line-height: 1.5; text-align: center; text-shadow: 0 0 14px #b976ff55; }
+        .rs-end-body { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 22px; align-items: center; }
+        .rs-end-stage { text-align: center; color: #e8cbff; }
+        .rs-end-stage > span { display: block; font-family: var(--font-mono); font-size: 15px; font-weight: 700; letter-spacing: .15em; margin-bottom: 12px; }
+        .rs-end-stage > strong { display: block; font-family: var(--font-pixel); font-size: 54px; line-height: 1.3; color: #f0dfff; text-shadow: 0 0 18px #b978ff66; }
+        .rs-end-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; font-family: var(--font-mono); font-weight: 700; }
+        .rs-end-stats > div { padding: 10px 12px; background: #182c45; border: 1px solid #3b5877; }
+        .rs-end-stats dt { font-size: 13px; letter-spacing: .05em; color: #b6cee5; margin-bottom: 5px; }
+        .rs-end-stats dd { margin: 0; color: #f0f7ff; font-size: 23px; line-height: 1.2; }
+        .rs-end-stats small { font-size: 14px; color: #a5bdd5; }
+        .rs-end-stats > div:last-child dd { color: #ff99bc; }
+        .rs-end-restart { width: 100%; min-height: 46px; margin-top: 22px; padding: 10px 16px; border: 2px solid #82b7d9; border-radius: 0; background: #244865; color: #f1fbff; font-family: var(--font-mono); font-size: 17px; font-weight: 700; letter-spacing: .08em; cursor: pointer; box-shadow: 0 3px 0 #030811; }
+        .rs-end-restart:hover { background: #315f81; border-color: #c4ebff; }
+        @media (max-height: 520px) { .rs-end-panel { padding: 16px 20px; } .rs-end-panel h2 { font-size: 18px; margin-bottom: 12px; } .rs-end-stage > strong { font-size: 42px; } .rs-end-stage > span { margin-bottom: 7px; } .rs-end-stats > div { padding: 7px 10px; } .rs-end-stats dd { font-size: 19px; } .rs-end-restart { margin-top: 12px; min-height: 42px; } }
+        @media (max-width: 440px) { .rs-end-body { grid-template-columns: 90px minmax(0, 1fr); gap: 12px; } .rs-end-stage > strong { font-size: 34px; } .rs-end-panel { padding: 14px; } .rs-end-stats > div { padding: 7px; } .rs-end-stats dt { font-size: 11px; } }
+        .rs-event-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+        .rs-event-controls button { min-height: 42px; border-radius: 0; cursor: pointer; background: #34304e; border: 2px solid #bdabf5; color: #eee5ff; font-weight: 700; padding: 5px; }
+        .rs-event-controls button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+        .rs-event-controls button:disabled { opacity: .4; cursor: default; }
+        .rs-teleport-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; width: min(540px, calc(100% - 32px)); }
+        .rs-event-banner { position: absolute; top: 64px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: calc(100% - 32px); width: max-content; padding: 7px 12px; border: 2px solid; background: #11182bef; font-family: var(--font-mono); font-weight: 700; text-align: center; pointer-events: none; }
+        .rs-event-banner strong { font-size: 14px; letter-spacing: .05em; }
+        .rs-event-banner span { color: #d9e4f4; font-size: 13px; }
+        .rs-god-actions button { min-height: 34px; padding: 5px 3px; border-radius: 0; }
+        .ruby-star-ui .rs-hud { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; flex-shrink: 0; padding: var(--bar-pad); background: #090f1c; border-bottom: 1px solid rgba(124,158,196,.24); }
+        .rs-hud-left, .rs-hud-right, .rs-hud-vitals { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .rs-hud-left > :first-child { flex-shrink: 0; white-space: nowrap; }
+        .rs-hud-vitals { flex-wrap: wrap; gap: 8px 14px; }
+        .rs-hud-right { justify-content: flex-end; gap: 10px; }
+        .rs-stage { min-width: 100px; padding: 7px 16px; text-align: center; }
+        .rs-stage > span { display: block; color: #dfc4ff; font-size: 12px; font-weight: 700; letter-spacing: .22em; margin-bottom: 5px; }
+        .rs-stage > strong { display: block; font-family: var(--font-pixel); font-size: 30px; line-height: 1.15; color: #f4e7ff; text-shadow: 0 0 14px #bb75ff99; }
+        .rs-time { display: flex; gap: 6px; align-items: center; font-size: var(--font-stat); color: #b8cce0; font-weight: 700; }
+        .rs-time > span:last-child { font-family: var(--font-pixel); font-size: var(--font-score); color: #a5bfd7; }
+        @media (max-width: 1000px) {
+          .ruby-star-ui .rs-hud { gap: 8px; }
+          .rs-hud-left, .rs-hud-right { gap: 8px; }
+          .rs-stage { min-width: 72px; padding: 6px 10px; }
+          .rs-stage > strong { font-size: 24px; }
+          .rs-hud-vitals { gap: 6px 10px; }
+          .rs-time { flex-direction: column; gap: 4px; }
+        }
         .rs-player-status { position: absolute; top: 12px; left: 12px; display: flex; flex-wrap: wrap; gap: 7px; max-width: calc(100% - 240px); pointer-events: none; }
         .rs-status-tag { position: relative; padding: 6px 9px 8px; background: #0b1320ed; border: 1px solid; font-family: var(--font-mono); font-size: .78rem; font-weight: 700; line-height: 1.4; }
         .rs-status-time { margin-left: 8px; opacity: .8; font-weight: 400; }
         .rs-status-progress { position: absolute; bottom: 0; left: 0; height: 2px; background: currentColor; }
+        .ruby-star-ui .rs-hud button {
+          min-height: 42px; padding: 9px 12px !important; border: 2px solid #7198be !important;
+          border-radius: 0 !important; background: #203b58 !important; color: #f0f7ff !important;
+          font-size: 15px !important; font-weight: 700 !important; letter-spacing: .045em !important;
+          line-height: 1.2; box-shadow: inset 0 1px 0 #ffffff16, 0 3px 0 #030811;
+          text-shadow: 0 1px 0 #0008;
+        }
+        .ruby-star-ui .rs-hud button:hover { background: #2d5175 !important; border-color: #b6e4ff !important; }
+        .ruby-star-ui .rs-hud button[aria-pressed="true"] { background: #19513b !important; border-color: #86efb0 !important; color: #dcffea !important; }
+        .ruby-star-ui .rs-hud button:active { transform: translateY(1px); box-shadow: inset 0 1px 0 #ffffff16, 0 1px 0 #030811; }
+        .ruby-star-ui .rs-god-panel button, .ruby-star-ui .rs-god-panel select { font-size: 13px !important; font-weight: 700; }
+        .ruby-star-ui .rs-god-panel > button { min-height: 34px; border-width: 2px !important; }
+        .ruby-star-ui .rs-guide button { font-size: 14px; font-weight: 700; }
         .ruby-star-ui button:focus-visible { outline: 2px solid #cceeff; outline-offset: 3px; }
 
         :root {
@@ -4253,18 +4692,33 @@ export default function RubyStarPage() {
         <RubyStarGuide />
       </RulesModal>
 
-      {/* ── Top bar ─────────────────────────────────────────────────────── */}
-      <div className="rs-hud" style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: 'var(--bar-pad)', flexShrink: 0, gap: '8px',
-      }}>
-        <BackButton />
+      {state?.gamePhase === 'constellation' && !showRules && <ConstellationChoice
+        choices={state.constellationChoices}
+        onChoose={kind => {
+          if (chooseConstellation(state, kind)) {
+            mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false;
+            touchStartRef.current = null; setJoyThumb({ x: 0, y: 0 }); rerender();
+          }
+        }}
+      />}
 
-        {/* HP bars */}
-        <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flex: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+      {!!state?.constellations.length && <div aria-label="Active constellations" style={{
+        display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px 16px', padding: '5px 12px',
+        background: '#0b1120', fontFamily: 'var(--font-mono)', fontSize: '11px',
+      }}>
+        {Array.from(new Set(state.constellations)).map(kind => <span key={kind} title={CONSTELLATIONS[kind].description} style={{ color: CONSTELLATIONS[kind].color }}>
+          ✦ {CONSTELLATIONS[kind].name}
+        </span>)}
+      </div>}
+
+      {/* ── Top bar ─────────────────────────────────────────────────────── */}
+      <div className="rs-hud">
+        <div className="rs-hud-left">
+          <BackButton arrow={<PixelArrow direction="left" />} />
+          <div className="rs-hud-vitals">
           {/* Player HP */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: 'var(--font-stat)', color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.1em' }}>HP</span>
+            <HudIcon kind="hp" />
             {state?.godMode ? (
               <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: 'var(--success)' }}>∞</span>
             ) : (
@@ -4277,9 +4731,7 @@ export default function RubyStarPage() {
 
           {/* Ruby HP */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: 'var(--font-stat)', color: RUBY_COLOR, fontWeight: 700, letterSpacing: '0.1em' }}>
-              {carrying ? '◆CARRY' : '◆RUBY'}
-            </span>
+            <HudIcon kind="ruby" carrying={carrying} />
             {carrying ? (
               <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: RUBY_COLOR }}>SAFE</span>
             ) : (
@@ -4299,10 +4751,7 @@ export default function RubyStarPage() {
 
           {/* Star energy */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{
-              fontSize: 'var(--font-stat)', color: powered ? '#ffcc00' : 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.1em',
-              textShadow: powered ? '0 0 10px #ffcc00' : 'none'
-            }}>✦</span>
+            <HudIcon kind="energy" powered={powered} />
             <div style={{
               width: 'var(--batt-w)', height: 'var(--batt-h)', border: `1px solid ${powered ? '#00ffff' : 'rgba(255,255,255,0.2)'}`,
               borderRadius: '2px', background: 'rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden'
@@ -4319,48 +4768,24 @@ export default function RubyStarPage() {
             </div>
           </div>
 
-          {/* Time */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{ fontSize: 'var(--font-stat)', color: 'var(--text-dim)', fontWeight: 700 }}>TIME</span>
-            <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: 'var(--cyan)' }}>
-              {timeSurvived}s
-            </span>
           </div>
-
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{ fontSize: 'var(--font-stat)', color: 'var(--text-dim)', fontWeight: 700 }}>STAGE</span>
-            <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 'var(--font-score)', color: '#cc88ff' }}>
-              {(state?.bossesKilled ?? 0) + 1}
-            </span>
-          </div>
-
-          {/* Bomb cooldown */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <span style={{ fontSize: 'var(--font-stat)', color: BOMB_COLOR, fontWeight: 700, letterSpacing: '0.1em' }}>BOMB</span>
-            {state?.bomb ? (
-              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: BOMB_COLOR, animation: 'pulseGlow 0.6s ease-in-out infinite' }}>ARMED</span>
-            ) : (state?.bombCooldown ?? 0) > 0 ? (
-              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: COOLDOWN_GRAY }}>
-                {Math.ceil((state?.bombCooldown ?? 0) / 60)}s
-              </span>
-            ) : (
-              <span style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.7rem', color: BOMB_COLOR }}>READY</span>
-            )}
-          </div>
-          <button className="rs-special-slot" disabled={!state?.specialSkill} onClick={() => { if (stateRef.current) useSpecialSkill(stateRef.current); rerender(); }}
-            style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.55rem', padding: '7px 9px',
-              background: '#0b1120', border: '2px solid ' + (state?.specialSkill ? state.specialSkill==='devourer'?'#aaaab6':SPECIAL_SKILLS[state.specialSkill].color : '#454552'),
-              boxShadow: state?.specialSkill ? '0 0 10px '+(state.specialSkill==='devourer'?'#aaaab633':SPECIAL_SKILLS[state.specialSkill].color+'33') : 'none',
-              color: state?.specialSkill ? state.specialSkill==='devourer'?'#bdbdc7':SPECIAL_SKILLS[state.specialSkill].color : 'var(--text-muted)', cursor: state?.specialSkill ? 'pointer' : 'default' }}>
-            {state?.specialSkill ? '[F] ' + SPECIAL_SKILLS[state.specialSkill].name : (state?.bossesKilled ?? 0) < SPECIAL_UNLOCK_KILLS ? 'SPECIAL ' + (state?.bossesKilled ?? 0) + '/10' : 'SPECIAL EMPTY'}
-          </button>
         </div>
-
-        {/* Right controls */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="rs-stage" aria-label={`Stage ${state?.bossesKilled ?? 0}`}>
+          <span>STAGE</span>
+          <strong>{state?.bossesKilled ?? 0}</strong>
+        </div>
+        <div className="rs-hud-right">
+          <div className="rs-time">
+            <span>TIME</span>
+            <span>{timeSurvived}s</span>
+          </div>
+          <BombStatus armed={!!state?.bomb} cooldown={state?.bombCooldown ?? 0}
+            powered={!!state?.bomb?.powered}
+            totalCooldown={state?.constellations.includes('bombRate') ? 240 : 300} />
           {isGodQuery && (
             <button
               className="btn btn-ghost"
+              aria-pressed={state?.godMode ?? false}
               style={{
                 fontSize: '0.7rem', padding: '4px 10px',
                 color: state?.godMode ? 'var(--success)' : undefined,
@@ -4370,7 +4795,7 @@ export default function RubyStarPage() {
             >GOD</button>
           )}
           <button className="btn btn-ghost" style={{ fontSize: '0.7rem', padding: '4px 10px' }}
-            onClick={() => setShowRules(true)}>? RULES</button>
+            onClick={() => setShowRules(true)}>RULES</button>
         </div>
       </div>
 
@@ -4386,7 +4811,7 @@ export default function RubyStarPage() {
         onTouchCancel={handleTouchEnd}
       >
         <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
-        {phase==='playing'&&playerStatuses.length>0&&<div className="rs-player-status" role="status" aria-live="polite">
+        {phase==='playing'&&playerStatuses.length>0&&<div className="rs-player-status" role="status" aria-live="polite" style={{left:isGodQuery?218:12}}>
           {playerStatuses.map(status=><div key={status.key} className="rs-status-tag" data-status={status.key} style={{color:status.color,borderColor:status.color+'88'}}>
             {status.label}
             {status.seconds!==undefined&&<span className="rs-status-time" aria-hidden="true">{status.seconds.toFixed(1)}s</span>}
@@ -4401,30 +4826,21 @@ export default function RubyStarPage() {
           onTouchStart={e => e.stopPropagation()} onTouchMove={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}
           onKeyDown={e => e.stopPropagation()}
           style={{
-          position: 'absolute', top: godPanelTop, right: 8,
+          position: 'absolute', top: godPanelTop, left: 8,
           background: 'rgba(0,0,0,0.85)', border: '1px solid #ffcc00',
           padding: '8px', width:194, boxSizing:'border-box', maxHeight:`calc(100% - ${godPanelTop + 8}px)`, overflowY:'auto', touchAction:'pan-y', borderRadius: '2px', zIndex: 20,
           display: 'flex', flexDirection: 'column', gap: '6px'
         }}>
           <div style={{ color: '#ffcc00', fontWeight: 'bold', fontSize: '0.8rem', textAlign: 'center' }}>GOD MODE</div>
-          <button
+          <div className="rs-god-actions">
+          <button aria-pressed={state?.godMode ?? false}
             style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: stateRef.current?.godMode ? '#ffcc00' : '#444', color: stateRef.current?.godMode ? '#000' : '#fff', border: 'none', borderRadius: '4px' }}
             onClick={() => {
               if (stateRef.current) stateRef.current.godMode = !stateRef.current.godMode;
               rerender();
             }}>
-            Immortal: {stateRef.current?.godMode ? 'ON' : 'OFF'}
+            Immortal
           </button>
-          <div style={{display:'flex',gap:4}}>
-            <button style={{flex:1,minWidth:0,padding:'6px 2px',fontSize:'.65rem',cursor:'pointer',background:state?.noMobs?'#b89b12':'#333',color:'#fff',border:'1px solid #ffcc00',borderRadius:3}}
-              onClick={()=>{if(stateRef.current)godSetNoMobs(stateRef.current,!stateRef.current.noMobs);rerender();}}>
-              No Mobs: {state?.noMobs?'ON':'OFF'}
-            </button>
-            <button style={{flex:1,minWidth:0,padding:'6px 2px',fontSize:'.65rem',cursor:'pointer',background:state?.noBossSpawns?'#744395':'#333',color:'#fff',border:'1px solid #bb88ee',borderRadius:3}}
-              onClick={()=>{if(stateRef.current)godSetNoBossSpawns(stateRef.current,!stateRef.current.noBossSpawns);rerender();}}>
-              No Boss: {state?.noBossSpawns?'ON':'OFF'}
-            </button>
-          </div>
           <button
             style={{ padding: '6px 12px', fontSize: '0.75rem', cursor: 'pointer', background: '#333', color: '#fff', border: '1px solid #ffcc00', borderRadius: '4px' }}
             onClick={() => {
@@ -4435,14 +4851,40 @@ export default function RubyStarPage() {
             }}>
             Full Energy
           </button>
+          </div>
+          <div style={{display:'flex',gap:4}}>
+            <button aria-pressed={state?.noMobs ?? false} style={{flex:1,minWidth:0,padding:'6px 2px',fontSize:'.65rem',cursor:'pointer',background:state?.noMobs?'#b89b12':'#333',color:'#fff',border:'1px solid #ffcc00',borderRadius:3}}
+              onClick={()=>{if(stateRef.current)godSetNoMobs(stateRef.current,!stateRef.current.noMobs);rerender();}}>
+              No Mobs
+            </button>
+            <button aria-pressed={state?.noBossSpawns ?? false} style={{flex:1,minWidth:0,padding:'6px 2px',fontSize:'.65rem',cursor:'pointer',background:state?.noBossSpawns?'#744395':'#333',color:'#fff',border:'1px solid #bb88ee',borderRadius:3}}
+              onClick={()=>{if(stateRef.current)godSetNoBossSpawns(stateRef.current,!stateRef.current.noBossSpawns);rerender();}}>
+              No Boss
+            </button>
+          </div>
           <div style={{ display:'grid',gridTemplateColumns:'repeat(4, 40px)',gap:4,justifyContent:'center' }}>
             {BOSS_TYPES.map(type => <BossSpawnButton key={type} type={type} onSpawn={() => {
               if(stateRef.current)godSpawnBoss(stateRef.current,type);rerender();
             }} />)}
           </div>
 
-          <button style={{ padding: '7px', background: '#30213f', color: '#e8c7ff', border: '1px solid #bb88ee', cursor: 'pointer' }}
-            onClick={() => { if (stateRef.current) godEnterAscension(stateRef.current); rerender(); }}>Enter Ascension · Boss 10</button>
+          <div className="rs-god-actions">
+            <button type="button" disabled={phase !== 'playing'}
+              style={{ cursor: phase === 'playing' ? 'pointer' : 'default', background: '#243148', color: '#bce2ff', border: '2px solid #72baff', opacity: phase === 'playing' ? 1 : 0.5 }}
+              onClick={() => { if (stateRef.current) godAdvanceStage(stateRef.current); rerender(); }}>Stage +1</button>
+            <button type="button" aria-label="Reset game" onClick={handleRestart}
+              style={{ background: '#422936', color: '#ffd3dc', border: '2px solid #e895ac', cursor: 'pointer' }}>RESET</button>
+          </div>
+
+          <div className="rs-event-controls">
+            {(Object.keys(AMBIENT_EVENTS) as AmbientEventKind[]).map(kind => <button key={kind} type="button"
+              aria-label={'Create ' + AMBIENT_EVENTS[kind].name}
+              style={{ color: AMBIENT_EVENTS[kind].color, borderColor: AMBIENT_EVENTS[kind].color }}
+              disabled={phase !== 'playing' || !!state?.ambientEvents.warning || !!state?.ambientEvents.active || (state?.ambientEvents.rewardTicks ?? 0) > 0}
+              onClick={() => { if (stateRef.current) triggerAmbientEvent(stateRef.current, kind); rerender(); }}>
+              {AMBIENT_EVENTS[kind].name}
+            </button>)}
+          </div>
 
           <select aria-label="Grant test special" value="" style={{ background: '#333', color: '#dfc3ff', padding: '6px',width:'100%',fontSize:'.7rem' }} onChange={e => {
             if (stateRef.current && e.target.value in SPECIAL_SKILLS) {
@@ -4469,7 +4911,7 @@ export default function RubyStarPage() {
           <div
             style={{
               position: 'absolute', inset: 0,
-              background: 'rgba(0,0,10,0.82)',
+              background: 'rgba(0,0,10,0.82)', zIndex: 100,
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px',
             }}
             onClick={(e) => {
@@ -4484,7 +4926,7 @@ export default function RubyStarPage() {
             }}>
               TELEPORT — SELECT CHAMBER
             </p>
-            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <div className="rs-teleport-grid">
               {[0, 1, 2, 3].map(ch => {
                 const isCurrentChamber = ch === state.playerChamber;
                 const available = state.teleportDestOptions.includes(ch);
@@ -4505,9 +4947,7 @@ export default function RubyStarPage() {
                     onClick={() => { if (available) { doTeleport(state, ch); rerender(); } }}
                   >
                     [{ch + 1}] {CHAMBER_LABELS[ch]}
-                    {isCurrentChamber && (
-                      <span style={{ display: 'block', fontSize: '0.5rem', color: 'var(--text-muted)', marginTop: '4px' }}>YOU ARE HERE</span>
-                    )}
+
                   </button>
                 );
               })}
@@ -4624,29 +5064,33 @@ export default function RubyStarPage() {
           </div>
         )}
 
+        {state && (state.ambientEvents.warning || state.ambientEvents.active) && <div className="rs-event-banner" role="status"
+          style={{ color: state.ambientEvents.rewardTicks > 0 ? '#ffe18c' : AMBIENT_EVENTS[(state.ambientEvents.warning || state.ambientEvents.active)!.kind].color,
+            borderColor: state.ambientEvents.rewardTicks > 0 ? '#ffe18c' : AMBIENT_EVENTS[(state.ambientEvents.warning || state.ambientEvents.active)!.kind].color }}>
+          {state.ambientEvents.rewardTicks > 0 ? <strong>STELLAR SHARD COLLECTED</strong> : (() => {
+            const event = state.ambientEvents.warning || state.ambientEvents.active!;
+            const location = event.kind === 'shootingStar' ? ' · ' + CHAMBER_LABELS[chamberOfTile(event.points[0].x, event.points[0].y)] : '';
+            return <><strong>{state.ambientEvents.warning ? 'INCOMING · ' : ''}{state.ambientEvents.active?.kind === 'shootingStar' && state.ambientEvents.active.age >= STAR_FALL_TICKS ? 'STELLAR SHARD' : AMBIENT_EVENTS[event.kind].name}{location} · {Math.ceil(event.ticks / 60)}s</strong>
+              </>;
+          })()}
+        </div>}
+
         {/* Game over */}
         {phase === 'lost' && (
-          <div className="game-over-overlay" style={{ position: 'absolute' }}>
-            <div className="game-over-title" style={{ color: 'var(--danger)' }}>RUBY STAR</div>
-            <div style={{
-              textAlign: 'center', padding: '14px 32px', minWidth: '190px',
-              background: 'rgba(112,45,174,0.12)', border: '1px solid rgba(204,136,255,0.4)',
-              borderRadius: '2px',
-            }}>
-              <div style={{ fontFamily: 'var(--font-pixel)', fontSize: '0.65rem', color: '#d9b1ff', letterSpacing: '0.08em', lineHeight: 1.8 }}>
-                STAGE
+          <div className="game-over-overlay rs-game-over">
+            <section className="rs-end-panel" role="dialog" aria-modal="true" aria-labelledby="rs-end-title">
+              <h2 id="rs-end-title">RUBY STAR</h2>
+              <div className="rs-end-body">
+                <div className="rs-end-stage"><span>STAGE</span><strong>{state?.bossesKilled ?? 0}</strong></div>
+                <dl className="rs-end-stats">
+                  <div><dt>TIME</dt><dd>{timeSurvived}<small>s</small></dd></div>
+                  <div><dt>KILLS</dt><dd>{state?.killScore ?? 0}</dd></div>
+                  <div><dt>PLAYER HP</dt><dd>{Math.round((state?.playerHP ?? 0) * 10) / 10}<small> / {PLAYER_MAX_HP}</small></dd></div>
+                  <div><dt>RUBY HP</dt><dd>{Math.round((state?.rubyHP ?? 0) * 10) / 10}<small> / {RUBY_MAX_HP}</small></dd></div>
+                </dl>
               </div>
-              <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 'clamp(2rem, 6vw, 3rem)', color: '#e5caff', lineHeight: 1.5, textShadow: '0 0 18px rgba(185,100,255,0.4)' }}>
-                {(state?.bossesKilled ?? 0) + 1}
-              </div>
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-dim)', textAlign: 'center', lineHeight: 2 }}>
-              <div>TIME: <span style={{ color: 'var(--cyan)' }}>{timeSurvived}s</span></div>
-              <div>KILLS: <span style={{ color: '#ffaa00' }}>{state?.killScore ?? 0}</span></div>
-              <div>PLAYER HP: <span style={{ color: 'var(--danger)' }}>{state?.playerHP ?? 0}/{PLAYER_MAX_HP}</span></div>
-              <div>RUBY HP: <span style={{ color: RUBY_COLOR }}>{state?.rubyHP ?? 0}/{RUBY_MAX_HP}</span></div>
-            </div>
-            <button onClick={handleRestart} className="btn btn-primary">PLAY AGAIN</button>
+              <button type="button" autoFocus onClick={handleRestart} className="rs-end-restart">PLAY AGAIN</button>
+            </section>
           </div>
         )}
       </div>

@@ -8,10 +8,10 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   const response=await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle',timeout:45000});
   await page.getByRole('button',{name:'Close rules',exact:true}).click();
   const hud=page.locator('.rs-hud');
-  if(!/STAGE\s+1/.test(await hud.innerText())||/\+\d/.test(await hud.innerText()))throw new Error('Stage or simplified HUD is incorrect');
+  if(!/STAGE\s+0/.test(await hud.innerText())||/\+\d/.test(await hud.innerText()))throw new Error('Stage or simplified HUD is incorrect');
   const panel=await page.locator('.rs-god-panel').boundingBox(),canvas=await page.locator('.rs-god-panel').locator('..').locator(':scope > canvas').boundingBox();
-  if(!panel||!canvas||panel.x+panel.width>1440||panel.y<canvas.y+212)throw new Error('God panel is not below the minimap');
-  await page.getByRole('button',{name:'No Mobs: OFF',exact:true}).click();
+  if(!panel||!canvas||Math.abs(panel.x-canvas.x-8)>1||Math.abs(panel.y-canvas.y-8)>1)throw new Error('God panel is not at the upper left');
+  await page.getByRole('button',{name:'No Mobs',exact:true,pressed:false}).click();
   await page.locator('.rs-hud').getByText('TIME',{exact:true}).click();
   await page.keyboard.press('e');await page.keyboard.press('Space');
   if(await page.getByText('TELEPORT — SELECT CHAMBER',{exact:true}).count())throw new Error('Space opened teleport instead of healing');
@@ -35,10 +35,14 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   }
   if(await page.locator('[data-status="reversed"]').count())throw new Error('Reversed feedback survived boss replacement');
   await page.getByLabel('Grant test special').selectOption('sea_chanter');
-  await page.locator('.rs-special-slot').click();
-  await page.getByRole('button',{name:'Enter Ascension · Boss 10',exact:true}).click();
-  if(!/STAGE\s+11/.test(await hud.innerText()))throw new Error('Stage does not follow boss progression');
-  await page.getByRole('button',{name:'? RULES',exact:true}).click();
+  await page.locator('.rs-hud').getByText('TIME',{exact:true}).click();await page.keyboard.press('f');
+  for(let i=0;i<10;i++){
+   await page.getByRole('button',{name:'Stage +1',exact:true}).focus();await page.keyboard.press('Enter');
+   const choices=page.getByRole('dialog',{name:'CONSTELLATIONS',exact:true});
+   if(await choices.count()){await choices.getByRole('button').first().click();}
+  }
+  if(!/STAGE\s+10/.test(await hud.innerText()))throw new Error('Stage does not follow boss progression');
+  await page.getByRole('button',{name:'RULES',exact:true}).click();
   await page.getByRole('button',{name:'Close rules',exact:true}).click();
   const mobile=await browser.newContext({viewport:{width:844,height:390},isMobile:true,hasTouch:true,deviceScaleFactor:1}),phone=await mobile.newPage();
   phone.on('pageerror',error=>errors.push(error.message));
@@ -54,7 +58,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   const ended=await desktop.newPage();ended.on('pageerror',error=>errors.push(error.message));
   await ended.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});
   await ended.getByRole('button',{name:'Close rules',exact:true}).click();
-  await ended.getByRole('button',{name:'No Mobs: OFF',exact:true}).click();
+  await ended.getByRole('button',{name:'No Mobs',exact:true,pressed:false}).click();
   await ended.locator('.rs-hud').getByText('TIME',{exact:true}).click();
   await ended.keyboard.press('q');await ended.keyboard.press('q');
   const hpBefore=parseFloat(await ended.locator('.rs-hud .battery-fill').first().evaluate(el=>el.style.width));
@@ -65,10 +69,10 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
    await ended.getByLabel('Grant test special').selectOption('blind_prayer');
    await ended.locator('.rs-special-slot').click();await ended.keyboard.press('q');await ended.keyboard.press('q');
   }
-  await ended.locator('.game-over-title').waitFor();
-  if(await ended.locator('.game-over-title').innerText()!=='RUBY STAR')throw new Error('Game-over title is incorrect');
+  await ended.locator('.rs-end-panel h2').waitFor();
+  if(await ended.locator('.rs-end-panel h2').innerText()!=='RUBY STAR')throw new Error('Game-over title is incorrect');
   const endText=await ended.locator('.game-over-overlay').innerText();
-  if(!/STAGE\s+1/.test(endText)||endText.includes('BOSSES DEFEATED'))throw new Error('Game-over stage is incorrect');
+  if(!/STAGE\s+0/.test(endText)||endText.includes('BOSSES DEFEATED'))throw new Error('Game-over stage is incorrect');
   await ended.screenshot({path:path.join(output,'ruby-game-over-stage.png')});
   if(errors.length)throw new Error(errors.join('\n'));
   console.log('HTTP',response.status(),'; desktop boss controls, special activation, rules, mobile controls, and browser errors: passed');
