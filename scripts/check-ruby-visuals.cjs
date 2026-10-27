@@ -39,6 +39,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   for(let i=0;i<10;i++){
    await page.getByRole('button',{name:'Stage +1',exact:true}).focus();await page.keyboard.press('Enter');
    const choices=page.getByRole('dialog',{name:'CONSTELLATIONS',exact:true});
+   if((i+1)%3===0)await choices.waitFor();
    if(await choices.count()){await choices.getByRole('button').first().click();}
   }
   if(!/STAGE\s+10/.test(await hud.innerText()))throw new Error('Stage does not follow boss progression');

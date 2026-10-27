@@ -426,12 +426,7 @@ function drawMinimap(
       ctx.lineWidth = 1;
       ctx.strokeRect(bx - 4, by - 4, 10, 10);
       ctx.shadowBlur = 0;
-      if (e.type === 'blind_prayer' && (e.prayer?.rubyCastTicks ?? 0) > 0 && e.prayer!.rubyDestination >= 0) {
-        const destination = e.prayer!.rubyDestination;
-        const center = [[10, 10], [39, 10], [10, 39], [39, 39]][destination];
-        ctx.strokeStyle = Math.floor(tickN / 8) % 2 ? '#ffffff' : '#ffdd22';
-        ctx.strokeRect(MX + center[0] * S - 4, MY + center[1] * S - 4, 10, 10);
-      }
+
     }
   }
 
@@ -439,7 +434,7 @@ function drawMinimap(
   ctx.font = '6px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const labelPts = [[10, 10], [39, 10], [10, 39], [39, 39]];
+  const labelPts = [[3, 3], [32, 3], [3, 32], [32, 32]];
   for (let i = 0; i < 4; i++) {
     const [lx, ly] = labelPts[i];
     ctx.fillStyle = CHAMBER_COLORS[i] + 'cc';
@@ -3184,17 +3179,18 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createIni
   if (!flash) {
     const eyeY = sy - half + pad + 1;
     if (e.type === 'energy_leech') {
-      const width=Math.floor(size*.6),left=Math.round(sx-width/2),top=Math.round(sy-1);
-      ctx.fillStyle='#f4dfff';
-      ctx.fillRect(left,eyeY,5,3);ctx.fillRect(left+width-5,eyeY,5,3);
-      // Three cells fill as it steals energy; full brightness at 60 stored energy.
-      ctx.fillStyle='#23142e';ctx.fillRect(left-1,top-1,width+2,10);
-      const cells=Math.min(3,Math.ceil((e.stolenEnergy??0)/20)),cellW=Math.max(2,Math.floor((width-4)/3));
-      for(let i=0;i<3;i++){
-        ctx.shadowColor='#ffe58b';ctx.shadowBlur=i<cells?4:0;
-        ctx.fillStyle=i<cells?'#ffe58b':'#68416d';ctx.fillRect(left+i*(cellW+2),top+1,cellW,6);
+      const width = Math.floor(size * .6), left = Math.round(sx - width / 2);
+      ctx.fillStyle = '#f4dfff';
+      ctx.fillRect(left, eyeY, 5, 3); ctx.fillRect(left + width - 5, eyeY, 5, 3);
+      // Slim collector slit with inset storage lights, contained within the shell.
+      const mouthY = Math.round(sy + 1), cells = Math.min(3, Math.ceil((e.stolenEnergy ?? 0) / 20));
+      ctx.fillStyle = '#352043'; ctx.fillRect(left + 2, mouthY, width - 4, 2);
+      for (let i = 0; i < 3; i++) {
+        ctx.shadowColor = '#ffe58b'; ctx.shadowBlur = i < cells ? 3 : 0;
+        ctx.fillStyle = i < cells ? '#ffe58b' : '#82549e';
+        ctx.fillRect(Math.round(sx) - 6 + i * 5, mouthY + 5, 3, 2);
       }
-      ctx.shadowBlur=0;
+      ctx.shadowBlur = 0;
     } else if (e.type === 'sniper') {
       // 1 large central cycloptic eye
       const eyeSz = Math.max(4, Math.floor(size * 0.34));
@@ -4485,6 +4481,7 @@ export default function RubyStarPage() {
   const powered = (state?.poweredTicks ?? 0) > 0 || (state?.starEnergy ?? 0) >= STAR_ENERGY_MAX;
   const carrying = state?.playerCarryingRuby ?? true;
   const godPanelTop = 8;
+  const prayerSpawnWarning = phase === 'playing' && (state?.bossSpawnTicks ?? 0) > 0 && !!state && isMovementReversed(state);
   const playerStatuses: { key: string; label: string; color: string; seconds?: number; progress?: number }[] = [];
   if(state){
     if(state.playerFrozenTicks>0)playerStatuses.push({key:'frozen',label:'FROZEN',color:'#b4eaff',seconds:state.playerFrozenTicks/60,progress:state.playerFrozenTicks/90});
@@ -4869,7 +4866,7 @@ export default function RubyStarPage() {
           </div>
 
           <div className="rs-god-actions">
-            <button type="button" disabled={phase !== 'playing'}
+            <button type="button" disabled={phase !== 'playing' || !!state?.constellationChoices.length}
               style={{ cursor: phase === 'playing' ? 'pointer' : 'default', background: '#243148', color: '#bce2ff', border: '2px solid #72baff', opacity: phase === 'playing' ? 1 : 0.5 }}
               onClick={() => { if (stateRef.current) godAdvanceStage(stateRef.current); rerender(); }}>Stage +1</button>
             <button type="button" aria-label="Reset game" onClick={handleRestart}
@@ -4959,7 +4956,16 @@ export default function RubyStarPage() {
           </div>
         )}
 
-        {phase === 'playing' && (state?.ascensionBannerTicks ?? 0) > 0 && (
+        {prayerSpawnWarning && (
+          <div role="alert" className="rs-prayer-warning" style={{ position: 'absolute', top: 64, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 90, maxWidth: 'calc(100% - 24px)', width: 'max-content', boxSizing: 'border-box', padding: '10px 16px',
+            background: '#201b0af5', border: '2px solid #ffe477', boxShadow: '0 0 24px #d8ac3244', textAlign: 'center', pointerEvents: 'none' }}>
+            <div style={{ color: '#cbb775', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700 }}>BLIND PRAYER SPAWNED</div>
+            <div style={{ color: '#fff0ac', fontFamily: 'var(--font-pixel)', fontSize: 16, lineHeight: 1.8 }}>MOVEMENT REVERSED</div>
+          </div>
+        )}
+
+        {phase === 'playing' && !prayerSpawnWarning && (state?.ascensionBannerTicks ?? 0) > 0 && (
           <div role="status" style={{ position: 'absolute', top: '72px', left: '50%', transform: 'translateX(-50%)',
             width: 'max-content', maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box', textAlign: 'center', pointerEvents: 'none',
             padding: '14px 22px', background: 'rgba(12,9,22,.94)', border: '2px solid #d7a5ff', boxShadow: '0 0 24px rgba(180,100,255,.3)', borderRadius: '2px' }}>
@@ -4970,7 +4976,7 @@ export default function RubyStarPage() {
           </div>
         )}
 
-        {phase === 'playing' && (state?.bossSpawnTicks ?? 0) > 0 && (state?.ascensionBannerTicks ?? 0) <= 0 && (
+        {phase === 'playing' && !prayerSpawnWarning && (state?.bossSpawnTicks ?? 0) > 0 && (state?.ascensionBannerTicks ?? 0) <= 0 && (
           <div role="status" style={{
             position: 'absolute', top: '80px', left: '50%', transform: 'translateX(-50%)',
             width: 'max-content', maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box',
@@ -5065,7 +5071,7 @@ export default function RubyStarPage() {
         )}
 
         {state && (state.ambientEvents.warning || state.ambientEvents.active) && <div className="rs-event-banner" role="status"
-          style={{ color: state.ambientEvents.rewardTicks > 0 ? '#ffe18c' : AMBIENT_EVENTS[(state.ambientEvents.warning || state.ambientEvents.active)!.kind].color,
+          style={{ top: prayerSpawnWarning ? 148 : (state.ascensionBannerTicks > 0 ? 212 : state.bossSpawnTicks > 0 ? 140 : 64), color: state.ambientEvents.rewardTicks > 0 ? '#ffe18c' : AMBIENT_EVENTS[(state.ambientEvents.warning || state.ambientEvents.active)!.kind].color,
             borderColor: state.ambientEvents.rewardTicks > 0 ? '#ffe18c' : AMBIENT_EVENTS[(state.ambientEvents.warning || state.ambientEvents.active)!.kind].color }}>
           {state.ambientEvents.rewardTicks > 0 ? <strong>STELLAR SHARD COLLECTED</strong> : (() => {
             const event = state.ambientEvents.warning || state.ambientEvents.active!;

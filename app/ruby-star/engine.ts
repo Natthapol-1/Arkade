@@ -98,9 +98,7 @@ function offerConstellation(state: GameState) {
   const choices: Constellation[] = [];
   while (choices.length < 2 && pool.length) choices.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
   state.constellationChoices = choices;
-  state.gamePhase = 'constellation';
-  state.playerQueuedDirX = state.playerQueuedDirY = 0;
-  stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound();
+  state.constellationDelayTicks = 60;
 }
 
 export function chooseConstellation(state: GameState, kind: Constellation): boolean {
@@ -430,6 +428,7 @@ export interface GameState {
   bossSpawnTicks: number;   // remaining ticks of the post-spawn name banner
   constellations: Constellation[];
   constellationChoices: Constellation[];
+  constellationDelayTicks: number;
   bossesKilled: number;     // tracks how many bosses have been killed (each +15 HP)
   bossPool: BossType[];     // natural spawns draw every boss once before reshuffling
   lastNaturalBoss: BossType | null;
@@ -909,6 +908,7 @@ export function createInitialState(): GameState {
     bossSpawnTicks: 0,
     constellations: [],
     constellationChoices: [],
+    constellationDelayTicks: 0,
     bossesKilled: 0,
     bossPool: [],
     lastNaturalBoss: null,
@@ -3395,6 +3395,12 @@ function takeNextNaturalBoss(state: GameState): BossType {
 export function tick(state: GameState) {
   if (state.gamePhase !== 'playing') { stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
 
+  if (state.constellationDelayTicks > 0 && --state.constellationDelayTicks === 0 && state.constellationChoices.length) {
+    state.gamePhase = 'constellation';
+    state.playerQueuedDirX = state.playerQueuedDirY = 0;
+    stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound();
+    return;
+  }
   state.gameTick++;
   if (state.meteoriteImpact && --state.meteoriteImpact.ticks <= 0) state.meteoriteImpact = null;
   if(state.lunarDecoy){
@@ -3633,7 +3639,7 @@ export function godSetNoMobs(state: GameState, enabled: boolean) {
 // removing whichever boss-tier enemy currently exists (queen decoys are left alone —
 // they persist independently of their queen per normal rules).
 export function godAdvanceStage(state: GameState) {
-  if (state.gamePhase !== 'playing') return;
+  if (state.gamePhase !== 'playing' || state.constellationChoices.length) return;
   state.bossesKilled++;
   state.difficultyLevel = Math.max(state.difficultyLevel, Math.min(DIFFICULTY_TIERS.length - 1, 3 + state.bossesKilled));
   if (state.bossesKilled === SPECIAL_UNLOCK_KILLS) state.ascensionBannerTicks = 360;

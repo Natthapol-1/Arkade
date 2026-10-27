@@ -21,6 +21,17 @@ for(const [i,[label,mob,shielded]]of samples.entries()){
  ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
 fs.writeFileSync(path.join(output,prefix+'.png'),canvas.toBuffer('image/png'));
+if(prefix==='aliens'){
+ const closeup=createCanvas(600,260),detail=closeup.getContext('2d');
+ detail.fillStyle='#101923';detail.fillRect(0,0,600,260);
+ for(const [i,charged] of [false,true].entries()){
+  detail.strokeStyle='#26303c';detail.strokeRect(i*300+8,8,284,244);
+  detail.fillStyle='#c77aff';detail.font='14px monospace';detail.textAlign='center';detail.fillText(charged?'LEECH CHARGED':'ENERGY LEECH',i*300+150,35);
+  detail.save();detail.translate(i*300+150,155);detail.scale(2,2);
+  renderer.exports.drawEnemy(detail,enemy('energy_leech',{stolenEnergy:charged?60:0}),0,0,40,false);detail.restore();
+ }
+ fs.writeFileSync(path.join(output,'energy-leech.png'),closeup.toBuffer('image/png'));
+}
 // Actual game renderer exercises attack overlays at several life stages.
 const scene=createCanvas(1000,700);state.noMobs=true;state.frostIceTiles=[];state.screenShakeTicks=0;
 state.playerTileX=state.playerTargetX=11;state.playerTileY=state.playerTargetY=10;state.playerX=11.5*c.TILE_SIZE;state.playerY=10.5*c.TILE_SIZE;

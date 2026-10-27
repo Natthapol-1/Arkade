@@ -4,7 +4,7 @@
 
 Meteors remain the regular main hazard. Three minor events occur occasionally and never overlap each other. Every event gives a three-second warning, its name/countdown and minimap markers before activating. Warnings and events pause with rules, teleport selection and Constellation choices, and stop advancing after game over. Restart clears them.
 
-Natural first warning is scheduled after 75–115 seconds of unpaused play. After an event finishes or its shard is collected, the next warning waits 90–150 seconds. Due events wait for active meteor warnings and boss warning/spawn announcements to clear. A shuffled pool presents all three event types before refilling. Meteors continue independently and may happen during an already-active minor event. Manual God triggers retain the warning, reject overlapping events and do not consume the natural pool.
+Natural first warning is scheduled after 150–210 seconds of unpaused play. After an event finishes or its shard is collected, the next warning waits 180–300 seconds. Due events wait for active meteor warnings and boss warning/spawn announcements to clear. A shuffled pool presents all three event types before refilling. Meteors continue independently and may happen during an already-active minor event. Manual God triggers retain the warning, reject overlapping events and do not consume the natural pool.
 
 | Event | Active duration | Behavior |
 | --- | --- | --- |

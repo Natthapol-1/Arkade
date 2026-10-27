@@ -17,13 +17,13 @@ test('all three events warn for three seconds, refuse overlap and honor teleport
  }
 });
 test('natural events are infrequent, defer announcements, cycle all types and restart cleanly',()=>{
- const s=fresh();assert.ok(s.ambientEvents.timer>=4500&&s.ambientEvents.timer<=6900);s.ambientEvents.timer=1;s.meteoriteWarning=0;
+ const s=fresh();assert.ok(s.ambientEvents.timer>=9000&&s.ambientEvents.timer<=12600);s.ambientEvents.timer=1;s.meteoriteWarning=0;
  events.updateAmbientEvents(s);assert.equal(s.ambientEvents.warning,null);s.meteoriteWarning=-1;s.bossWarningTicks=10;events.updateAmbientEvents(s);assert.equal(s.ambientEvents.warning,null);
  s.bossWarningTicks=0;s.bossSpawnTicks=10;events.updateAmbientEvents(s);assert.equal(s.ambientEvents.warning,null);s.bossSpawnTicks=0;
  const seen=new Set();for(let i=0;i<3;i++){
   s.ambientEvents.timer=0;events.updateAmbientEvents(s);seen.add(s.ambientEvents.warning.kind);
   for(let n=0;n<180;n++)events.updateAmbientEvents(s);s.ambientEvents.active.ticks=1;events.updateAmbientEvents(s);
-  assert.ok(s.ambientEvents.timer>=5400&&s.ambientEvents.timer<=9000);
+  assert.ok(s.ambientEvents.timer>=10800&&s.ambientEvents.timer<=18000);
  }assert.equal(seen.size,3);assert.equal(e.createInitialState().ambientEvents.active,null);assert.equal(e.createInitialState().ambientEvents.rewardTicks,0);
 });
 test('black hole pulls player and aliens toward center without moving Ruby or crossing walls',()=>{

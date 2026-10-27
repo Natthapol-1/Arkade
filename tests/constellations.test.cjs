@@ -5,7 +5,7 @@ const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
 test('God Stage +1 advances once, respects pause and triggers Constellations and Ascension',()=>{
  const s=e.createInitialState();s.bossesKilled=1;s.playerHP=40;
  e.godAdvanceStage(s);assert.equal(s.bossesKilled,2);assert.equal(s.difficultyLevel,5);assert.equal(s.playerHP,40);
- e.godAdvanceStage(s);assert.equal(s.bossesKilled,3);assert.equal(s.gamePhase,'constellation');assert.equal(s.constellationChoices.length,2);
+ e.godAdvanceStage(s);assert.equal(s.bossesKilled,3);assert.equal(s.gamePhase,'playing');ticks(s,60);assert.equal(s.gamePhase,'constellation');assert.equal(s.constellationChoices.length,2);
  e.godAdvanceStage(s);assert.equal(s.bossesKilled,3);e.chooseConstellation(s,s.constellationChoices[0]);
  s.bossesKilled=9;e.godAdvanceStage(s);assert.equal(s.bossesKilled,10);assert.equal(s.ascensionBannerTicks,360);assert.equal(s.specialSkill,null);
  for(const phase of ['teleporting','lost']){s.gamePhase=phase;e.godAdvanceStage(s);assert.equal(s.bossesKilled,10);}
@@ -20,7 +20,7 @@ function enemy(s,type='normal',hp=100,x=11){
  e.godSpawnBoss(s,'frost_warden');const template=s.enemies.find(a=>a.type==='frost_warden');s.enemies=[];s.noBossSpawns=true;
  const a={...template,type,id:s.nextEnemyId++,x:(x+.5)*c.TILE_SIZE,y:10.5*c.TILE_SIZE,tileX:x,tileY:10,targetTileX:x,targetTileY:10,hp,maxHp:hp,path:[],pathTimer:100000,windupTicks:100000};s.enemies.push(a);return a;
 }
-function defeat(s){enemy(s,'frost_warden',.01);s.laserCooldown=0;e.useLaser(s);}
+function defeat(s){enemy(s,'frost_warden',.01);s.laserCooldown=0;e.useLaser(s);if(s.constellationDelayTicks)ticks(s,60);}
 function ticks(s,n){for(let i=0;i<n;i++)e.tick(s);}
 test('every third boss defeat offers two distinct eligible choices; tenth still unlocks Ascension',()=>{
  const s=fresh();for(let n=1;n<=66;n++){
@@ -38,7 +38,7 @@ test('choice freezes simulation and all gameplay; invalid/duplicate picks fail; 
  assert.equal(e.useSpecialSkill(s),false);assert.equal(e.healRuby(s),false);assert.equal(e.tryActivateTeleport(s),false);assert.equal(JSON.stringify(s),before);
  assert.equal(e.chooseConstellation(s,Object.keys(e.CONSTELLATIONS).find(k=>!s.constellationChoices.includes(k))),false);
  const choice=s.constellationChoices[0];assert.equal(e.chooseConstellation(s,choice),true);assert.equal(e.chooseConstellation(s,choice),false);
- e.tick(s);assert.equal(s.gameTick,1);assert.deepEqual(e.createInitialState().constellations,[]);assert.deepEqual(e.createInitialState().constellationChoices,[]);
+ e.tick(s);assert.equal(s.gameTick,60);assert.deepEqual(e.createInitialState().constellations,[]);assert.deepEqual(e.createInitialState().constellationChoices,[]);
 });
 test('laser and bullet damage upgrades work for normal/powered shots',()=>{
  for(const powered of [false,true])for(const kind of ['laser','bullets']){
@@ -115,7 +115,7 @@ test('meteor defeat at a later milestone preserves boss restoration and Ascensio
  const s=fresh();s.bossesKilled=11;const a=enemy(s,'frost_warden',1,12);a.maxHp=100;
  s.playerTileX=s.playerTargetX=s.playerTileY=s.playerTargetY=35;s.playerX=s.playerY=35.5*c.TILE_SIZE;
  s.playerHP=s.rubyHP=10;s.meteoriteWarning=0;s.meteoriteStrikeIn=1;e.tick(s);
- assert.equal(s.bossesKilled,12);assert.equal(s.gamePhase,'constellation');assert.equal(s.specialSkill,'frost_warden');assert.equal(s.playerHP,100);assert.equal(s.rubyHP,100);
+ assert.equal(s.bossesKilled,12);ticks(s,60);assert.equal(s.gamePhase,'constellation');assert.equal(s.specialSkill,'frost_warden');assert.equal(s.playerHP,100);assert.equal(s.rubyHP,100);
 });
 test('attack recharge upgrades shorten only their matching cooldowns',()=>{
  const s=fresh(['laserRate','waveReach','waveRate','burstRate','bombRate']);
@@ -144,4 +144,13 @@ test('healing alternatives improve only their intended sources and meteor kills 
  s.resources=[{type:'health',tileX:10,tileY:10}];e.tick(s);near(s.playerHP,24+c.HEAL_AMOUNT);
  enemy(s,'normal',.01);s.laserCooldown=0;const before=s.playerHP;e.useLaser(s);near(s.playerHP,before+7);
  enemy(s,'normal',.01);s.meteoriteWarning=0;s.meteoriteStrikeIn=1;s.godMode=true;const preMeteor=s.playerHP;e.tick(s);near(s.playerHP,preMeteor);
+});
+
+test('Constellation waits one second and pauses its countdown with rules',()=>{
+ const s=fresh();s.bossesKilled=2;enemy(s,'frost_warden',.01);e.useLaser(s);
+ assert.equal(s.gamePhase,'playing');assert.equal(s.constellationDelayTicks,60);
+ e.godAdvanceStage(s);assert.equal(s.bossesKilled,3);
+ s.gamePhase='rules';ticks(s,30);assert.equal(s.constellationDelayTicks,60);s.gamePhase='playing';
+ ticks(s,59);assert.equal(s.gamePhase,'playing');assert.equal(s.constellationDelayTicks,1);
+ e.tick(s);assert.equal(s.gamePhase,'constellation');assert.equal(s.constellationDelayTicks,0);
 });

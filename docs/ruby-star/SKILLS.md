@@ -4,7 +4,7 @@
 
 ## Constellations
 
-After every third actual boss defeat (3, 6, 9, 12, 15, ...), pause and offer two distinct random unowned Constellations. Each can be chosen only once per run; there are no ranks or repeat picks. Choices continue after Ascension. When one remains, offer it alone; after all 20 are owned, stop offering Constellations. Restart clears owned upgrades and pending choices.
+After every third actual boss defeat (3, 6, 9, 12, 15, ...), wait one second of unpaused play for defeat effects, then pause and offer two distinct random unowned Constellations. Each can be chosen only once per run; there are no ranks or repeat picks. Choices continue after Ascension. When one remains, offer it alone; after all 20 are owned, stop offering Constellations. Restart clears owned upgrades and pending choices.
 
 Click, tap, keys 1/2, or focused-button Enter/Space selects. Keyboard focus stays in the dialog. `gamePhase='constellation'` freezes simulation and rejects gameplay actions. Boss restoration, hazard cleanup and celestial rewards still resolve, including meteor/special defeats. Choosing clears held mouse/touch movement and attack input. The HUD lists owned constellations, with descriptions available on hover.
 

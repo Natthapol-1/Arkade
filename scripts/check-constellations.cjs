@@ -9,12 +9,12 @@ const output=path.resolve(process.argv[2]||'docs/ruby-star/visual-reference');fs
    await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});
    await page.getByRole('button',{name:'Close rules',exact:true}).click();
    // Find the real mutable state via React's development fiber, without a production debug API.
-   await page.evaluate(()=>{
+   await page.waitForFunction(()=>{
     const canvas=document.querySelector('canvas');let fiber=canvas[Object.keys(canvas).find(k=>k.startsWith('__reactFiber'))];
     for(;fiber;fiber=fiber.return)for(let hook=fiber.memoizedState;hook;hook=hook.next){
      const state=hook.memoizedState?.current;
-     if(state?.gamePhase&&state?.map){window.__constellationTestState=state;state.noMobs=state.noBossSpawns=true;state.godMode=true;return;}
-    }throw Error('Game state not found');
+     if(state?.gamePhase&&state?.map){window.__constellationTestState=state;state.noMobs=state.noBossSpawns=true;state.godMode=true;return true;}
+    }return false;
    });
    // Exercise a real meteor defeat at the third boss milestone.
    await page.getByRole('button',{name:'Spawn FROST WARDEN',exact:true}).click();

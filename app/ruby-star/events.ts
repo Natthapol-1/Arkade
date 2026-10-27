@@ -17,9 +17,9 @@ export interface AmbientEventState {
 }
 export const AMBIENT_WARNING_TICKS = 180;
 export const STAR_FALL_TICKS = 36;
-const delay = () => 5400 + Math.floor(Math.random() * 3601);
+const delay = () => 10800 + Math.floor(Math.random() * 7201);
 export function createAmbientEvents(): AmbientEventState {
-  return { timer: 4500 + Math.floor(Math.random() * 2401), pool: [], warning: null, active: null, rewardTicks: 0 };
+  return { timer: 9000 + Math.floor(Math.random() * 3601), pool: [], warning: null, active: null, rewardTicks: 0 };
 }
 export function isEclipseActive(state: GameState): boolean {
   return state.ambientEvents.active?.kind === 'eclipse';
