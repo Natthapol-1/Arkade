@@ -92,7 +92,7 @@ function pull(state: GameState) {
     if (direction) state.playerKnockback = { dirX: direction.x, dirY: direction.y, started: false };
   }
   for (const enemy of state.enemies) {
-    if (enemy.pushTiles > 0 || enemy.exploding) continue;
+    if (enemy.type === 'aegis_construct' || enemy.twin?.downedTicks || enemy.pushTiles > 0 || enemy.exploding) continue;
     const direction = pullDirection(state, enemy.tileX, enemy.tileY);
     if (direction) { enemy.pushDirX = direction.x; enemy.pushDirY = direction.y; enemy.pushTiles = 1; }
   }

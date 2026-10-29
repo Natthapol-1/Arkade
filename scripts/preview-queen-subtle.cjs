@@ -2,7 +2,7 @@ const fs=require('fs'),Module=require('module'),ts=require('typescript');
 require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,f);
 const {createCanvas}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@napi-rs/canvas');
 const c=require('../app/ruby-star/constants.ts'),engine=require('../app/ruby-star/engine.ts');
-const original=fs.readFileSync('app/ruby-star/page.tsx','utf8');
+const original=fs.readFileSync('app/ruby-star/RubyStarGame.tsx','utf8');
 const begin=original.indexOf("  if (e.type === 'splitter_queen') {\n    const qSz"),end=original.indexOf('\n  //',original.indexOf('    return;',begin));
 if(begin<0||end<0)throw Error('Queen boundaries missing');
 let queen=original.slice(begin,end);
@@ -39,7 +39,7 @@ const ornaments=`    // Short stepped royal tassels hang from the shoulder edges
 `;
 if(!queen.includes(bodyAnchor))throw Error('Queen body anchor missing');queen=queen.replace(bodyAnchor,ornaments+bodyAnchor);
 const proposed=original.slice(0,begin)+queen+original.slice(end);
-function renderer(src){const code='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {isSeaChanterDiving}=require('./engine.ts');"+src.slice(src.indexOf('const PRAYER_GLYPHS'),src.indexOf('function drawRewardSpark('))+src.slice(src.indexOf('function drawEnemy('),src.indexOf('function drawGame('))+';exports.drawEnemy=drawEnemy;';const m=new Module(require('path').resolve('app/ruby-star/preview.cjs'),module);m.filename=require('path').resolve('app/ruby-star/preview.cjs');m.paths=module.paths;m._compile(ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,m.filename);return m.exports.drawEnemy;}
+function renderer(src){const code='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {isSeaChanterDiving,devourerBodyScale}=require('./engine.ts');const {drawNeptuneUnit,drawNeptuneOverlay,drawSkyLaserImpact}=require('./neptune-art.ts');"+src.slice(src.indexOf('const PRAYER_GLYPHS'),src.indexOf('function drawRewardSpark('))+src.slice(src.indexOf('function drawEnemy('),src.indexOf('function drawGame('))+';exports.drawEnemy=drawEnemy;';const m=new Module(require('path').resolve('app/ruby-star/preview.cjs'),module);m.filename=require('path').resolve('app/ruby-star/preview.cjs');m.paths=module.paths;m._compile(ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,m.filename);return m.exports.drawEnemy;}
 const canvas=createCanvas(900,460),ctx=canvas.getContext('2d');ctx.fillStyle='#0b111b';ctx.fillRect(0,0,900,460);
 for(const[i,src]of [original,proposed].entries()){
  ctx.fillStyle='#111923';ctx.fillRect(i*450+10,10,430,440);ctx.strokeStyle='#ffffff12';ctx.strokeRect(i*450+10.5,10.5,429,439);

@@ -1,8 +1,8 @@
 const fs=require('fs'),path=require('path'),Module=require('module'),ts=require('typescript');
 require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,f);
 const {createCanvas}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@napi-rs/canvas');
-const c=require('../app/ruby-star/constants.ts'),engine=require('../app/ruby-star/engine.ts'),source=fs.readFileSync('app/ruby-star/page.tsx','utf8');
-const code='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {"+Object.keys(engine).filter(k=>!(k in c)).join(',')+"}=require('./engine.ts');"+source.slice(source.indexOf('const BG_COLOR'),source.indexOf('function BossSpawnButton('))+';exports.render={drawPlayerBullet,drawPlayerLaser,drawPlayerChain,drawPlayerWave,drawPlayerCharge,drawGame};';
+const c=require('../app/ruby-star/constants.ts'),engine=require('../app/ruby-star/engine.ts'),source=fs.readFileSync('app/ruby-star/RubyStarGame.tsx','utf8');
+const code='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {"+Object.keys(engine).filter(k=>!(k in c)).join(',')+"}=require('./engine.ts');const {drawNeptuneUnit,drawNeptuneOverlay,drawSkyLaserImpact}=require('./neptune-art.ts');"+source.slice(source.indexOf('const BG_COLOR'),source.indexOf('// Challenge HUD centre: the guardian'))+';exports.render={drawPlayerBullet,drawPlayerLaser,drawPlayerChain,drawPlayerWave,drawPlayerCharge,drawGame};';
 const renderer=new Module(path.resolve('app/ruby-star/attack-preview.cjs'),module);renderer.filename=path.resolve('app/ruby-star/attack-preview.cjs');renderer.paths=module.paths;
 renderer._compile(ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,renderer.filename);
 const draw=renderer.exports.render,output=process.argv[2]||'.';

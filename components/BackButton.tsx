@@ -11,12 +11,12 @@ function playClick() {
   }
 }
 
-export default function BackButton({ arrow = '←' }: { arrow?: ReactNode }) {
+export default function BackButton({ arrow = '←', href = '/', playSound }: { arrow?: ReactNode; href?: string; playSound?: () => void }) {
   const router = useRouter();
 
   return (
     <button
-      onClick={() => { playClick(); router.push('/'); }}
+      onClick={() => { (playSound ?? playClick)(); router.push(href); }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

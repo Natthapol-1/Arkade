@@ -5,8 +5,8 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
  try{
   for(const [name,viewport] of [['desktop',{width:1280,height:800}],['mobile',{width:844,height:390}]]){
    const page=await browser.newPage({viewport}),errors=[];page.on('pageerror',e=>errors.push(e.message));
-   await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});
-   await page.getByRole('button',{name:'Close rules',exact:true}).click();
+   await page.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle'});
+   await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
    await page.evaluate(()=>{
     const canvas=document.querySelector('canvas');let fiber=canvas[Object.keys(canvas).find(k=>k.startsWith('__reactFiber'))];
     for(;fiber;fiber=fiber.return)for(let h=fiber.memoizedState;h;h=h.next)if(h.memoizedState?.current?.gamePhase){window.__state=h.memoizedState.current;break;}

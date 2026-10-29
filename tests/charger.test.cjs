@@ -39,5 +39,55 @@ test('push interrupts the windup and clears the locked lane',()=>{
 });
 test('Charger hits Lunar Echo without damaging the real player or Ruby beneath it',()=>{
  const {s}=fresh();player(s,11,10);s.specialSkill='splitter_queen';e.useSpecialSkill(s);player(s,15,15);s.rubyTileX=11;s.rubyTileY=10;
- ticks(s,c.CHARGER_WINDUP_TICKS+10);assert.equal(s.lunarDecoy.hitsLeft,11);assert.equal(s.playerHP,100);assert.equal(s.rubyHP,100);assert.equal(s.playerTileX,15);
+ ticks(s,c.CHARGER_WINDUP_TICKS+10);assert.equal(s.lunarDecoy.hitsLeft,11);assert.equal(s.playerHP,100);assert.equal(s.rubyHP,100);assert.equal(s.playerTileX,15);assert.equal(s.playerKnockback,null);
+});
+
+
+function impact(s,charger,dx=1,dy=0){
+ player(s,10+dx,10+dy);charger.targetTileX=10+dx;charger.targetTileY=10+dy;
+ charger.chargeDirX=dx;charger.chargeDirY=dy;charger.chargeTilesLeft=8;charger.stepProgress=c.TILE_SIZE-c.CHARGER_CHARGE_SPEED;
+ e.tick(s);
+}
+
+test('Charger impact pushes the player one tile in each rush direction and preserves queued input',()=>{
+ for(const [dx,dy]of [[1,0],[-1,0],[0,1],[0,-1]]){
+  const {s,charger}=fresh();impact(s,charger,dx,dy);assert.deepEqual(s.playerKnockback,{dirX:dx,dirY:dy,started:false});
+  assert.equal(s.playerHP,80);assert.equal(charger.chargeDirX,0);s.playerQueuedDirX=-dx;s.playerQueuedDirY=-dy;
+  for(let i=0;i<60&&s.playerKnockback;i++)e.tick(s);
+  assert.equal(s.playerTileX,10+dx*2);assert.equal(s.playerTileY,10+dy*2);assert.equal(s.playerHP,80);
+  assert.equal(s.playerQueuedDirX,-dx);assert.equal(s.playerQueuedDirY,-dy);assert.equal(s.playerKnockback,null);
+ }
+});
+
+test('Charger push respects walls, pause and shields, and does not queue after a fatal hit',()=>{
+ const {s,charger}=fresh();s.playerShieldHP=30;s.map[10][12]=c.T_WALL;impact(s,charger);assert.equal(s.playerHP,100);assert.equal(s.playerShieldHP,10);
+ const before=JSON.stringify(s);s.gamePhase='teleporting';ticks(s,20);s.gamePhase='playing';assert.equal(JSON.stringify(s),before);
+ e.tick(s);assert.equal(s.playerKnockback,null);assert.equal(s.playerTileX,11);assert.equal(s.playerX,11.5*c.TILE_SIZE);
+ const fatal=fresh();fatal.s.playerHP=1;impact(fatal.s,fatal.charger);assert.equal(fatal.s.gamePhase,'lost');assert.equal(fatal.s.playerKnockback,null);
+});
+
+test('Charger push completes an in-flight player step before displacing it without snapping',()=>{
+ const {s,charger}=fresh();player(s,11,10);s.playerTargetY=11;s.playerStepProgress=10;s.playerY=10.5*c.TILE_SIZE+10;
+ charger.targetTileX=11;charger.chargeDirX=1;charger.chargeDirY=0;charger.chargeTilesLeft=8;charger.stepProgress=c.TILE_SIZE-c.CHARGER_CHARGE_SPEED;
+ e.tick(s);assert.ok(s.playerKnockback);assert.equal(s.playerTargetY,11);assert.ok(s.playerY>10.5*c.TILE_SIZE+10);assert.equal(s.playerX,11.5*c.TILE_SIZE);
+ for(let i=0;i<90&&s.playerKnockback;i++)e.tick(s);assert.equal(s.playerTileX,12);assert.equal(s.playerTileY,11);
+});
+
+
+test('Charger contact plays one heavy impact on player, shield or Ruby, with no cue for a dodge',()=>{
+ const previous=global.Audio,played=[];global.Audio=class{constructor(src){this.src=src;}play(){played.push(this);return Promise.resolve();}pause(){}};
+ const impacts=()=>played.filter(v=>v.src.endsWith('/hitHurt.wav')&&v.playbackRate===.7);
+ try{
+  for(const target of ['player','shield','ruby','dodge']){
+   played.length=0;const {s,charger}=fresh();
+   if(target==='player'||target==='shield'){
+    if(target==='shield')s.playerShieldHP=100;impact(s,charger);
+   }else{
+    player(s,15,15);s.rubyTileX=11;s.rubyTileY=target==='ruby'?10:14;
+    charger.targetTileX=11;charger.targetTileY=10;charger.chargeDirX=1;charger.chargeTilesLeft=1;charger.stepProgress=c.TILE_SIZE-c.CHARGER_CHARGE_SPEED;e.tick(s);
+   }
+   assert.equal(impacts().length,target==='dodge'?0:1,target);
+   if(target!=='dodge'){assert.equal(impacts()[0].volume,.55);assert.equal(impacts()[0].preservesPitch,false);ticks(s,10);assert.equal(impacts().length,1);}
+  }
+ }finally{global.Audio=previous;}
 });

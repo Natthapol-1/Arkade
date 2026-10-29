@@ -1,10 +1,10 @@
 const fs=require('fs'),Module=require('module'),ts=require('typescript');require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,f);
-const {createCanvas}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@napi-rs/canvas');const c=require('../app/ruby-star/constants.ts'),engine=require('../app/ruby-star/engine.ts'),src=fs.readFileSync('app/ruby-star/page.tsx','utf8');
+const {createCanvas}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@napi-rs/canvas');const c=require('../app/ruby-star/constants.ts'),engine=require('../app/ruby-star/engine.ts'),src=fs.readFileSync('app/ruby-star/RubyStarGame.tsx','utf8');
 
-const renderCode='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {"+Object.keys(engine).filter(k=>!(k in c)).join(',')+"}=require('./engine.ts');"+src.slice(src.indexOf('const BG_COLOR'),src.indexOf('function BossSpawnButton('))+';exports.drawPlayer=drawPlayer;exports.drawGame=drawGame;';
+const renderCode='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {"+Object.keys(engine).filter(k=>!(k in c)).join(',')+"}=require('./engine.ts');const {drawNeptuneUnit,drawNeptuneOverlay,drawSkyLaserImpact}=require('./neptune-art.ts');const {drawEncounterEnemy,drawEncounterTelegraphs,drawEncounterEffects}=require('./encounter-art.ts');"+src.slice(src.indexOf('const BG_COLOR'),src.indexOf('// Challenge HUD centre: the guardian'))+';exports.drawPlayer=drawPlayer;exports.drawGame=drawGame;';
 const renderer=new Module(require('path').resolve('app/ruby-star/preview-celestial.cjs'),module);renderer.filename=require('path').resolve('app/ruby-star/preview-celestial.cjs');renderer.paths=module.paths;renderer._compile(ts.transpileModule(renderCode,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,renderer.filename);
-const canvas=createCanvas(900,750),ctx=canvas.getContext('2d');ctx.fillStyle='#111923';ctx.fillRect(0,0,900,750);
-const kinds=[null,'fiery_king','splitter_queen','storm_reaper','devourer','frost_warden','blind_prayer','sea_chanter','thorn_weaver'];
+const canvas=createCanvas(900,1000),ctx=canvas.getContext('2d');ctx.fillStyle='#111923';ctx.fillRect(0,0,900,1000);
+const kinds=[null,'fiery_king','splitter_queen','storm_reaper','devourer','frost_warden','blind_prayer','sea_chanter','thorn_weaver','aegis_sentinel','astral_twins'];
 for(const [i,kind]of kinds.entries()){
  const state=engine.createInitialState();state.specialSkill=kind;state.playerCarryingRuby=false;state.starEnergy=0;state.poweredTicks=0;state.speedActiveTicks=0;state.playerDirX=0;state.playerDirY=1;
  const x=i%3*300,y=Math.floor(i/3)*250;ctx.strokeStyle='#ffffff15';ctx.strokeRect(x+8,y+8,284,234);

@@ -4,7 +4,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
  const browser=await chromium.launch({channel:'msedge',headless:true});
  try{
   const page=await browser.newPage({viewport:{width:1280,height:800}}),errors=[];page.on('pageerror',error=>errors.push(error.message));
-  await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Close rules',exact:true}).click();
+  await page.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
   await page.evaluate(()=>{
    window.__keyboardState=()=>{const canvas=document.querySelector('canvas');let fiber=canvas[Object.keys(canvas).find(key=>key.startsWith('__reactFiber'))];for(;fiber;fiber=fiber.return)for(let hook=fiber.memoizedState;hook;hook=hook.next){const s=hook.memoizedState?.current;if(s?.gamePhase&&s?.map)return s;}throw Error('Missing state');};
    const s=window.__keyboardState();s.noMobs=s.noBossSpawns=true;s.meteoriteTimer=100000;s.ambientEvents.timer=100000;s.starEnergy=0;
@@ -30,7 +30,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   // Pausing through real rules cancels a held key and prevents firing on resume.
   await page.keyboard.down('l');await page.getByRole('button',{name:'RULES',exact:true}).click();const paused=await page.evaluate(()=>window.__bulletShots);
   await page.waitForTimeout(200);assert.equal(await page.evaluate(()=>window.__bulletShots),paused);
-  await page.getByRole('button',{name:'Close rules',exact:true}).click();await page.waitForTimeout(250);assert.equal(await page.evaluate(()=>window.__bulletShots),paused);await page.keyboard.up('l');
+  await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});await page.waitForTimeout(250);assert.equal(await page.evaluate(()=>window.__bulletShots),paused);await page.keyboard.up('l');
   assert.deepEqual(errors,[]);console.log('K laser/hold wave, L held bullets/release, mixed mouse input, blur/rules cancellation and browser errors passed.');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

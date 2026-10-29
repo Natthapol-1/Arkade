@@ -1,7 +1,7 @@
 const fs = require('fs');
 const ts = require('typescript');
 const { createCanvas } = require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@napi-rs/canvas');
-const source = fs.readFileSync('app/ruby-star/page.tsx','utf8');
+const source = fs.readFileSync('app/ruby-star/RubyStarGame.tsx','utf8');
 const glyphSource = source.slice(source.indexOf('const PRAYER_GLYPHS'),source.indexOf('function drawPrayerCircle('));
 const glyph = new Function(ts.transpileModule(glyphSource,{compilerOptions:{target:ts.ScriptTarget.ES2017}}).outputText+';return drawPrayerGlyph;')();
 function rect(ctx,color,x,y,w,h){ctx.fillStyle=color;ctx.fillRect(x,y,w,h);}

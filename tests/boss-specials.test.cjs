@@ -7,13 +7,16 @@ function boss(s,type,x=11,y=10){engine.godSpawnBoss(s,type);const e=s.enemies.fi
 function grunt(s,template,x,y,hp=100){const e={...template,id:s.nextEnemyId++,type:'normal',hp,maxHp:hp,icyShieldHP:0,path:[]};position(e,x,y);s.enemies.push(e);return e;}
 function close(a,b){assert.ok(Math.abs(a-b)<.00001,a+' != '+b);}
 
-test('all eight specials unlock on tenth kill and replace one held reward',()=>{
+test('all specials unlock on tenth kill and replace one held reward',()=>{
  for(const kills of [8,9,15])for(const kind of Object.keys(c.SPECIAL_SKILLS)){
-  const s=fresh();s.bossesKilled=kills;const e=boss(s,kind);e.hp=1;engine.useLaser(s);
+  const s=fresh();s.bossesKilled=kills;const e=boss(s,kind);e.hp=kind==='aegis_sentinel'?.01:1;if(kind==='devourer')e.chargeDirX=0; // a stackless Devourer leaves no copies
+  // Both twins must fall together; line the partner up in the same laser row.
+  if(kind==='astral_twins'){const partner=s.enemies.find(x=>x.type===kind&&x!==e);position(partner,12,10);partner.hp=1;}
+  engine.useLaser(s);
   assert.equal(s.bossesKilled,kills+1);assert.equal(s.specialSkill,kills>=9?kind:null);
  }
  const s=fresh();s.bossesKilled=10;s.specialSkill='fiery_king';const e=boss(s,'frost_warden');e.hp=1;engine.useLaser(s);assert.equal(s.specialSkill,'frost_warden');
- s.laserCooldown=0;const dev=boss(s,'devourer');dev.hp=1;dev.chargeDirX=13;engine.useLaser(s);assert.equal(s.specialSkill,'devourer');assert.equal(s.specialDevourerStacks,13);
+ s.laserCooldown=0;const dev=boss(s,'devourer');dev.hp=1;dev.chargeDirX=0;dev.devourer={generation:1};engine.useLaser(s);assert.equal(s.specialSkill,'devourer');
 });
 test('King special hits the entire arena for ten percent boss HP and twenty-five normal damage',()=>{
  const s=fresh(),e=boss(s,'fiery_king',40,40);e.maxHp=e.hp=400;const near=grunt(s,e,11,10),far=grunt(s,e,40,41);
@@ -160,15 +163,13 @@ test('Lunar Echo counts hits rather than incoming damage',()=>{
   engine.tick(s);assert.equal(s.lunarDecoy.hitsLeft,11);
  }
 });
-test('Singularity duration and buffed normal/boss damage scale across all absorption levels',()=>{
- for(let stacks=0;stacks<=20;stacks++){
-  const s=fresh(),e=boss(s,'fiery_king',11,10);e.hp=e.maxHp=1000;s.specialSkill='devourer';s.specialDevourerStacks=stacks;engine.useSpecialSkill(s);
-  const normal=grunt(s,e,11,11,1000);
-  assert.equal(s.singularity.maxTicks,720+stacks*36);const hp=e.hp;for(let i=0;i<60;i++)engine.tick(s);
-  const strength=(stacks/20)**2;
-  close(e.hp,hp-1000*(.003+strength*.017));close(normal.hp,1000-(1.5+strength*6.5));assert.ok(s.singularity.ticks>0);
-  s.gamePhase='teleporting';const ticks=s.singularity.ticks;engine.tick(s);assert.equal(s.singularity.ticks,ticks);
- }
+test('Singularity has one fixed version: 18s, 6 per second to aliens and 1.5% boss max HP per second',()=>{
+ const s=fresh(),e=boss(s,'fiery_king',11,10);e.hp=e.maxHp=1000;s.specialSkill='devourer';engine.useSpecialSkill(s);
+ const normal=grunt(s,e,11,11,1000);
+ assert.equal(s.singularity.maxTicks,1080);assert.equal('stacks' in s.singularity,false);assert.equal('specialDevourerStacks' in s,false);
+ const hp=e.hp;for(let i=0;i<60;i++)engine.tick(s);
+ close(e.hp,hp-1000*.015);close(normal.hp,1000-6);assert.ok(s.singularity.ticks>0);
+ s.gamePhase='teleporting';const ticks=s.singularity.ticks;engine.tick(s);assert.equal(s.singularity.ticks,ticks);
 });
 test('Singularity pulls normal enemies without crossing walls and expires cleanly',()=>{
  const s=fresh(),e=boss(s,'fiery_king',40,40),normal=grunt(s,e,12,10);s.specialSkill='devourer';engine.useSpecialSkill(s);
@@ -223,7 +224,7 @@ test('Singularity whole-tile effect range includes the highlighted edge tile but
  const s=fresh(),template=boss(s,'fiery_king',40,40);s.map[10][15]=s.map[10][16]=c.T_FLOOR;
  const edge=grunt(s,template,15,10),outside=grunt(s,template,16,10);edge.x=15.95*c.TILE_SIZE;
  s.specialSkill='devourer';engine.useSpecialSkill(s);s.singularity.damageTimer=1;s.singularity.pullTimer=1000;engine.tick(s);
- close(edge.hp,98.5);assert.equal(outside.hp,100);
+ close(edge.hp,100-c.SPECIAL_SINGULARITY_NORMAL_DAMAGE);assert.equal(outside.hp,100);
 });
 
 

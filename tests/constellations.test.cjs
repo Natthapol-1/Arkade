@@ -89,9 +89,9 @@ test('bomb gains one tile matching blast visuals, preserves self damage and Ruby
   assert.equal(s.bombBlasts[0].maxRadius,radius*c.TILE_SIZE);assert.equal(e.getBombRadius(s,powered),radius);assert.equal(s.rubyHP,100);assert.ok(s.playerHP<100);
  }
 });
-test('regular spawn and split-child HP gain five percent per milestone, capped at thirty',()=>{
- for(const kills of [0,2,3,5,6,8,9,20]){
-  const s=fresh();s.bossesKilled=kills;const mult=1+Math.min(6,Math.floor(kills/3))*.05;near(e.constellationAlienHPMult(s),mult);
+test('regular spawn and split-child HP gain five percent per milestone to thirty, then two percent per stage after 18',()=>{
+ for(const kills of [0,2,3,5,6,8,9,18,20,30]){
+  const s=fresh();s.bossesKilled=kills;const mult=1+Math.min(6,Math.floor(kills/3))*.05+Math.max(0,kills-18)*.02;near(e.constellationAlienHPMult(s),mult);
   enemy(s,'splitter',.01);e.useLaser(s);assert.equal(s.enemies.length,2);for(const a of s.enemies)near(a.maxHp,c.ENEMY_CONFIGS.mini_splitter.maxHp*c.REGULAR_ENEMY_HP_MULT*mult);
   s.enemies=[];s.noMobs=false;s.spawnTimer=100000;e.tick(s);assert.ok(s.enemies.length>0);
   for(const a of s.enemies)near(a.maxHp,Math.ceil(c.ENEMY_CONFIGS[a.type].maxHp*c.DIFFICULTY_TIERS[s.difficultyLevel].hpMult)*c.REGULAR_ENEMY_HP_MULT*mult);

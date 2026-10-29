@@ -1,6 +1,6 @@
 const fs=require('fs'),path=require('path'),Module=require('module'),ts=require('typescript');
 const {createCanvas}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@napi-rs/canvas');
-const source=fs.readFileSync('app/ruby-star/page.tsx','utf8');
+const source=fs.readFileSync('app/ruby-star/RubyStarGame.tsx','utf8');
 const helper=source.slice(source.indexOf('function drawPlayerBullet('),source.indexOf('function drawRewardSpark('));
 require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,f);
 const constants=require('../app/ruby-star/constants.ts');

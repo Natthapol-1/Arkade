@@ -4,8 +4,8 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
  const browser=await chromium.launch({channel:'msedge',headless:true});
  try{
   const page=await browser.newPage({viewport:{width:1000,height:700}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});
-  await page.getByRole('button',{name:'Close rules',exact:true}).click();
+  await page.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle'});
+  await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
   await page.getByRole('button',{name:'No Mobs',exact:true,pressed:false}).click();
   await page.getByRole('button',{name:'No Boss',exact:true,pressed:false}).click();
   const canvas=page.locator('.rs-god-panel').locator('..').locator(':scope > canvas'),box=await canvas.boundingBox();

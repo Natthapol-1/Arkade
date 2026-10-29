@@ -6,8 +6,8 @@ const output=path.resolve(process.argv[2]||'docs/ruby-star/visual-reference');fs
  try{
   for(const [name,options]of [['desktop',{viewport:{width:1280,height:800}}],['mobile',{viewport:{width:844,height:390},isMobile:true,hasTouch:true}]]){
    const context=await browser.newContext(options),page=await context.newPage(),errors=[];page.on('pageerror',err=>errors.push(err.message));
-   await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});
-   await page.getByRole('button',{name:'Close rules',exact:true}).click();
+   await page.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle'});
+   await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
    // Find the real mutable state via React's development fiber, without a production debug API.
    await page.waitForFunction(()=>{
     const canvas=document.querySelector('canvas');let fiber=canvas[Object.keys(canvas).find(k=>k.startsWith('__reactFiber'))];

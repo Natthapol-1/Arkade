@@ -4,7 +4,7 @@
 
 ## Constellations
 
-After every third actual boss defeat (3, 6, 9, 12, 15, ...), wait one second of unpaused play for defeat effects, then pause and offer two distinct random unowned Constellations. Each can be chosen only once per run; there are no ranks or repeat picks. Choices continue after Ascension. When one remains, offer it alone; after all 20 are owned, stop offering Constellations. Restart clears owned upgrades and pending choices.
+After every third actual boss defeat (3, 6, 9, 12, 15, ...), wait one second of unpaused play for defeat effects, then pause and offer two distinct random unowned Constellations. Each can be chosen only once per run; there are no ranks or repeat picks. Choices continue after Ascension. When one remains, offer it alone; after all 20 are owned, stop offering Constellations. Restart clears owned upgrades and pending choices. The God-panel Constellations button opens a paused editor with all 20 upgrades as independent toggles; click an active card to remove its effect, then use Done or Escape to resume. This does not advance stages or consume milestone rewards.
 
 Click, tap, keys 1/2, or focused-button Enter/Space selects. Keyboard focus stays in the dialog. `gamePhase='constellation'` freezes simulation and rejects gameplay actions. Boss restoration, hazard cleanup and celestial rewards still resolve, including meteor/special defeats. Choosing clears held mouse/touch movement and attack input. The chosen star pattern briefly appears as a faint, non-interactive afterglow for 96 gameplay ticks (1.6s) while play continues; it pauses with gameplay and clears on restart. The HUD lists owned constellations, with descriptions available on hover.
 
@@ -37,17 +37,19 @@ New regular aliens and Splitter children gain +5% HP per third-boss milestone, c
 
 ## Ascension and celestial skills
 
-The **tenth boss defeat** unlocks Ascension and grants that defeated boss's skill. Every subsequent boss grants its own skill. Hold one single-use skill; the next reward replaces it. F activates it. Consume the old skill before resolving its kills, so a boss killed by that skill can immediately grant a replacement. A held skill changes the suit; carrying Ruby takes model priority without deleting the skill. Celestial colors and shapes follow the player planet/star theme; see [Visual style](VISUALS.md).
+The **tenth boss defeat** unlocks Ascension and grants that defeated boss's skill. Every subsequent encounter grants its mapped skill. Aegis Sentinel grants Venus Veil; Astral Twins grants Binary Star, awarded once after defeating the pair. Hold one single-use skill; the next reward replaces it. F activates it. Consume the old skill before resolving its kills, so a boss killed by that skill can immediately grant a replacement. A held skill changes the suit; carrying Ruby takes model priority without deleting the skill. Celestial colors and shapes follow the player planet/star theme; see [Visual style](VISUALS.md).
 
 | Boss reward | Skill | Effect |
 | --- | --- | --- |
-| King | Solar Flare | Entire arena: 25 normal damage / 10% boss max HP |
+| King | Solar Flare | Entire arena: 25 normal damage / 10% boss max HP. Regular Solar kills grant no energy, including Runner bonuses and Leech refunds; ordinary non-energy rewards remain. Boss kills still restore player/Ruby HP and energy fully |
 | Queen | Lunar Echo | Stationary decoy with 12 connected hits; 21-tick invulnerability after each hit; no time limit |
 | Reaper | Jupiter Storm | Within 6 tiles: 60 normal damage / 30% boss max HP |
-| Devourer | Singularity | 5-tile-radius field; duration `12+0.6*s` seconds using defeated Devourer's 0–20 stacks. Normal pull one tile/15 ticks; boss pull one tile/30 ticks, walls respected. Let `q=(s/20)^2`: normal DPS `1.5+6.5q`, boss max-HP DPS `0.003+0.017q` |
+| Devourer | Singularity | One fixed version: 5-tile-radius field for 18s. Normal pull one tile/15 ticks; boss pull one tile/30 ticks, walls respected. Enemies inside cannot teleport; overdue Queen/Warden relocation waits until they leave or the field expires, without spawning echoes or granting jump healing while blocked. Damage once per second: 6 to regular aliens, 1.5% max HP to bosses |
 | Warden | Saturn Guard | Player and Ruby absorb shields refilled to at least 40 each, with celestial appearance until depleted; not +40 stacking |
 | Prayer | Sirius Surge | At least 6s powered mode, clears star gauge, free speed burst, resets laser/bullet/wave/bomb/speed cooldowns. Existing placed bomb remains |
 | Chanter | Neptune's Tide | Heals player/Ruby +35 each; pushes enemies within 8 tiles 3 tiles away |
+| Aegis | Venus Veil | For 10s, damage to player and placed Ruby is cut to 30% (after Delphinus/Cassiopeia, before shields). Direct enemy attacks also return their full pre-reduction damage to the attacker; bosses take at most 3% max HP per reflected hit. Meteors, explosions, poison, Thorn fields, Supernova, pylon overloads and the player's own bomb are reduced but not reflected. Reflection still happens under Invincible, but not when Lunar Echo takes the hit |
+| Twins | Binary Star | For 15s, an untargetable mirror twin stands on the first open tile beside placed Ruby (beside the player while carrying). Every laser, bullet and wave also fires from the twin, and each bomb detonation adds a twin blast there, all at 60% damage. Twin attacks use the same powered state, push, Supernova triggers and kill rewards; the twin blast never hurts the player |
 | Weaver | Gaia's Roots | Stationary tile-aligned 12×12 field for 30s, floor only; enemies move 40% slower, take 4 normal damage/sec or 1% boss max HP/sec |
 
 Skill damage respects shields and enemy vulnerabilities, but does not feed diving Chanter. Persistent fields pulse once per second and expire before a pulse on the exact expiry tick; listed DPS×duration is not necessarily the exact total. For example, max Singularity lasts 24s but delivers 23 whole pulses: 46% boss max HP before shields/vulnerability if continuously inside. Gaia also excludes the exact-expiry pulse. Recasts replace the existing field/decoy of that type.

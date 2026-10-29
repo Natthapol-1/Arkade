@@ -36,18 +36,21 @@ test('later difficulty tiers follow stages 1 through 4, pause and respect the ca
 test('smoother difficulty preserves the first boss at about one minute',()=>{
  const s=fresh();s.noBossSpawns=false;
  for(let i=0;i<3590;i++)e.tick(s);assert.equal(s.enemies.some(x=>c.isBossType(x.type)),false);
- for(let i=0;i<20;i++)e.tick(s);assert.equal(s.enemies.filter(x=>c.isBossType(x.type)).length,1);
+ for(let i=0;i<20;i++)e.tick(s);
+ const bosses=s.enemies.filter(x=>c.isBossType(x.type));
+ assert.equal(new Set(bosses.map(x=>x.twin?x.twin.pairId:x.id)).size,1);
+ assert.equal(bosses.length,bosses[0].type==='astral_twins'?2:1);
 });
-test('natural boss pools cover all eight before repeating and avoid repeats across pools',()=>{
+test('natural boss pools cover all encounters before repeating and avoid repeats across pools',()=>{
  for(const roll of [0,.47,.9999]){
   const s=fresh(),seen=[],original=Math.random;Math.random=()=>roll;
   try{
-   for(let i=0;i<24;i++){
+   for(let i=0;i<c.BOSS_TYPES.length*3;i++){
     s.enemies=[];s.noBossSpawns=false;s.difficultyLevel=1;s.bossWarningTicks=1;e.tick(s);
     const boss=s.enemies.find(x=>c.isBossType(x.type));assert.ok(boss);seen.push(boss.type);
    }
   }finally{Math.random=original;}
-  for(let i=0;i<24;i+=8)assert.equal(new Set(seen.slice(i,i+8)).size,8);
+  for(let i=0;i<c.BOSS_TYPES.length*3;i+=c.BOSS_TYPES.length)assert.equal(new Set(seen.slice(i,i+c.BOSS_TYPES.length)).size,c.BOSS_TYPES.length);
   for(let i=1;i<seen.length;i++)assert.notEqual(seen[i],seen[i-1]);
  }
 });

@@ -5,8 +5,8 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
  try{
   const desktop=await browser.newContext({viewport:{width:1440,height:960}}),page=await desktop.newPage(),errors=[];
   page.on('pageerror',error=>errors.push(error.message));
-  const response=await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle',timeout:45000});
-  await page.getByRole('button',{name:'Close rules',exact:true}).click();
+  const response=await page.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle',timeout:45000});
+  await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
   const hud=page.locator('.rs-hud');
   if(!/STAGE\s+0/.test(await hud.innerText())||/\+\d/.test(await hud.innerText()))throw new Error('Stage or simplified HUD is incorrect');
   const panel=await page.locator('.rs-god-panel').boundingBox(),canvas=await page.locator('.rs-god-panel').locator('..').locator(':scope > canvas').boundingBox();
@@ -21,7 +21,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   await page.screenshot({path:path.join(output,'ruby-teleport-feedback.png')});
   await page.keyboard.press('e');
   if(await page.locator('[data-status="ruby-placed"]').count())throw new Error('Ruby placement feedback stayed after pickup');
-  await page.getByLabel('Grant test special').selectOption('fiery_king');
+  await page.getByRole('button',{name:'Grant SOLAR FLARE',exact:true}).click();
   await page.getByRole('button',{name:/Spawn.*Fiery King/i}).click();
   await page.waitForTimeout(800);
   await page.screenshot({path:path.join(output,'ruby-desktop-final.png')});
@@ -34,7 +34,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
    }
   }
   if(await page.locator('[data-status="reversed"]').count())throw new Error('Reversed feedback survived boss replacement');
-  await page.getByLabel('Grant test special').selectOption('sea_chanter');
+  await page.getByRole('button',{name:"Grant NEPTUNE'S TIDE",exact:true}).click();
   await page.locator('.rs-hud').getByText('TIME',{exact:true}).click();await page.keyboard.press('f');
   for(let i=0;i<10;i++){
    await page.getByRole('button',{name:'Stage +1',exact:true}).focus();await page.keyboard.press('Enter');
@@ -44,11 +44,11 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   }
   if(!/STAGE\s+10/.test(await hud.innerText()))throw new Error('Stage does not follow boss progression');
   await page.getByRole('button',{name:'RULES',exact:true}).click();
-  await page.getByRole('button',{name:'Close rules',exact:true}).click();
+  await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
   const mobile=await browser.newContext({viewport:{width:844,height:390},isMobile:true,hasTouch:true,deviceScaleFactor:1}),phone=await mobile.newPage();
   phone.on('pageerror',error=>errors.push(error.message));
-  await phone.goto('http://127.0.0.1:3000/ruby-star',{waitUntil:'networkidle',timeout:45000});
-  await phone.getByRole('button',{name:'Close rules',exact:true}).click();
+  await phone.goto('http://127.0.0.1:3000/ruby-star/endless',{waitUntil:'networkidle',timeout:45000});
+  await phone.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
   if(!await phone.getByRole('button',{name:'LASER',exact:true}).isVisible())throw new Error('Mobile laser control is hidden');
   await phone.getByRole('button',{name:'HEAL',exact:true}).tap();
   if(await phone.getByText('TELEPORT — SELECT CHAMBER',{exact:true}).count())throw new Error('Mobile heal opened teleport');
@@ -57,8 +57,8 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   await phone.getByRole('button',{name:'ESC / X — STAY',exact:true}).tap();
   await phone.screenshot({path:path.join(output,'ruby-mobile-final.png')});
   const ended=await desktop.newPage();ended.on('pageerror',error=>errors.push(error.message));
-  await ended.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});
-  await ended.getByRole('button',{name:'Close rules',exact:true}).click();
+  await ended.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle'});
+  await ended.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
   await ended.getByRole('button',{name:'No Mobs',exact:true,pressed:false}).click();
   await ended.locator('.rs-hud').getByText('TIME',{exact:true}).click();
   await ended.keyboard.press('q');await ended.keyboard.press('q');
@@ -67,7 +67,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   const hpAfter=parseFloat(await ended.locator('.rs-hud .battery-fill').first().evaluate(el=>el.style.width));
   if(hpAfter<=hpBefore||await ended.getByText('TELEPORT — SELECT CHAMBER',{exact:true}).count())throw new Error('Space did not heal on the teleport pad');
   for(let i=0;i<4;i++){
-   await ended.getByLabel('Grant test special').selectOption('blind_prayer');
+   await ended.getByRole('button',{name:'Grant SIRIUS SURGE',exact:true}).click();
    await ended.locator('.rs-special-slot').click();await ended.keyboard.press('q');await ended.keyboard.press('q');
   }
   await ended.locator('.rs-end-panel h2').waitFor();

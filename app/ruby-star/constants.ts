@@ -200,7 +200,8 @@ export function hallwayOfTile(tileX: number, tileY: number): number {
 
 // ─── Enemy types ─────────────────────────────────────────────────────────────
 
-export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'energy_leech' | 'fiery_king' | 'splitter_queen' | 'queen_echo' | 'storm_reaper' | 'devourer' | 'frost_warden' | 'blind_prayer' | 'sea_chanter' | 'thorn_weaver';
+export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'energy_leech' | 'fiery_king' | 'splitter_queen' | 'queen_echo' | 'storm_reaper' | 'devourer' | 'frost_warden' | 'blind_prayer' | 'sea_chanter' | 'thorn_weaver' | 'aegis_sentinel' | 'aegis_construct' | 'astral_twins'
+  | 'fish_blue' | 'fish_red' | 'stinger' | 'water_clone' | 'water_bomb';
 
 export const ENERGY_LEECH_DRAIN = 20;
 
@@ -219,6 +220,32 @@ export interface EnemyConfig {
 }
 
 export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
+  // Neptune challenge units. Fish and water objects never attack; stingers poison on hit.
+  fish_blue: {
+    maxHp: 1, speed: 1.3, color: '#59c8ff', shieldColor: '#bfe9ff',
+    bodyFraction: 0.5, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  fish_red: {
+    maxHp: 1, speed: 1.3, color: '#ff5a6a', shieldColor: '#ffc2c8',
+    bodyFraction: 0.5, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  stinger: {
+    maxHp: 6, speed: 0.95, color: '#3fd6b0', shieldColor: '#a8f5e2',
+    bodyFraction: 0.68, scoreValue: 15, damageToPlayer: 4, damageToRuby: 3,
+    attackCooldown: 70, attackRange: 1, bombExplodeRange: 0,
+  },
+  water_clone: {
+    maxHp: 8, speed: 1.1, color: '#6fc7ff', shieldColor: '#d8f2ff',
+    bodyFraction: 0.9, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  water_bomb: {
+    maxHp: 6, speed: 0, color: '#7fd0ff', shieldColor: '#e1f6ff',
+    bodyFraction: 0.6, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
   normal: {
     maxHp: 5, speed: 0.68, color: '#44ee44', shieldColor: '#44ee44',
     bodyFraction: 0.7, scoreValue: 10, damageToPlayer: 10, damageToRuby: 6,
@@ -300,9 +327,9 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     attackCooldown: 24, attackRange: 1, bombExplodeRange: 0, // 40 / 1.7 ≈ 24 — attacks 1.7x faster
   },
   devourer: {
-    maxHp: 60, speed: 0.5, color: '#6b2fa8', shieldColor: '#b088e0',
-    bodyFraction: 0.95, scoreValue: 480, damageToPlayer: 10, damageToRuby: 8,
-    attackCooldown: 55, attackRange: 1, bombExplodeRange: 0,
+    maxHp: 35, speed: 3.4, color: '#6b2fa8', shieldColor: '#b088e0',
+    bodyFraction: 0.95, scoreValue: 480, damageToPlayer: 5, damageToRuby: 1,
+    attackCooldown: 60, attackRange: 2, bombExplodeRange: 0,
   },
   blind_prayer: {
     maxHp: 80, speed: 2.0, color: '#ffdd22', shieldColor: '#fff199',
@@ -326,6 +353,21 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     bodyFraction: 0.9, scoreValue: 460, damageToPlayer: 0, damageToRuby: 0,
     attackCooldown: 65, attackRange: 10, bombExplodeRange: 0,
   },
+  aegis_sentinel: {
+    maxHp: 90, speed: 4.0, color: '#c5a35d', shieldColor: '#78dedf', // shielded speed, a touch above Sea Chanter
+    bodyFraction: 1.05, scoreValue: 500, damageToPlayer: 12, damageToRuby: 8,
+    attackCooldown: 75, attackRange: 2, bombExplodeRange: 0,
+  },
+  aegis_construct: {
+    maxHp: 24, speed: 0, color: '#78dedf', shieldColor: '#d5ffff',
+    bodyFraction: 0.8, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  astral_twins: {
+    maxHp: 60, speed: 2.9, color: '#f08062', shieldColor: '#ffe5c5',
+    bodyFraction: 0.9, scoreValue: 500, damageToPlayer: 10, damageToRuby: 7,
+    attackCooldown: 65, attackRange: 1, bombExplodeRange: 0,
+  },
 };
 
 export const BOSS_SPAWN_INTERVAL = 2310; // 38.5s after boss death + 3.5s warning = 42s until the next boss
@@ -340,21 +382,52 @@ export const BOSS_NAMES = {
   blind_prayer: 'BLIND PRAYER',
   sea_chanter: 'SEA CHANTER',
   thorn_weaver: 'THORN WEAVER',
+  aegis_sentinel: 'AEGIS SENTINEL',
+  astral_twins: 'ASTRAL TWINS',
 } as const;
 export type BossType = keyof typeof BOSS_NAMES;
 export const BOSS_TYPES = Object.keys(BOSS_NAMES) as BossType[];
 export function isBossType(type: EnemyType): type is BossType {
   return BOSS_TYPES.includes(type as BossType);
 }
+export const AEGIS_DAMAGE_MULT = 0.05;
+export const AEGIS_REFLECT_RATIO = 1; // Return 100% of incoming damage before Aegis reduction.
+export const AEGIS_EXPOSE_TICKS = 1200;
+export const AEGIS_RESHIELD_WARNING_TICKS = 180; // 3s warning before a fresh pylon pair restores the shield
+export const AEGIS_EXPOSED_SPEED = 1.19; // core exposed: slow, open to attack
+export const PYLON_LIFETIME_TICKS = 1200;
+export const PYLON_OVERLOAD_WINDUP = 180;
+export const PYLON_OVERLOAD_DAMAGE = 80;
+export const TWIN_REVIVE_TICKS = 720;
+export const TWIN_REVIVE_HP_RATIO = 0.6;
+export const TWIN_REVIVE_HASTE_TICKS = 300; // 5s speed burst after reviving
+export const TWIN_REVIVE_HASTE_MULT = 1.4;
+// While its partner is down, the survivor goes berserk until the revival.
+export const TWIN_BERSERK_SPEED_MULT = 1.25;
+export const TWIN_BERSERK_COOLDOWN_MULT = 0.6;
+export const TWIN_BERSERK_DAMAGE_TAKEN = 0.65;
+export const TWIN_MIN_SEPARATION = 6; // preferred spacing; tight passages can compress it
+export const TWIN_RANGED_RANGE = 9;
+export const TWIN_RANGED_SPEED = 3.8;
+export const TWIN_RANGED_WINDUP = 36;
+export const TWIN_RANGED_COOLDOWN = 100;
+export const TWIN_RANGED_DAMAGE = 8;
+export const TWIN_TRANSFER_MIN_TICKS = 360;
+export const TWIN_TRANSFER_MAX_TICKS = 540;
+export const TWIN_TRANSFER_RATIO = 0.3;
+export const TWIN_TRANSFER_FX_TICKS = 60;
 export const PRAYER_FLEE_REPATH_TICKS = 30;
 export const THORN_WINDUP = 90; // locked ground target, 1.5s to leave
 export const THORN_FIRST_DELAY = 120;
 export const THORN_RADIUS = TILE_SIZE * 2;
+export const THORN_DEFENSE_RADIUS = TILE_SIZE * 3;
+export const THORN_DEFENSE_TRIGGER_RANGE = TILE_SIZE * 3;
+export const THORN_DEFENSE_COOLDOWN = 720; // 12s, independent of aimed casts
 // Four whole tiles per side, snapped to the nearest grid intersection.
 // Shared by warning/plant rendering and actual hazard membership.
-export function getThornFieldBounds(x: number, y: number) {
+export function getThornFieldBounds(x: number, y: number, radius = THORN_RADIUS) {
   const centerX=Math.round(x/TILE_SIZE)*TILE_SIZE,centerY=Math.round(y/TILE_SIZE)*TILE_SIZE;
-  return {x:centerX,y:centerY,left:centerX-THORN_RADIUS,top:centerY-THORN_RADIUS,right:centerX+THORN_RADIUS,bottom:centerY+THORN_RADIUS};
+  return {x:centerX,y:centerY,left:centerX-radius,top:centerY-radius,right:centerX+radius,bottom:centerY+radius};
 }
 export const THORN_LIFETIME = 840; // 14s, about three simultaneous patches
 export const THORN_MAX_PATCHES = 4;
@@ -366,7 +439,7 @@ export const THORN_CONTACT_INTERVAL = 45; // 0.75s while standing in plants
 export const THORN_SLOW_MULT = 0.8; // only while physically inside plants
 export const THORN_FLEE_RANGE = 24;
 export const SEA_DIVE_DAMAGE_MULTIPLIER = 1.6;
-export const SEA_DIVE_SPEED = ENEMY_CONFIGS.sea_chanter.speed;
+export const SEA_DIVE_SPEED = 4.0;
 export const SEA_DIVE_FLEE_RANGE = 18; // tiles, roughly one chamber wide
 export const SEA_DIVE_ENTER_HP = 0.4;
 export const SEA_DIVE_EXIT_HP = 0.75;
@@ -438,23 +511,39 @@ export const QUEEN_PHASE_HEAL_CAP = 8; // prevent excessive healing in late boss
 export const REAPER_SEAL_DURATION = 240; // ticks (~4s) a sealed hallway stays walled off
 export const REAPER_SEAL_COOLDOWN = 480; // ticks (~8s) before she can seal another hallway
 
-export const DEVOURER_ATTACK_RANGE_MAX = 40; // roughly two chamber widths
-export const DEVOURER_RANGE_GROWTH = 16; // normalized exponential: slow early, steep late
+// Soul Devourer: a swift swarm boss. Each ally eaten adds a stack (max 3); on death every
+// stack bursts out as a nearly full-strength copy that can eat and split again; the swarm is the fight.
+export const DEVOURER_MAX_STACKS = 3;
+export const DEVOURER_SELF_SPLIT_TICKS = 1200;   // 20s alive: a body with a stack buds off a copy on its own
+export const DEVOURER_SELF_SPLIT_WARNING = 120;  // 2s visible warning before a self-split
+export const DEVOURER_FAMILY_CAP = 10; // most living Devourer bodies at once, shared by the whole family
+export const DEVOURER_BODY_KILL_HEAL = 8; // player heal for each non-final Devourer body killed (regular kills heal 5)
+export const DEVOURER_START_STACKS = 1; // the original spawns with one stack (copies start at 0)
+export const DEVOURER_HP_PER_DEFEAT = 6; // original HP gain per prior boss defeat (other bosses use 15)
 export const DEVOURER_ABSORB_RANGE = 5;   // tiles — how far she'll reach to consume a nearby ally
-export const DEVOURER_ABSORB_COOLDOWN = 540; // ticks (~9s) between absorb attempts — reaching all 20 stacks takes ~3 minutes minimum
-export const DEVOURER_MAX_STACKS = 20;  // hard cap — compounding growth makes her genuinely terrifying if left unchecked this long
-export const DEVOURER_STACK_HP_PCT = 0.12; // fraction of max HP gained (and healed) per absorb
-// Damage multiplier at full stacks (player 10 -> 20; Ruby 8 -> 16), scaled by
-// (stacks/DEVOURER_MAX_STACKS)^2 so growth accelerates — small early on, big near the cap.
-export const DEVOURER_STACK_DMG_MAX_MULT = 2;
-export const DEVOURER_STACK_SPEED_PCT = 0.04; // fraction of speed lost per absorb — bigger, slower
+export const DEVOURER_ABSORB_COOLDOWN = 360;         // 6s between meals for the original
+export const DEVOURER_ABSORB_COOLDOWN_PER_GEN = 180;  // first copy generation adds 3s ...
+export const DEVOURER_ABSORB_COOLDOWN_GEN_STEP = 60;  // ... and each later generation adds 1s more than the last (9s, 13s, 18s, 24s, ...)
+export const DEVOURER_COPY_FIRST_MEAL = 180; // ticks (3s) before a newborn copy can eat
+export const DEVOURER_STACK_HP_PCT = 0.05; // fraction of max HP gained (and healed) per stack
+export const DEVOURER_STACK_DAMAGE = 0.5; // extra player/Ruby damage per stack
+export const DEVOURER_HUNGRY_BELOW = 2;    // at 0–1 stacks she hunts aliens to eat before the player
+export const DEVOURER_FULL_HEAL_PCT = 0.01; // eating at the stack cap heals this much instead
+export const DEVOURER_COPY_HP_RATIO = 0.5; // each copy's max HP, as a share of its parent's max HP at death
+export const DEVOURER_COPY_SCALE = 0.9;   // body size per generation
+export const DEVOURER_NEWBORN_TICKS = 120;   // 2s: a fresh copy flees from the player at boosted speed
+export const DEVOURER_NEWBORN_SPEED_MULT = 1.5;
+export const DEVOURER_GEN_SPEED_MULT = 0.9; // speed multiplier per copy generation (10% slower each)
+export const DEVOURER_GEN_DAMAGE_MULT = 0.8; // bite damage multiplier per copy generation (20% less each)
 
 export const FROST_CHILL_SPEED_MULT = 0.65; // player move-speed multiplier while sharing her chamber
 export const FROST_CHILL_TICK_RATE = 0.5;  // LASER/BULLET/WAVE cooldowns tick down at this rate while chilled (half attack speed)
 export const FROST_ICE_TILE_COUNT = 7;    // ice tiles scattered in whichever chamber she currently occupies
 export const FROST_FREEZE_DURATION = 90;   // ticks (~1.5s) fully immobilized after stepping on ice
 export const FROST_RELOCATE_INTERVAL = 1800; // ticks (~30s) between chamber relocations (re-scatters ice tiles)
-export const FROST_SHIELD_HP = 15;   // absorb capacity of the icy shield granted per cast
+export const FROST_SHIELD_HP = 15;   // base absorb capacity of the icy shield granted per cast
+export const FROST_SHIELD_HP_PER_DEFEAT = 2; // extra absorb per prior boss defeat
+export const FROST_SHIELD_HP_MAX = 45; // reached after 15 defeats
 export const FROST_SHIELD_CAST_DELAY = 300;  // ticks (~5s) — recurring interval between ice-laser shield casts
 
 // ─── Difficulty tiers ────────────────────────────────────────────────────────
@@ -547,6 +636,68 @@ export const RUBY_HEAL_CLEAR_RANGE = 6;  // no enemies within this many tiles
 
 // ─── Meteorite ───────────────────────────────────────────────────────────────
 
+// Tutorial mode: short guided steps, shown one at a time with a goal counter.
+export type TutorialStepId = 'move' | 'laser' | 'bullet' | 'wave' | 'speed' | 'bomb' | 'energy' | 'carry' | 'heal' | 'teleport' | 'meteor' | 'celestial' | 'done';
+export const TUTORIAL_STEPS: { id: TutorialStepId; title: string; text: string; goal: number }[] = [
+  { id: 'move', title: 'MOVE', text: 'Move with WASD or the arrow keys.', goal: 8 },
+  { id: 'laser', title: 'LASER', text: 'Left-click or K fires your laser in four directions. Defeat the aliens.', goal: 2 },
+  { id: 'bullet', title: 'BULLETS', text: 'Right-click or L shoots bullets. Hold to keep firing. Defeat the aliens.', goal: 2 },
+  { id: 'wave', title: 'CHARGED WAVE', text: 'Hold left-click or K to charge, then release for a wave that hits and pushes aliens back.', goal: 1 },
+  { id: 'speed', title: 'SPEED BURST', text: 'Press R, Shift or Ctrl for a quick speed burst.', goal: 1 },
+  { id: 'bomb', title: 'BOMB', text: 'Press Q to drop a bomb, step away, then press Q again to detonate. Your own blast hurts you.', goal: 1 },
+  { id: 'energy', title: 'STAR ENERGY', text: 'Defeating aliens fills your energy bar (top left). When it is full, your next attack turns POWERED for 2 seconds. Fill it and fire!', goal: 1 },
+  { id: 'carry', title: 'RUBY', text: 'Protect Ruby! Stand next to it and press E to pick it up, then E again to put it down.', goal: 2 },
+  { id: 'heal', title: 'HEAL', text: 'Near Ruby or while carrying it, press Space to heal you both. No aliens may be close.', goal: 6 },
+  { id: 'teleport', title: 'TELEPORT', text: 'Stand on or next to the glowing pad, press X, then click a room on the map.', goal: 1 },
+  { id: 'meteor', title: 'METEOR', text: 'A meteor is falling on this room! Get out before it lands. It also wipes out aliens inside.', goal: 1 },
+  { id: 'celestial', title: 'CELESTIAL SKILL', text: 'Bosses grant celestial skills. Press F to cast Solar Flare.', goal: 1 },
+  { id: 'done', title: 'FIRST ORBIT COMPLETE', text: 'You are ready. Defeat bosses, keep Ruby alive and watch the skies.', goal: 0 },
+];
+export const TUTORIAL_STEP_PAUSE = 75; // ticks of "done" feedback before the next step starts
+
+// Celestial Challenge (prototype): the guardian is the only boss, and its skill recharges after each cast.
+export const TRIAL_BOSS_DELAY = 300;        // ticks (5s) before the guardian's arrival warning starts
+export const TRIAL_SKILL_COOLDOWN = 1200;   // ticks (20s) after casting before the skill returns
+
+// Neptune challenge (Sea Chanter): three phases of NEPTUNE_PHASE_HP each. Healing can never lift her into a
+// finished phase. Dive points are fractions of the current phase; at each one she dives, drops water clones
+// and stays under until they are all destroyed (HP snaps down to the dive point) or time runs out
+// (each surviving clone restores NEPTUNE_CLONE_HEAL of the phase). Diving at 0 ends the phase; clearing
+// phase 3's final dive leaves her surfaced and exposed, and the next hit kills her.
+export const NEPTUNE_PHASE_HP = 2000;
+export const NEPTUNE_DIVE_POINTS: Record<1 | 2 | 3, number[]> = { 1: [.75, .5, .25, 0], 2: [.5, 0], 3: [.66, .33, 0] };
+export const NEPTUNE_CLONES: Record<1 | 2 | 3, number> = { 1: 3, 2: 3, 3: 3 };
+export const NEPTUNE_FINAL_CLONES = 4;      // phase 3's last dive, the one that decides the fight
+export const NEPTUNE_DIVE_TICKS: Record<1 | 2 | 3, number> = { 1: 1200, 2: 1200, 3: 960 }; // 20s, 20s, 16s
+export const NEPTUNE_CLONE_DROP_GAP = 150;  // a clone every 2.5s, each in a random room
+export const NEPTUNE_CLONE_HEAL = .1;       // share of phase HP per surviving clone
+export const NEPTUNE_CLONE_HEAL_BLOCK = 240; // hitting a clone stops her ally-feeding heal for 4s
+export const NEPTUNE_DIVE_SPEED = 6.5;
+export const NEPTUNE_BOMB_INTERVAL = 360;   // phase 2+: a water ball every 6s while surfaced
+export const NEPTUNE_BOMB_FUSE = 180;       // 3s before it bursts
+export const NEPTUNE_BOMB_RADIUS = 4;       // tiles
+export const NEPTUNE_BOMB_DAMAGE = 25;      // to player and Ruby inside the burst
+export const NEPTUNE_BOMB_SELF_DAMAGE = .05; // share of phase HP she takes when you pop it first
+export const NEPTUNE_ATTACK_MULT: Record<1 | 2 | 3, number> = { 1: 1, 2: 1.5, 3: 1.5 };
+export const NEPTUNE_LIFESTEAL = 1;         // phase 3: her hits heal her for the damage dealt
+export const NEPTUNE_STRIKE_DAMAGE = .1;    // meteors and the sky laser deal this share of phase HP
+export const NEPTUNE_HEAL_CHARGE_MAX = 120;  // healing received to charge the sky laser
+export const NEPTUNE_LASER_WARNING = 180;   // 3s from choosing a room to the strike
+export const NEPTUNE_FISH_CAP = 12;
+export const NEPTUNE_FISH_RED_CHANCE = .35;
+export const NEPTUNE_FISH_SPAWN_GAP = 120;
+export const NEPTUNE_FISH_HEAL = 8;         // blue fish heal you this much
+export const NEPTUNE_FISH_BOSS_HEAL = .03;  // ...or heal her this share of phase HP if she is diving
+export const NEPTUNE_FISH_HURT = 6;         // red fish cost you this much
+export const NEPTUNE_STINGER_CHANCE = .35;  // share of natural alien spawns replaced by stingers
+export const NEPTUNE_POISON_TICKS = 240;    // stinger poison: 2 damage per second for 4s
+export const NEPTUNE_POISON_DAMAGE = 2;
+export const NEPTUNE_TIDE_TICKS = 600;      // phases 1–2: one 10s tide every 40–60s
+export const NEPTUNE_TIDE_GAP: [number, number] = [2400, 3600];
+export const NEPTUNE_TIDE_ROTATE = 900;     // phase 3: two tides always flowing, moving every 15s
+export const NEPTUNE_TIDE_WITH = 1.4, NEPTUNE_TIDE_AGAINST = .7;
+export const NEPTUNE_TIDE_PUSH_GAP = 50;    // ticks between one-tile pushes when not swimming with the flow
+
 export const METEORITE_CYCLE = 1800; // ticks (~30s) until next strike is chosen
 export const METEORITE_WARNING = 300;  // ticks of warning (5s)
 export const METEORITE_PLAYER_DMG = 75;
@@ -556,7 +707,7 @@ export const METEORITE_RUBY_DMG = 75;
 // Actual BFS lives in engine.ts; this comment is a cross-reference placeholder.
 
 // One-use late-game rewards, starting with the tenth defeated boss.
-export type SpecialSkill = 'fiery_king' | 'storm_reaper' | 'frost_warden' | 'sea_chanter' | 'blind_prayer' | 'splitter_queen' | 'thorn_weaver' | 'devourer';
+export type SpecialSkill = 'fiery_king' | 'storm_reaper' | 'frost_warden' | 'sea_chanter' | 'blind_prayer' | 'splitter_queen' | 'thorn_weaver' | 'devourer' | 'aegis_sentinel' | 'astral_twins';
 export const SPECIAL_UNLOCK_KILLS = 10;
 export const SPECIAL_SKILLS = {
   devourer: { name: 'SINGULARITY', color: '#303036', bossDamage: 0, normalDamage: 0 },
@@ -567,9 +718,26 @@ export const SPECIAL_SKILLS = {
   frost_warden: { name: 'SATURN GUARD', color: '#68e0c9', bossDamage: 0, normalDamage: 0 },
   sea_chanter: { name: "NEPTUNE'S TIDE", color: '#5d9fff', bossDamage: 0, normalDamage: 0 },
   blind_prayer: { name: 'SIRIUS SURGE', color: '#ffe45c', bossDamage: 0, normalDamage: 0 },
+  aegis_sentinel: { name: 'VENUS VEIL', color: '#f5dcc8', bossDamage: 0, normalDamage: 0 },
+  astral_twins: { name: 'BINARY STAR', color: '#ff8f7a', bossDamage: 0, normalDamage: 0 },
 } as const;
 export const SPECIAL_REAPER_RADIUS = TILE_SIZE * 6;
+export const BOSS_SKILL_REWARDS: Record<BossType, SpecialSkill> = {
+  fiery_king: 'fiery_king', splitter_queen: 'splitter_queen', storm_reaper: 'storm_reaper',
+  devourer: 'devourer', frost_warden: 'frost_warden', blind_prayer: 'blind_prayer',
+  sea_chanter: 'sea_chanter', thorn_weaver: 'thorn_weaver',
+  aegis_sentinel: 'aegis_sentinel', astral_twins: 'astral_twins',
+};
 export const SPECIAL_WARDEN_SHIELD = 40;
+
+// Venus Veil: player/placed Ruby take reduced damage; direct attackers receive the full hit back.
+export const SPECIAL_VENUS_DURATION = 600;
+export const SPECIAL_VENUS_DAMAGE_MULT = .3;
+export const SPECIAL_VENUS_BOSS_REFLECT_CAP = .03;
+
+// Binary Star: a stationary mirror twin beside Ruby repeats the player's attacks at reduced damage.
+export const SPECIAL_TWIN_DURATION = 900;
+export const SPECIAL_TWIN_DAMAGE_MULT = .6;
 
 export const SPECIAL_CHANTER_HEAL = 35;
 export const SPECIAL_CHANTER_RADIUS = TILE_SIZE * 8;
@@ -586,5 +754,8 @@ export const SPECIAL_WEAVER_BOSS_DAMAGE = .01;
 
 export const REGULAR_ENEMY_HP_MULT = 1.1;
 export const SPECIAL_SINGULARITY_RADIUS = TILE_SIZE * 5;
+export const SPECIAL_SINGULARITY_TICKS = 1080;        // 18s field
+export const SPECIAL_SINGULARITY_NORMAL_DAMAGE = 6;   // per second to regular aliens inside
+export const SPECIAL_SINGULARITY_BOSS_DAMAGE = .015;  // share of boss max HP per second
 
 export const SPECIAL_QUEEN_DECOY_INVULNERABILITY = 21; // .35 seconds after each connected hit

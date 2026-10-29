@@ -372,3 +372,15 @@ test('Prayer impact audio plays on connected and shielded hits, not a dodged bur
   assert.equal(played.filter(x=>x==='/sounds/laserBeam.mp3').length,before);
  }finally{global.Audio=oldAudio;}
 });
+
+test('Prayer flees only within the Weaver escape range and wanders otherwise', () => {
+  const engine = require('../app/ruby-star/engine.ts'), c = require('../app/ruby-star/constants.ts');
+  for (const [dx, fleeing] of [[10, true], [c.THORN_FLEE_RANGE + 6, false]]) {
+    const s = engine.createInitialState(); s.noMobs = true; s.godMode = true; s.meteoriteTimer = 100000;
+    s.map = s.map.map(row => row.map(() => c.T_FLOOR));
+    engine.godSpawnBoss(s, 'blind_prayer'); const p = s.enemies.find(x => x.type === 'blind_prayer');
+    Object.assign(p, { tileX: 5, tileY: 25, targetTileX: 5, targetTileY: 25, x: 5.5 * c.TILE_SIZE, y: 25.5 * c.TILE_SIZE, pathTimer: 1 });
+    Object.assign(s, { playerTileX: 5 + dx, playerTileY: 25, playerTargetX: 5 + dx, playerTargetY: 25 });
+    engine.tick(s); assert.equal(p.prayer.fleeing, fleeing);
+  }
+});

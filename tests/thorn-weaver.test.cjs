@@ -65,9 +65,9 @@ test('meteor uses boss damage and usual rewards and respawn timing',()=>{
  const {s,boss}=fresh();position(boss,2,2);s.meteoriteWarning=0;s.meteoriteStrikeIn=1;e.tick(s);assert.equal(boss.hp,20);
  s.meteoriteWarning=0;s.meteoriteStrikeIn=1;e.tick(s);assert.equal(s.bossesKilled,1);assert.equal(s.thornPatches.length,0);assert.equal(s.bossTimer+c.BOSS_WARNING_TICKS,42*60);
 });
-test('natural spawning and No Mobs recognize the eighth exclusive boss',()=>{
- const {s,boss}=fresh();assert.equal(c.BOSS_TYPES.length,8);assert.equal(boss.maxHp,80);assert.equal(s.bossSpawnName,'THORN WEAVER');e.godSetNoMobs(s,true);assert.ok(s.enemies.includes(boss));
- s.enemies=[];s.difficultyLevel=1;s.bossWarningTicks=1;const random=Math.random;Math.random=()=>0.9999;try{e.tick(s);}finally{Math.random=random;}
+test('natural spawning and No Mobs recognize Thorn Weaver in the encounter roster',()=>{
+ const {s,boss}=fresh();assert.ok(c.BOSS_TYPES.includes('thorn_weaver'));assert.equal(boss.maxHp,80);assert.equal(s.bossSpawnName,'THORN WEAVER');e.godSetNoMobs(s,true);assert.ok(s.enemies.includes(boss));
+ s.enemies=[];s.difficultyLevel=1;s.bossWarningTicks=1;const random=Math.random;Math.random=()=>(c.BOSS_TYPES.indexOf('thorn_weaver')+.5)/c.BOSS_TYPES.length;try{e.tick(s);}finally{Math.random=random;}
  assert.equal(s.enemies[0].type,'thorn_weaver');assert.ok(s.enemies[0].thorn);
  e.godSpawnBoss(s,'sea_chanter');assert.equal(s.enemies.filter(x=>c.isBossType(x.type)).length,1);
 });
@@ -122,4 +122,28 @@ test('casting cue plays once when the warning starts, separately from the erupti
   ticks(s,c.THORN_WINDUP-1);assert.equal(played.filter(x=>x==='/sounds/charging.wav').length,1);
   e.tick(s);assert.equal(played.filter(x=>x==='/sounds/place-plant.mp3').length,1);
  }finally{e.stopPoisonSound();global.Audio=oldAudio;}
+});
+
+
+test('nearby player triggers instant larger defensive field independently of aimed windup',()=>{
+ const {s,boss}=fresh();player(s,10,10);position(boss,12,10);
+ boss.thorn.windupTicks=50;boss.thorn.aimX=1500;boss.thorn.aimY=1500;
+ e.tick(s);
+ assert.equal(s.thornPatches.length,1);const p=s.thornPatches[0];
+ assert.equal(p.radius,c.THORN_DEFENSE_RADIUS);assert.equal(s.playerHP,88);
+ assert.equal(boss.thorn.windupTicks,49);assert.equal(boss.thorn.cooldown,100000);
+ assert.equal(boss.thorn.defenseCooldown,c.THORN_DEFENSE_COOLDOWN);
+ const bounds=c.getThornFieldBounds(p.x,p.y,p.radius);
+ assert.equal(bounds.right-bounds.left,6*c.TILE_SIZE);
+ player(s,Math.floor(bounds.left/c.TILE_SIZE),Math.floor(bounds.top/c.TILE_SIZE));
+ assert.equal(e.isPlayerInThorns(s),true);s.playerX=bounds.right;assert.equal(e.isPlayerInThorns(s),false);
+});
+
+test('defensive cooldown persists out of range, pauses, and recasts only when nearby',()=>{
+ const {s,boss}=fresh();s.godMode=true;position(boss,12,10);e.tick(s);
+ player(s,40,40);ticks(s,120);assert.equal(boss.thorn.defenseCooldown,600);
+ s.gamePhase='teleporting';ticks(s,120);assert.equal(boss.thorn.defenseCooldown,600);
+ s.gamePhase='playing';ticks(s,600);assert.equal(boss.thorn.defenseCooldown,0);
+ assert.equal(s.thornPatches.length,1);player(s,10,10);e.tick(s);
+ assert.equal(s.thornPatches.length,2);assert.equal(boss.thorn.defenseCooldown,c.THORN_DEFENSE_COOLDOWN);
 });

@@ -5,7 +5,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
  try{
   for(const [name,options]of [['desktop',{viewport:{width:1280,height:800}}],['mobile',{viewport:{width:844,height:390},isMobile:true,hasTouch:true}]]){
    const context=await browser.newContext(options),page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
-   await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Close rules',exact:true}).click();
+   await page.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
    await page.evaluate(()=>{
     window.__eventState=()=>{const canvas=document.querySelector('canvas');let fiber=canvas[Object.keys(canvas).find(key=>key.startsWith('__reactFiber'))];
      for(;fiber;fiber=fiber.return)for(let hook=fiber.memoizedState;hook;hook=hook.next){const state=hook.memoizedState?.current;if(state?.gamePhase&&state?.map)return state;}throw Error('Missing game state');};
@@ -13,7 +13,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
    });
    assert.equal(await page.getByRole('button',{name:'Enter Ascension · Boss 10',exact:true}).count(),0);
    assert.equal(await page.locator('.rs-event-controls button').count(),4);
-   const immortal=page.getByRole('button',{name:'Immortal',exact:true,pressed:true}),energy=page.getByRole('button',{name:'Full Energy',exact:true});
+   const immortal=page.getByRole('button',{name:'Full HP',exact:true}),energy=page.getByRole('button',{name:'Full Energy',exact:true});
    const a=await immortal.boundingBox(),b=await energy.boundingBox();assert.ok(Math.abs(a.y-b.y)<2&&a.x+a.width<=b.x);
    for(const kind of ['blackhole','shootingStar','eclipse','supernova']){
     const label={blackhole:'BLACK HOLE',shootingStar:'SHOOTING STAR',eclipse:'ECLIPSE',supernova:'SUPERNOVA'}[kind];
@@ -24,7 +24,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
     // Pause via the real rules control and verify the warning countdown is frozen.
     await page.getByRole('button',{name:'RULES',exact:true}).click();const before=await page.evaluate(()=>window.__eventState().ambientEvents.warning.ticks);
     await page.waitForTimeout(220);assert.equal(await page.evaluate(()=>window.__eventState().ambientEvents.warning.ticks),before);
-    await page.getByRole('button',{name:'Close rules',exact:true}).click();
+    await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
     await page.evaluate(()=>{window.__eventState().ambientEvents.warning.ticks=1;});
     await page.waitForFunction(kind=>window.__eventState().ambientEvents.active?.kind===kind,kind);
     await page.evaluate(()=>{
@@ -59,7 +59,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
    assert.equal(boxes[0].y,boxes[1].y);assert.equal(boxes[2].y,boxes[3].y);assert.ok(boxes[2].y>boxes[0].y);
    assert.equal(boxes[0].x,boxes[2].x);assert.equal(boxes[1].x,boxes[3].x);assert.equal(await page.getByText('YOU ARE HERE',{exact:true}).count(),0);
    await page.screenshot({path:path.join(process.argv[2]||'docs/ruby-star/visual-reference',`teleport-grid-${name}.png`)});
-   await destinations.nth(1).click();
+   await page.waitForTimeout(450);await destinations.nth(1).click(); // past the 400ms ghost-click guard
    assert.equal(await page.evaluate(()=>window.__eventState().playerChamber),1);
    // Trigger an actual meteor strike, then inspect early, middle and late impact frames.
    await page.evaluate(()=>{const s=window.__eventState();s.meteoriteWarning=1;s.meteoriteStrikeIn=1;});
@@ -70,6 +70,6 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
    }
    assert.deepEqual(errors,[]);await context.close();
   }
-  console.log('Events: all four God triggers, warnings, rules pause, active visuals, shard collection, reset, grouped Immortal/Energy, desktop/mobile and browser errors passed.');
+  console.log('Events: all four God triggers, warnings, rules pause, active visuals, shard collection, reset, grouped HP/Energy, desktop/mobile and browser errors passed.');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

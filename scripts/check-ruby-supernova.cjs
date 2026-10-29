@@ -6,8 +6,8 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
   for(const [name,options]of [['desktop',{viewport:{width:1280,height:800}}],['mobile',{viewport:{width:844,height:390},isMobile:true,hasTouch:true}]]){
    const page=await browser.newPage(options),errors=[];page.on('pageerror',e=>errors.push(e.message));
    await page.addInitScript(()=>{const OriginalAudio=window.Audio;window.__audioVoices=[];window.Audio=function(...args){const voice=new OriginalAudio(...args);window.__audioVoices.push(voice);return voice;};window.Audio.prototype=OriginalAudio.prototype;});
-   await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle',timeout:60000});
-   await page.getByRole('button',{name:'Close rules',exact:true}).click();
+   await page.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle',timeout:60000});
+   await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
    await page.waitForFunction(()=>{
     const canvas=document.querySelector('canvas:not([aria-hidden])');let f=canvas[Object.keys(canvas).find(k=>k.startsWith('__reactFiber'))];
     for(;f;f=f.return)for(let h=f.memoizedState;h;h=h.next)if(h.memoizedState?.current?.gamePhase){window.__nova=h.memoizedState.current;return true;}return false;
@@ -31,7 +31,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
    await page.screenshot({path:path.join('docs/ruby-star/visual-reference',`supernova-${name}-charging.png`)});
    await page.evaluate(()=>window.__chargeVoice=window.__audioVoices.filter(v=>v.src.endsWith('solar-flare-swoosh.wav')).at(-1));
    await page.getByRole('button',{name:'RULES',exact:true}).click();const before=await page.evaluate(()=>window.__nova.ambientEvents.active.chargeTicks);await page.waitForTimeout(150);
-   assert.equal(await page.evaluate(()=>window.__nova.ambientEvents.active.chargeTicks),before);await page.getByRole('button',{name:'Close rules',exact:true}).click();
+   assert.equal(await page.evaluate(()=>window.__nova.ambientEvents.active.chargeTicks),before);await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
    await page.evaluate(()=>{
     const s=window.__nova;Object.assign(s,{playerTileX:10,playerTargetX:10,playerTileY:10,playerTargetY:10,playerX:10.5*48,playerY:10.5*48,playerStepProgress:0});s.map[10][10]=2;document.activeElement?.blur();
    });

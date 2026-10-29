@@ -44,8 +44,8 @@ export function constellationLinks(points: [number, number][]): [number, number]
   return Array.from(cells.values());
 }
 
-export default function ConstellationChoice({ choices, onChoose }: {
-  choices: Constellation[]; onChoose: (kind: Constellation) => void;
+export default function ConstellationChoice({ choices, onChoose, toggleMode=false, active=[], onClose }: {
+  choices: Constellation[]; onChoose: (kind: Constellation) => void; toggleMode?: boolean; active?: Constellation[]; onClose?: () => void;
 }) {
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function ConstellationChoice({ choices, onChoose }: {
     return () => previous?.focus();
   }, []);
 
-  return <div className="constellation-backdrop" onContextMenu={e => e.preventDefault()}
+  return <div className={"constellation-backdrop"+(toggleMode?" toggle-mode":"")} onContextMenu={e => e.preventDefault()}
     onPointerDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
     <div ref={panel} className="constellation-panel" role="dialog" aria-modal="true"
       aria-label="CONSTELLATIONS"
@@ -65,16 +65,18 @@ export default function ConstellationChoice({ choices, onChoose }: {
           const target = e.shiftKey ? buttons[0] : buttons[buttons.length - 1];
           if (document.activeElement === target) { e.preventDefault(); (e.shiftKey ? buttons[buttons.length - 1] : buttons[0]).focus(); }
         }
-        if (!e.repeat && (e.key === '1' || e.key === '2')) {
+        if (toggleMode && e.key === 'Escape') { e.preventDefault(); onClose?.(); }
+        if (!toggleMode && !e.repeat && (e.key === '1' || e.key === '2')) {
           e.preventDefault(); const choice = choices[Number(e.key) - 1]; if (choice) onChoose(choice);
         }
         e.stopPropagation();
       }}>
+      {toggleMode && <div className="toggle-header"><strong>CONSTELLATIONS</strong><button type="button" onClick={onClose}>DONE</button></div>}
       <div className="constellation-cards">
         {choices.map((kind, index) => {
           const upgrade = CONSTELLATIONS[kind];
           const points = CONSTELLATION_STARS[kind];
-          return <button key={kind} type="button" onClick={() => onChoose(kind)} style={{ '--star-color': upgrade.color } as CSSProperties}>
+          return <button key={kind} type="button" data-constellation={kind} aria-pressed={toggleMode?active.includes(kind):undefined} className={toggleMode&&active.includes(kind)?"is-active":undefined} onClick={() => onChoose(kind)} style={{ '--star-color': upgrade.color } as CSSProperties}>
             <svg viewBox="0 0 80 68" aria-hidden="true" shapeRendering="crispEdges">
               <g className="constellation-links" fill="currentColor" opacity=".65">
                 {constellationLinks(points).map(([x, y]) => <rect key={`${x},${y}`} x={x - 1} y={y - 1} width="2" height="2" />)}
@@ -98,7 +100,7 @@ export default function ConstellationChoice({ choices, onChoose }: {
             </svg>
             <strong>{upgrade.name}</strong>
             <span>{upgrade.description}</span>
-            <small>CHOOSE · {index + 1}</small>
+            <small>{toggleMode?(active.includes(kind)?'REMOVE':'ACTIVATE'):'CHOOSE · '+(index+1)}</small>
           </button>;
         })}
       </div>
@@ -116,6 +118,14 @@ export default function ConstellationChoice({ choices, onChoose }: {
       strong { font-family: var(--font-pixel); text-transform: uppercase; font-size: 13px; line-height: 1.5; letter-spacing: .025em; }
       button span { color: #f1f6ff; font-size: 15px; font-weight: 700; line-height: 1.5; flex: 1; }
       small { font-size: 13px; font-weight: 700; margin-top: 4px; }
+      .toggle-mode .constellation-panel { width: min(960px, 100%); }
+      .toggle-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+      .toggle-header button { padding: 8px 14px; border-color: #aabfe5; color: #e5efff; }
+      .toggle-mode .constellation-cards { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+      .toggle-mode .constellation-cards button { gap: 6px; padding: 10px; opacity: .7; }
+      .toggle-mode .constellation-cards button.is-active { opacity: 1; background: #30405d; box-shadow: inset 0 0 0 2px var(--star-color); }
+      .toggle-mode svg { height: 85px; width: 110px; }
+      .toggle-mode button span { font-size: 13px; }
       @media (max-height: 500px) { svg { height: 120px; width: 150px; } button { gap: 6px; padding: 10px; } }
       @media (max-width: 400px) { .constellation-cards { gap: 10px; } strong { font-size: 11px; } }
     `}</style>

@@ -41,7 +41,7 @@ test('health thresholds, no passive regeneration, hysteresis, and teleport pause
 });
 
 test('diving speed exceeds hunting speed', () => {
- for(const submerged of [false,true]) {const {state,sea}=fresh();position(sea,11,10);if(submerged)dive(sea);sea.targetTileX=12;engine.tick(state);close(sea.stepProgress,3.8);}
+ for(const submerged of [false,true]) {const {state,sea}=fresh();position(sea,11,10);if(submerged)dive(sea);sea.targetTileX=12;engine.tick(state);close(sea.stepProgress,submerged?4.0:3.8);}
 });
 
 test('bullets skip underwater targets, including bullets already in flight',()=>{
@@ -85,7 +85,7 @@ test('diving cancels singing and dead casters cannot regenerate',()=>{
 
 test('normal and debug spawning recognize Sea Chanter in the exclusive boss registry', () => {
   const { state } = fresh();
-  assert.equal(constants.BOSS_TYPES.length, 8);
+  assert.ok(constants.BOSS_TYPES.includes('sea_chanter'));
   assert.equal(constants.ENEMY_CONFIGS.sea_chanter.maxHp, 90);
   assert.equal(state.bossSpawnName, 'SEA CHANTER');
   assert.equal(state.bossSpawnColor, constants.ENEMY_CONFIGS.sea_chanter.color);

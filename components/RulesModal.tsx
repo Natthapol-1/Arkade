@@ -15,23 +15,25 @@ interface RulesModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  /** Optional sound for the close (✕) and confirm buttons; defaults to the shared click. */
+  playSound?: (button: 'close' | 'confirm') => void;
 }
 
-export default function RulesModal({ isOpen, onClose, title, children }: RulesModalProps) {
+export default function RulesModal({ isOpen, onClose, title, children, playSound }: RulesModalProps) {
   if (!isOpen) return null;
 
-  function handleClose() {
-    playClick();
+  function handleClose(button: 'close' | 'confirm' = 'close') {
+    if (playSound) playSound(button); else playClick();
     onClose();
   }
 
   return (
-    <div className="modal-overlay" onClick={handleClose}>
+    <div className="modal-overlay" onClick={() => handleClose()}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{title}</h2>
           <button
-            onClick={handleClose}
+            onClick={() => handleClose('close')}
             style={{
               color: 'var(--text-dim)',
               fontSize: '0.8rem',
@@ -60,7 +62,7 @@ export default function RulesModal({ isOpen, onClose, title, children }: RulesMo
         </div>
         <div className="modal-footer">
           <button
-            onClick={handleClose}
+            onClick={() => handleClose('confirm')}
             className="btn btn-primary"
             style={{ width: '100%' }}
           >

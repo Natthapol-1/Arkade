@@ -1,0 +1,1123 @@
+// Ruby Star boss remodels, archived 2026-10-28.
+// Reference code only (not compiled). Copy a block back into app/ruby-star/page.tsx to restore that design.
+
+// ============================================================================
+// Shared helper used by the Queen's stepped gems
+// ============================================================================
+// Small stepped pixel diamond for the Queen's gems; keeps them on the grid instead of rotated squares.
+function drawStepGem(ctx: CanvasRenderingContext2D, gx: number, gy: number, r: number, color: string) {
+  ctx.fillStyle = color;
+  for (let row = -r; row <= r; row += 2) { const w = (r - Math.abs(row)) * 2 + 2; ctx.fillRect(Math.round(gx - w / 2), Math.round(gy + row - 1), w, 2); }
+}
+
+// ============================================================================
+// Storm Reaper battery-robot model (call site passes charge and spin; see drawEnemy below)
+// ============================================================================
+// Storm Reaper: a hovering battery-cell robot with twin blade arms and crackling arcs.
+// charge (0-1) follows the real melee cooldown and fills the four cells on its casing;
+// spin (0-1) runs from windup through release and drives the blades' whirl.
+function drawStormReaperModel(ctx: CanvasRenderingContext2D, tickN: number, flash: boolean, striking: boolean, release = 0, charge = 1, spin = 0){
+ ctx.save();ctx.shadowBlur=0;
+ const part=(c: string,x: number,y: number,w: number,h: number)=>{ctx.fillStyle=flash?'#ffffff':c;ctx.fillRect(x,y,w,h);};
+ const C={rim:'#35c9ad',dark:'#0d3a33',deep:'#082e29',mid:'#1f7563',glow:'#52ffd6',pale:'#e2fff0',steel:'#8fb8b0',steelDark:'#4b6b66',off:'#123f38'};
+ ctx.translate(0,Math.round(Math.sin(tickN*.12)));
+ // Twin hover jets flicker beneath the cell.
+ for(const side of [-1,1]){
+  part(C.steelDark,side*10-4,24,8,4);
+  ctx.globalAlpha=.55+.45*((tickN>>1)%2);part(C.glow,side*10-2,28,4,3+((tickN>>2)%2)*2);ctx.globalAlpha=1;
+ }
+ // Two simple blades stick straight out in a T pose; on attack they whirl twice around the body.
+ const eased=spin<.5?2*spin*spin:1-Math.pow(2-2*spin,2)/2,angle=eased*Math.PI*4,spinning=spin>0&&spin<1;
+ // Each blade is one solid rectangle rotated as a whole, so it stays a clean shape at any angle.
+ const drawBlade=(a: number,alpha: number,detail: boolean)=>{
+  ctx.save();ctx.rotate(a);ctx.globalAlpha=alpha;
+  if(!detail){ctx.fillStyle=C.glow;ctx.fillRect(21,-3,25,6);ctx.restore();return;}
+  ctx.fillStyle=flash?'#ffffff':C.rim;ctx.fillRect(21,-4,25,8);
+  ctx.shadowBlur=0;ctx.fillStyle=flash?'#ffffff':C.pale;ctx.fillRect(21,-4,25,2);
+  ctx.fillStyle=flash?'#ffffff':C.mid;ctx.fillRect(21,2,25,2);
+  ctx.restore();
+ };
+ ctx.save();ctx.shadowBlur=0;
+ if(spinning)for(let k=3;k>=1;k--)for(const base of [0,Math.PI])drawBlade(angle+base-k*.3,.45-k*.12,false);
+ ctx.shadowColor=C.glow;ctx.shadowBlur=3;
+ for(const base of [0,Math.PI])drawBlade(angle+base,1,true);
+ ctx.restore();ctx.globalAlpha=1;
+ // A small energy pulse runs out along each resting blade.
+ if(!spinning){const run=Math.round(22+(tickN*.6)%22);part('#ffffff',run,-2,2,4);part('#ffffff',-run-2,-2,2,4);}
+ // Battery casing: luminous rim, dark cell wall, positive terminal on top and negative plate below.
+ ctx.shadowColor=C.glow;ctx.shadowBlur=striking?4:3;part(C.rim,-20,-22,40,46);ctx.shadowBlur=0;
+ part(C.dark,-16,-18,32,36);
+ part(C.steel,-7,-28,14,6);part(C.pale,-4,-31,8,3);part(C.deep,-1,-27,2,4);part(C.deep,-3,-26,6,2);
+ part(C.steelDark,-20,18,40,6);part(C.pale,-4,20,8,2);
+ for(const [x,y] of [[-18,-20],[16,-20],[-18,14],[16,14]])part(C.steel,x,y,2,2);
+ // Robotic visor with a sweeping scanner eye that locks to a full slit while striking.
+ part(C.deep,-14,-15,28,8);
+ ctx.shadowColor=C.glow;ctx.shadowBlur=4;
+ if(striking)part(release>0?'#ffffff':C.pale,-12,-13,24,4);
+ else{const ex=Math.round(-12+(Math.sin(tickN*.08)+1)/2*18);part(C.pale,ex,-13,6,4);}
+ ctx.shadowBlur=0;
+ // Four charge cells refill as the blade cooldown recovers; a full cell stack shimmers.
+ for(let i=0;i<4;i++){
+  const lit=charge>=(i+1)/4-.001,y=12-i*5;
+  part(C.off,-12,y,24,3);
+  if(lit){ctx.shadowColor=C.glow;ctx.shadowBlur=charge>=1?4:2;part(charge>=1&&(tickN>>3)%2&&i===3?C.pale:C.glow,-12,y,24,3);ctx.shadowBlur=0;}
+ }
+ // Crackling arcs jump from the terminal to the shoulder joints; both fire while striking.
+ const seed=Math.floor(tickN/3);
+ for(const side of [-1,1]){
+  if(!striking&&(seed%2===0)!==(side>0))continue;
+  const pts=[[side*4,-30],[side*11,-34+((seed*7+side*3)%5)],[side*18,-24-((seed*5)%6)],[side*23,-16+((seed*3)%4)],[side*24,-8]];
+  ctx.globalAlpha=striking?.95:.7;
+  for(let i=1;i<pts.length;i++)drawPixelBeam(ctx,pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1],3,i%2?C.pale:C.glow);
+  ctx.globalAlpha=1;
+ }
+ // Sparks fly off the whirling blade tips.
+ for(let i=0;i<4;i++){
+  if(!spinning)break;
+  const a=angle+(i%2?Math.PI:0)-i*.2,life=((tickN+i*9)%12)/12,r=46+life*8;
+  ctx.globalAlpha=(1-life)*.9;part(i%3?C.glow:C.pale,Math.round(Math.cos(a)*r)-1,Math.round(Math.sin(a)*r)-1,2,2);
+ }
+ ctx.globalAlpha=1;ctx.restore();
+}
+
+// ============================================================================
+// Cosmic boss accents (King plasma trail, Queen thick constellation band, Seer has none)
+// ============================================================================
+// Small elemental space accents tie the approved boss silhouettes to the cosmic setting.
+function drawCosmicBossAccents(ctx: CanvasRenderingContext2D, type: string, x: number, y: number, size: number, tick: number) {
+  ctx.save();ctx.translate(x,y);ctx.shadowBlur=0;
+  const baseAlpha=ctx.globalAlpha;
+  const star=(px: number,py: number,color: string,alpha: number)=>{
+    ctx.globalAlpha=alpha*baseAlpha;ctx.fillStyle=color;ctx.fillRect(Math.round(px)-3,Math.round(py)-1,7,2);ctx.fillRect(Math.round(px)-1,Math.round(py)-3,2,7);
+  };
+  if(type==='fiery_king'){
+    // Solar plasma fragments sweep around the fiery corona.
+    for(let i=0;i<5;i++){
+      const a=tick*.018+i*Math.PI*2/5,r=size*.68+9;
+      const px=Math.cos(a)*r,py=Math.sin(a)*r;
+      for(let t=1;t<=3;t++){ctx.globalAlpha=.3-t*.07;ctx.fillStyle='#ff9841';ctx.fillRect(Math.round(Math.cos(a-t*.09)*r)-2,Math.round(Math.sin(a-t*.09)*r)-2,4,4);}
+      star(px,py,i%2?'#ffbb59':'#ffe9a5',.5);
+    }
+  }else if(type==='splitter_queen'){
+    // A sparse four-star constellation sits beyond her existing magic aura.
+    const points: [number, number][]=[];
+    for(let i=0;i<4;i++){const a=tick*.009+i*Math.PI/2;points.push([Math.cos(a)*(size*.8+10),Math.sin(a)*(size*.8+10)]);}
+    // A thick glowing band traces the rotating square, with a brighter inner line and bold corner stars.
+    ctx.lineJoin='miter';ctx.beginPath();points.forEach(([px,py],i)=>i?ctx.lineTo(px,py):ctx.moveTo(px,py));ctx.closePath();
+    ctx.globalAlpha=.25;ctx.strokeStyle='#c45be6';ctx.lineWidth=4;ctx.shadowColor='#dd44ff';ctx.shadowBlur=6;ctx.stroke();
+    ctx.globalAlpha=.5;ctx.strokeStyle='#e7a6fb';ctx.lineWidth=1.5;ctx.shadowBlur=2;ctx.stroke();ctx.shadowBlur=0;
+    points.forEach(([px,py],i)=>{star(px,py,i%2?'#dfa4f2':'#ffe3ff',.7);ctx.globalAlpha=.7;ctx.fillStyle='#ffffff';ctx.fillRect(Math.round(px)-1,Math.round(py)-1,2,2);});
+  }else if(type==='devourer'){
+    // Dark matter fragments spiral inward, suggesting a hungry gravity well.
+    for(let i=0;i<6;i++){
+      const life=((tick+i*19)%110)/110,a=-tick*.013+i*2.4,r=size*.65+22-life*13;
+      const px=Math.round(Math.cos(a)*r),py=Math.round(Math.sin(a)*r);
+      ctx.globalAlpha=Math.sin(life*Math.PI)*.65;ctx.fillStyle='#24122f';ctx.fillRect(px-4,py-4,8,8);
+      ctx.strokeStyle='#a264cd';ctx.lineWidth=1;ctx.strokeRect(px-4,py-4,8,8);
+      ctx.fillStyle='#b9e878';ctx.fillRect(px-1,py-1,2,2);
+    }
+  }else if(type==='frost_warden'){
+    // Frozen starlets follow a wide tilted orbital plane around her crystal.
+    for(let i=0;i<3;i++){
+      const a=tick*.014+i*Math.PI*2/3,r=size*1.1;
+      star(Math.cos(a)*r,Math.sin(a)*r*.5+Math.cos(a)*9,'#d9f6ff',.42);
+    }
+  }else if(type==='blind_prayer'){
+    // The Graviton Seer draws its own orbit and gravity well.
+  }else if(type==='sea_chanter'){
+    // Tiny ocean-blue star droplets complement the square bubbles.
+    for(let i=0;i<4;i++){
+      const life=((tick+i*27)%120)/120,side=i%2?1:-1;
+      star(side*(51+i%3*4),35-life*78,i%2?'#98cffa':'#d8f4ff',Math.sin(life*Math.PI)*.38);
+    }
+  }else if(type==='thorn_weaver'){
+    // Pale seed stars drift over the leafy silhouette like bioluminescent spores.
+    for(let i=0;i<3;i++){
+      const life=((tick+i*37)%130)/130;
+      star((i%2?1:-1)*(size*.7+8),18-life*72,i===1?'#e8b6df':'#d6f5a6',Math.sin(life*Math.PI)*.4);
+    }
+  }
+  ctx.restore();
+}
+
+// ============================================================================
+// drawEnemy boss section: Weaver, Chanter, Graviton Seer, King, Reaper call, Devourer, Warden, Queen, Queen Echo, with the 4px boss glow cap
+// ============================================================================
+function drawEnemy(ctx: CanvasRenderingContext2D, e: ReturnType<typeof createInitialState>['enemies'][0], sx: number, sy: number, tickN: number, shielded = false) {
+  const cfg = ENEMY_CONFIGS[e.type];
+  if (e.type === 'aegis_sentinel' || e.type === 'aegis_construct' || e.type === 'astral_twins') {
+    drawEncounterEnemy(ctx, e, sx, sy, tickN); return;
+  }
+  const size = Math.floor(TILE_SIZE * cfg.bodyFraction);
+  const half = size / 2;
+  const pad = Math.max(2, Math.floor(size * 0.12));
+  const flash = e.flashTicks > 0;
+  // Custom casters animate their real windup, rather than an unrelated cooldown.
+  const castProgress = e.type === 'splitter_queen' || e.type === 'queen_echo'
+    ? (e.windupTicks > 0 ? 1 - e.windupTicks / QUEEN_WINDUP_TICKS : 0)
+    : e.type === 'thorn_weaver'
+      ? ((e.thorn?.windupTicks ?? 0) > 0 ? 1 - e.thorn!.windupTicks / THORN_WINDUP : 0)
+      : e.type === 'blind_prayer'
+        ? ((e.prayer?.escapeWindupTicks ?? 0) > 0 ? 1 - e.prayer!.escapeWindupTicks / PRAYER_ESCAPE_WINDUP : 0)
+        : e.type === 'frost_warden'
+          ? (e.windupTicks > 0 && e.windupTicks <= 30 ? 1 - e.windupTicks / 30 : 0)
+          : e.type==='charger'
+            ? ((e.chargeWindupTicks??0)>0?1-e.chargeWindupTicks!/CHARGER_WINDUP_TICKS:0)
+            : e.attackTimer > 0 && e.attackTimer <= 15 && !e.exploding ? 1 - e.attackTimer / 15 : 0;
+  const attacking = castProgress > 0;
+  const attackScale = 1 + 0.15 * castProgress;
+  // Bomber explode animation: gradually swell up as fuse ticks down from 60
+  const explodeScale = (e.type === 'bomber' && e.exploding) ? (1 + 0.5 * (1 - Math.max(0, e.explodeTick) / 60)) : 1;
+  // Attack-impact animation: punchy bloat-then-squash the instant a hit actually lands (driven by shootTicks,
+  // the same timer that drives the per-type attack-projectile visuals), decaying back to normal size.
+  const impactMax = e.type === 'sea_chanter' ? 24 : e.type === 'splitter_queen' || e.type === 'queen_echo' || e.type === 'frost_warden' ? 20 : e.type === 'devourer' ? 16 : (e.type === 'sniper' || e.type === 'fiery_king') ? 22 : 14;
+  const impactT = e.shootTicks > 0 ? 1 - e.shootTicks / impactMax : 1;
+  const impactScale = e.shootTicks > 0 ? 1 + 0.35 * Math.exp(-impactT * 4) * Math.cos(impactT * Math.PI * 2.2) : 1;
+  const drawSz = Math.floor(size * attackScale * explodeScale * impactScale);
+  const drawH = drawSz / 2;
+  const color = flash ? '#ffffff' : cfg.color;
+
+  // Heal aura — pink glow ring pulsing outward when a healer's pulse just landed on this enemy
+  if (e.healFlashTicks > 0 && (isBossType(e.type)||e.type==='queen_echo')) {
+    const hProgress = e.healFlashTicks / 20; // 1 -> 0
+    const auraSz = drawSz + 8 + 16 * (1 - hProgress);
+    const auraH = auraSz / 2;
+    ctx.save();
+    ctx.globalAlpha = hProgress * 0.85;
+    ctx.shadowColor = '#ff44cc';
+    ctx.shadowBlur = 3;
+    ctx.strokeStyle = '#ff77dd';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(sx - auraH, sy - auraH, auraSz, auraSz);
+    ctx.restore();
+  }
+
+  // Glow — brightens during attack wind-up
+  if(e.healFlashTicks>0&&!isBossType(e.type)&&e.type!=='queen_echo'){
+    const fade=e.healFlashTicks/20;drawMobBrackets(ctx,sx,sy,half+4+(1-fade)*8,'#ff77dd',fade*.85,3);
+  }
+  ctx.shadowColor = e.exploding ? '#ff4400' : color;
+  ctx.shadowBlur = e.exploding ? (14 + 6 * Math.abs(Math.sin(tickN * 0.3)))
+    : attacking ? (16 + 8 * (1 - e.attackTimer / 15))
+      : 8;
+  // Bosses stay crisp: their own rims and cores carry only a light glow.
+  if (isBossType(e.type) || e.type === 'queen_echo') ctx.shadowBlur = Math.min(4, ctx.shadowBlur);
+
+  if(isBossType(e.type) && e.type !== 'storm_reaper'){
+    const cosmicSize=size*(e.type==='devourer'?1+e.chargeDirX*.06:1);
+    ctx.save();if(isSeaChanterDiving(e))ctx.globalAlpha=.34;
+    drawCosmicBossAccents(ctx,e.type,sx,sy,cosmicSize,tickN);ctx.restore();
+  }
+
+  if (e.type === 'thorn_weaver') {
+    ctx.save(); ctx.translate(Math.round(sx), Math.round(sy));
+    const spriteScale = Math.floor(TILE_SIZE * cfg.bodyFraction) / 60 * attackScale * impactScale;
+    ctx.scale(spriteScale, spriteScale);
+    const casting = (e.thorn?.windupTicks ?? 0) > 0;
+    const erupting = e.shootTicks > 0;
+    const leaf = flash ? '#ffffff' : '#88bc45';
+    const bark = flash ? '#eeeecc' : '#565033';
+    const sway = Math.round(Math.sin(tickN * 0.045) * 2);
+    ctx.save(); ctx.translate(sway, 0);
+    ctx.shadowBlur = 0;
+    // Crooked root tendrils, deliberately unequal and open rather than broad side fans.
+    ctx.fillStyle = '#526e32';
+    ctx.fillRect(-37, -6, 16, 6); ctx.fillRect(-42, -19, 6, 18);
+    ctx.fillRect(-38, -24, 13, 5); ctx.fillRect(-29, -20, 4, 8);
+    ctx.fillStyle = bark;
+    ctx.fillRect(21, 7, 14, 6); ctx.fillRect(31, -6, 6, 17);
+    ctx.fillRect(34, -11, 13, 5); ctx.fillRect(43, -21, 5, 13);
+    ctx.fillStyle = leaf; ctx.fillRect(-45, -14, 5, 6); ctx.fillRect(44, -27, 5, 9);
+    ctx.fillRect(49, -26, 6, 4);
+    ctx.fillStyle = '#d8ef9b'; ctx.fillRect(-42, -25, 4, 4); ctx.fillRect(35, 2, 4, 3);
+    // Saturated green square rim surrounding a single rectangular bark inset.
+    ctx.shadowColor = '#718b35'; ctx.shadowBlur = Math.min(4,casting ? 16 : 10);
+    ctx.fillStyle = flash ? '#ffffff' : '#718b35'; ctx.fillRect(-30, -30, 60, 60); ctx.shadowBlur = 0;
+    ctx.fillStyle = bark; ctx.fillRect(-25, -25, 50, 50);
+    // Brown grain stays inside the rectangle instead of breaking its outline into green ribs.
+    ctx.fillStyle = '#7d7543'; ctx.fillRect(-15, -17, 3, 30); ctx.fillRect(13, -19, 3, 34);
+    ctx.fillStyle = '#3f3c24'; ctx.fillRect(-3, -24, 4, 13); ctx.fillRect(1, 11, 4, 13);
+    // One luminous slit eye in a split seed. No paired siren eyes, mouth, or cheek markings.
+    ctx.shadowColor = '#d8ef9b'; ctx.shadowBlur = 0;
+    ctx.fillStyle = flash ? '#ffffff' : '#cfdf87';
+    ctx.fillRect(-8, erupting ? -12 : -10, 17, erupting ? 21 : 17);
+    ctx.shadowBlur = 0; ctx.fillStyle = '#14261f';
+    ctx.fillRect(casting ? -1 : -4, erupting ? -10 : -8, casting ? 4 : 9, erupting ? 17 : 13);
+    // Four smaller eyes frame the main eye: above, below, left and right.
+    for (const [eyeX, eyeY] of [[-3, -21], [-3, 14], [-21, -4], [16, -4]]) {
+      ctx.shadowColor = '#d8ef9b'; ctx.shadowBlur = Math.min(4,casting ? 6 : 3);
+      ctx.fillStyle = flash ? '#ffffff' : '#cfdf87'; ctx.fillRect(eyeX, eyeY + (casting ? 2 : 0), 7, casting ? 2 : 5);
+      ctx.shadowBlur = 0; ctx.fillStyle = '#14261f'; ctx.fillRect(eyeX + 3, eyeY + (casting ? 2 : 1), 2, casting ? 2 : 3);
+    }
+    // A stepped crystal-leaf crown grows up and over the pod like a faceted seed husk.
+    ctx.fillStyle = leaf;
+    ctx.fillRect(-36, -24, 8, 18); ctx.fillRect(-30, -34, 10, 12); ctx.fillRect(-22, -42, 12, 12);
+    ctx.fillRect(-10, -46, 12, 12); ctx.fillRect(2, -40, 10, 8);
+    ctx.fillStyle = '#c4dd7a'; ctx.fillRect(-34, -22, 3, 10); ctx.fillRect(-28, -32, 4, 6); ctx.fillRect(-20, -40, 5, 5); ctx.fillRect(-8, -44, 5, 5);
+    ctx.fillStyle = '#537d35'; ctx.fillRect(-30, -24, 4, 4); ctx.fillRect(-14, -32, 4, 6); ctx.fillRect(0, -36, 4, 4);
+    ctx.shadowColor = '#e8ffb8'; ctx.shadowBlur = 3; ctx.fillStyle = '#f0ffd0'; ctx.fillRect(-6, -48, 3, 3); ctx.fillRect(-26, -44, 3, 3); ctx.shadowBlur = 0;
+    // A four-point star bloom on a bent stalk replaces the soft flower.
+    ctx.fillStyle = '#526e32'; ctx.fillRect(11, -40, 5, 14); ctx.fillRect(13, -44, 9, 5);
+    const bloom = casting || erupting ? 3 : 0;
+    ctx.fillStyle = casting ? '#ff9ccf' : '#d97ba6';
+    ctx.fillRect(22, -58 - bloom, 5, 21 + bloom * 2); ctx.fillRect(13 - bloom, -50, 23 + bloom * 2, 5); ctx.fillRect(19, -53, 11, 11);
+    ctx.shadowColor = '#ffd6ec'; ctx.shadowBlur = Math.min(4,casting ? 6 : 3); ctx.fillStyle = '#fff0f7'; ctx.fillRect(22, -50, 5, 5); ctx.shadowBlur = 0;
+    // Three splayed, crooked roots continue the pod contour into the ground.
+    ctx.fillStyle = bark;
+    ctx.fillRect(-10, 24, 6, 12); ctx.fillRect(-22, 32, 15, 5); ctx.fillRect(-25, 35, 7, 4);
+    ctx.fillRect(3, 27, 6, 12); ctx.fillRect(7, 36, 10, 5);
+    ctx.fillRect(14, 20, 5, 11); ctx.fillRect(17, 28, 12, 5); ctx.fillRect(26, 25, 5, 6);
+    ctx.fillStyle = '#88bc45'; ctx.fillRect(-25, 34, 6, 3); ctx.fillRect(13, 38, 5, 3);
+    ctx.restore();
+    // Rising four-point spore stars keep his woodland life in a starry form.
+    for (let i = 0; i < 10; i++) {
+      const life = ((tickN + i * 17) % 90) / 90, side = i % 2 ? 1 : -1;
+      const px = Math.round(side * (36 + i % 4 * 5) / 3) * 3, py = Math.round((25 - life * 80) / 3) * 3;
+      ctx.globalAlpha = Math.sin(life * Math.PI) * .75; ctx.fillStyle = i % 3 ? '#c9f08f' : '#f2a6cb';
+      ctx.fillRect(px - 3, py - 1, 7, 2); ctx.fillRect(px - 1, py - 3, 2, 7);
+    }
+    // Small rising pollen motes add density without obscuring the eyes.
+    for (let i = 0; i < 6; i++) {
+      const life = ((tickN + i * 23) % 100) / 100;
+      const px = (i % 2 ? 1 : -1) * (35 + i % 4 * 5);
+      ctx.globalAlpha = Math.sin(life * Math.PI) * 0.6;
+      ctx.fillStyle = i % 3 ? '#b5c67b' : '#d99bb3';
+      ctx.fillRect(px, Math.round((38 - life * 85) / 3) * 3, 2, 2);
+    }
+    ctx.globalAlpha=1;drawBossHealthBar(ctx,-28,-66,56,e.hp,e.maxHp,leaf);
+    ctx.restore(); return;
+  }
+
+  if (e.type === 'sea_chanter') {
+    ctx.save();
+    const diving = isSeaChanterDiving(e);
+    const preparing = !diving && e.hp <= e.maxHp * 0.5;
+    const singing = !diving && (e.sea?.songWindupTicks ?? 0) > 0;
+    const water = flash ? '#ffffff' : '#3998d6';
+    const pearl = flash ? '#ffffff' : '#d6eeff';
+    const bob = diving ? 3 : Math.round(Math.sin(tickN * 0.05) * 2);
+    ctx.translate(Math.round(sx), Math.round(sy) + bob);
+    if (!diving) ctx.scale(impactScale, impactScale);
+    // A faint stepped wake remains visible while the submerged alien swims away.
+    ctx.shadowBlur = 0; ctx.strokeStyle = '#6bb8e8'; ctx.lineWidth = 2;
+    const moveX = e.targetTileX - e.tileX, moveY = e.targetTileY - e.tileY;
+    for (let i = 0; i < (diving ? 5 : 1); i++) {
+      ctx.globalAlpha = diving ? 0.24 - i * 0.035 : 0.13;
+      const spread = 28 + i * 7 + Math.floor(tickN / 8) % 3 * 2;
+      ctx.strokeRect(-spread - moveX * i * 8, -15 - moveY * i * 8, spread * 2, 32);
+    }
+    ctx.globalAlpha = diving ? 0.28 : 1;
+    if (!diving) {
+      // Fan-like side fins: violet edges, aqua membranes, and crisp pearl fin rays.
+      ctx.fillStyle = '#5264a0';
+      for (const side of [-1, 1]) {
+        ctx.fillRect(side * 27 - 5, -23, 10, 36);
+        ctx.fillRect(side * 35 - 4, -28, 8, 31);
+        ctx.fillRect(side * 41 - 3, -31, 6, 21);
+        ctx.fillStyle = water;
+        ctx.fillRect(side * 27 - 3, -21, 6, 31);
+        ctx.fillRect(side * 35 - 2, -25, 4, 24);
+        ctx.fillStyle = '#a8d8ff';
+        ctx.fillRect(side * 30 - 1, -18, 2, 16);
+        ctx.fillStyle = '#5264a0';
+      }
+      // A fish-tail fluke replaces feet, keeping the silhouette aquatic and alien.
+      ctx.fillStyle = '#5264a0'; ctx.fillRect(-8, 20, 16, 12);
+      ctx.fillRect(-20, 29, 16, 7); ctx.fillRect(4, 29, 16, 7);
+      ctx.fillStyle = water; ctx.fillRect(-5, 20, 10, 12);
+      ctx.fillRect(-17, 28, 12, 5); ctx.fillRect(5, 28, 12, 5);
+      // Fin crest and one broad shell, in the same block construction as other bosses.
+      ctx.fillStyle = '#5264a0'; ctx.fillRect(-10, -35, 20, 12);
+      ctx.fillRect(-5, -41, 10, 10);
+      ctx.fillStyle = water; ctx.fillRect(-2, -38, 4, 13);
+      ctx.shadowColor = water; ctx.shadowBlur = Math.min(4,diving ? 0 : 12);
+      ctx.fillStyle = water; ctx.fillRect(-25, -24, 50, 48);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = flash ? '#eeeeff' : '#123f72'; ctx.fillRect(-21, -20, 42, 40);
+      ctx.fillStyle = flash ? '#ffffff' : '#2d719e'; ctx.fillRect(-17, -14, 34, 29);
+      // Original symmetrical pearl eyes and short lashes.
+      ctx.fillStyle = '#0b294d'; ctx.fillRect(-18, -10, 14, 4); ctx.fillRect(4, -10, 14, 4);
+      ctx.fillRect(-20, -13, 3, 5); ctx.fillRect(17, -13, 3, 5);
+      ctx.fillStyle = pearl;
+      ctx.fillRect(-16, -8, 11, 6); ctx.fillRect(5, -8, 11, 6);
+      ctx.fillStyle = singing || e.shootTicks > 0 ? '#ff435d' : '#0b294d';
+      ctx.fillRect(-10, -8, 3, 6); ctx.fillRect(7, -8, 3, 6);
+      // Original gills, pearl scales and small singing mouth.
+      ctx.fillStyle = '#123f72';
+      for (const side of [-1, 1]) for (let i = 0; i < 3; i++) ctx.fillRect(side * 15 - 2, 2 + i * 4, 4, 2);
+      ctx.fillStyle = singing ? '#e9f8ff' : '#a8d8ff'; ctx.fillRect(singing ? -4 : -2, 2, singing ? 8 : 4, singing ? 8 : 4);
+      ctx.fillRect(-7, 10, 3, 3); ctx.fillRect(4, 10, 3, 3); ctx.fillRect(-2, 15, 4, 3);
+    } else {
+      // Underwater she turns away: a narrow fish-back silhouette with folded fins,
+      // no face, and a dorsal ridge. Cardinal rotation follows the swimming direction.
+      ctx.save();
+      const angle = moveX || moveY ? Math.atan2(moveY, moveX) + Math.PI / 2 : 0;
+      ctx.rotate(angle);
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = '#275a91'; ctx.fillRect(-16, -20, 32, 38);
+      ctx.fillRect(-10, -26, 20, 8);
+      ctx.fillStyle = '#123f72'; ctx.fillRect(-12, -19, 24, 34);
+      ctx.fillStyle = '#5264a0';
+      ctx.fillRect(-26, -7, 10, 16); ctx.fillRect(16, -7, 10, 16);
+      ctx.fillStyle = '#3998d6';
+      ctx.fillRect(-23, -5, 7, 9); ctx.fillRect(16, -5, 7, 9);
+      ctx.fillRect(-2, -20, 4, 31); // dorsal ridge seen from above
+      ctx.fillRect(-6, 17, 12, 12);
+      ctx.fillRect(-16, 26, 12, 6); ctx.fillRect(4, 26, 12, 6);
+      ctx.fillStyle = '#a8d8ff';
+      for (let i = 0; i < 4; i++) ctx.fillRect(-6, -12 + i * 6, 12, 2);
+      ctx.restore();
+    }
+    // Low health bubbles and brief pixel crosses show recovery underwater.
+    if ((e.sea?.healPulseTicks ?? 0) > 0) {
+      for (let i = 0; i < 3; i++) {
+        const y = 15 - (tickN + i * 20) % 60;
+        ctx.globalAlpha = diving ? 0.4 : 0.8; ctx.fillStyle = pearl;
+        ctx.fillRect(-19 + i * 19, y, 6, 2); ctx.fillRect(-17 + i * 19, y - 2, 2, 6);
+      }
+    }
+    for (let i = 0; i < (preparing ? 18 : diving ? 16 : 12); i++) {
+      const life = ((tickN + i * 11) % 55) / 55;
+      ctx.globalAlpha = (diving ? 0.24 : 0.6) * (1 - life);
+      ctx.strokeStyle = pearl; ctx.lineWidth = 1;
+      const x = (i % 2 ? 1 : -1) * (29 + i % 5 * 5);
+      const y = Math.round((28 - life * 80) / 2) * 2;
+      const size = i % 3 === 0 ? 5 : 3;
+      if (i % 3) ctx.strokeRect(x, y, size, size);
+      else {
+        ctx.fillStyle = water; ctx.fillRect(x, y, 3, 5);
+        ctx.fillStyle = pearl; ctx.fillRect(x, y, 2, 2);
+      }
+    }
+    {
+      ctx.globalAlpha = diving ? 0.34 : 1;
+      drawBossHealthBar(ctx,-27,-51,54,e.hp,e.maxHp,water);
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (e.type === 'blind_prayer') {
+    ctx.save();
+    ctx.translate(Math.round(sx), Math.round(sy));
+    const gold = flash ? '#ffffff' : '#ffdd22';
+    const invoking = (e.prayer?.escapeWindupTicks ?? 0) > 0 || (e.prayer?.rubyCastTicks ?? 0) > 0;
+    const prayerRelease = e.shootTicks > 0;
+    const pulse = 0.65 + 0.35 * Math.abs(Math.sin(tickN * 0.055));
+    const bob = Math.round(Math.sin(tickN * 0.045) * 2);
+    ctx.translate(0, bob);
+    ctx.scale(attackScale * impactScale, attackScale * impactScale);
+    // A white expanding frame telegraphs the escape attack; golden afterimages
+    // distinguish the temporary speed burst from the normal fleeing movement.
+    if ((e.prayer?.escapeWindupTicks ?? 0) > 0) {
+      const radius = Math.round(33 + 10 * (1 - e.prayer!.escapeWindupTicks / PRAYER_ESCAPE_WINDUP));
+      ctx.strokeStyle = '#fff5aa'; ctx.lineWidth = 3; ctx.shadowBlur = 0;
+      ctx.strokeRect(-radius, -radius, radius * 2, radius * 2);
+    }
+    if ((e.prayer?.escapeBoostTicks ?? 0) > 0) {
+      const dx = e.targetTileX - e.tileX, dy = e.targetTileY - e.tileY;
+      ctx.strokeStyle = '#ffdd22'; ctx.lineWidth = 2; ctx.shadowBlur = 0;
+      for (let i = 3; i >= 1; i--) {
+        ctx.globalAlpha = (4 - i) * 0.12;
+        ctx.strokeRect(-25 - dx * i * 8, -25 - dy * i * 8, 50, 50);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+ // Graviton Seer: a gold tech chassis behind a long black gaming visor, wearing a headset and pulling space inward.
+ const part=(c: string,x: number,y: number,w: number,h: number)=>{ctx.fillStyle=flash?'#ffffff':c;ctx.fillRect(x,y,w,h);};
+ const G={gold:'#ffd23a',deep:'#b8922a',lit:'#ffe98a',metal:'#17151d',panel:'#24212c',trace:'#6b5622',visor:'#050409',led:'#ffe680',pale:'#fff6cc'};
+ ctx.shadowBlur=0;
+ // Gravity well: square fronts contract into the chest core, faster while she bends space.
+ for(let i=0;i<3;i++){
+  const life=((tickN*(invoking?2.4:1)+i*20)%60)/60,r=Math.round(38-life*24);
+  ctx.globalAlpha=(1-life)*(invoking?.55:.22);ctx.strokeStyle=G.gold;ctx.lineWidth=2;ctx.strokeRect(-r,-r+10,r*2,r*2);
+ }
+ ctx.globalAlpha=1;
+ // Gold chassis with a lit top edge, shaded base and dark gunmetal face plate.
+ ctx.shadowColor=gold;ctx.shadowBlur=3;part(G.gold,-24,-24,48,48);ctx.shadowBlur=0;
+ part(G.lit,-24,-24,48,2);part(G.deep,-24,21,48,3);
+ part(G.metal,-20,-20,40,40);part(G.panel,-17,4,34,13);
+ // Circuit traces route into the graviton core.
+ part(G.trace,-15,8,8,1);part(G.trace,-8,8,1,6);part(G.trace,8,11,8,1);part(G.trace,8,6,1,6);part(G.trace,-15,14,4,1);part(G.trace,12,14,4,1);
+ // Graviton core: a gold frame around a dark well whose light is pulled into the centre.
+ part(G.gold,-6,5,12,12);part('#0a0910',-4,7,8,8);
+ const pull=(Math.floor(tickN/(invoking?3:6)))%3;part(G.led,-3+pull,8+pull,6-pull*2,6-pull*2);
+ ctx.shadowColor=G.pale;ctx.shadowBlur=3;part(G.pale,-1,10,2,2);ctx.shadowBlur=0;
+ // Long black wraparound visor covers the eyes, wider than the head, with gold trim and a bridge notch.
+ part(G.visor,-31,-14,62,11);part(G.gold,-31,-15,62,1);part(G.deep,-31,-3,62,1);part(G.metal,-2,-7,4,4);
+ part('#2b2740',-27,-12,9,1);part('#2b2740',12,-12,5,1);
+ // A gaming LED scan sweeps across the visor; while invoking, three slit eyes burn through it.
+ {const sweep=Math.round((tickN*1.6)%62)-31,left=Math.max(-20,sweep-6),right=Math.min(20,sweep+6);
+  if(right>left){ctx.globalAlpha=.85;part(G.led,left,-10,right-left,2);ctx.globalAlpha=1;}}
+ if(invoking||prayerRelease){ctx.shadowColor=G.led;ctx.shadowBlur=4;for(const x of [-16,-3,10])part(G.pale,x,-10,6,3);ctx.shadowBlur=0;}
+ // Gaming headphones sit on the head: a slim padded band over the top and earcups over the visor ends.
+ const ledPhase=Math.floor(tickN/5)%4;
+ part(G.metal,-26,-33,52,5);part(G.gold,-26,-33,52,1);part(G.deep,-26,-29,52,1);
+ part(G.metal,-1,-39,2,6);ctx.shadowColor=G.led;ctx.shadowBlur=3;part(G.led,-2,-41,4,3);ctx.shadowBlur=0;
+ for(const side of [-1,1]){
+  const cup=side<0?-31:21;
+  part(G.metal,side<0?-29:25,-31,4,13);
+  part(G.gold,cup-1,-20,12,24);part(G.metal,cup,-19,10,22);part(G.lit,cup,-19,10,2);part('#0b0a10',cup+2,-15,6,14);
+  // The LED ring chases around each earcup and lights fully while she invokes.
+  [[cup+1,-16,8,1],[cup+8,-16,1,16],[cup+1,-1,8,1],[cup+1,-16,1,16]].forEach(([x,y,w,h],k)=>{ctx.globalAlpha=invoking||(k+ledPhase+(side<0?0:2))%4<2?1:.3;part(G.led,x,y,w,h);});
+  ctx.globalAlpha=1;part(G.gold,cup+4,-9,2,2);
+ }
+ // A short mic boom runs from the left earcup to the mouth panel.
+ part(G.metal,-28,3,3,9);part(G.metal,-28,10,12,3);part(G.gold,-28,10,12,1);
+ ctx.shadowColor=G.led;ctx.shadowBlur=invoking?4:2;part(G.led,-17,9,5,5);ctx.shadowBlur=0;
+ // Two graviton beads orbit on a flat ellipse; the far side dims.
+ for(let i=0;i<2;i++){
+  const a=tickN*.05+i*Math.PI,x=Math.round(Math.cos(a)*36),y=Math.round(10+Math.sin(a)*9);
+  ctx.globalAlpha=Math.sin(a)<0?.45:1;part(G.gold,x-3,y-3,6,6);part(G.pale,x-1,y-1,2,2);
+ }
+ ctx.globalAlpha=1;
+ // Twin hover thrusters flicker beneath the chassis.
+ for(const x of [-14,6]){part(G.metal,x,24,8,4);ctx.globalAlpha=.5+.5*((tickN>>2)%2);part(G.gold,x+2,28,4,2+((tickN>>3)%2)*2);ctx.globalAlpha=1;}
+ // Small gold motes spiral inward toward the core.
+ for(let i=0;i<8;i++){
+  const life=((tickN+i*13)%60)/60,a=i*Math.PI/4+life*1.6,r=48-life*36;
+  ctx.globalAlpha=Math.sin(life*Math.PI)*.75;part(i%3?G.gold:G.pale,Math.round(Math.cos(a)*r)-1,Math.round(10+Math.sin(a)*r*.8)-1,2,2);
+ }
+ ctx.globalAlpha=1;
+ drawBossHealthBar(ctx,-27,-54,54,e.hp,e.maxHp,gold);
+    ctx.restore();
+    return;
+  }
+
+  // ── Boss: fully custom draw ───────────────────────────────────────────
+  if (e.type === 'fiery_king') {
+    const bSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const m = bSz / 48;
+    ctx.save(); ctx.translate(Math.round(sx), Math.round(sy)); ctx.scale(m, m); ctx.shadowBlur = 0;
+    const part = (c: string, x: number, y: number, w: number, h: number) => { ctx.fillStyle = flash ? '#ffffff' : c; ctx.fillRect(x, y, w, h); };
+    // A stepped solar corona flickers behind the armor, built like the Solar cast.
+    for (let i = 0; i < 8; i++) {
+      const angle = i * Math.PI / 4 + Math.PI / 8 + tickN * .006, flick = (i + Math.floor(tickN / 7)) % 2;
+      const length = (i % 2 ? 6 : 10) + flick * 2 + (attacking ? 5 : 0);
+      for (let step = 0; step < length; step += 4) {
+        const r = 28 + step, size = step + 4 >= length ? 4 : 6;
+        ctx.globalAlpha = .9 - step / length * .4;
+        part(step + 4 >= length ? '#ffc08a' : '#ff7a4a', Math.round(Math.cos(angle) * r / 2) * 2 - size / 2, Math.round(Math.sin(angle) * r / 2) * 2 - size / 2, size, size);
+      }
+    }
+    ctx.globalAlpha = 1;
+    // Shoulder flare pillars rise higher while he winds up.
+    const flareH = attacking ? 26 : 16;
+    for (const side of [-1, 1]) {
+      const x = side < 0 ? -32 : 24;
+      part('#8c1a24', x, -Math.round(flareH * .6), 8, flareH);
+      part('#ff7a4a', x + 2, -Math.round(flareH * .6) - 6, 4, 8);
+      part('#ffe0a8', x + 3, -Math.round(flareH * .6) - 10, 2, 4);
+    }
+    // Red armor rim, dark ember inset and a layered sun core, like the Solar suit.
+    ctx.shadowColor = '#ff6a3d'; ctx.shadowBlur = Math.min(4,attacking ? 12 : 7); part('#e8353f', -24, -24, 48, 48); ctx.shadowBlur = 0;
+    // Lit upper rim, shaded lower rim and gold corner trims break up the large red shell.
+    part('#ff6b52', -24, -24, 48, 4); part('#ff8a63', -20, -24, 40, 2);
+    part('#b4232f', -24, 20, 48, 4); part('#c92b36', -24, -20, 4, 40); part('#c92b36', 20, -20, 4, 40);
+    for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const x = cx < 0 ? -24 : 16, y = cy < 0 ? -24 : 16;
+      part('#ffcc33', x, y + (cy < 0 ? 0 : 6), 8, 2); part('#ffcc33', x + (cx < 0 ? 0 : 6), y, 2, 8);
+      part('#fff0b0', x + (cx < 0 ? 0 : 6), y + (cy < 0 ? 0 : 6), 2, 2);
+    }
+    part('#4d0d1a', -20, -20, 40, 40);
+    // Layered magma plating: a warm upper band and darker lower plates around the core.
+    part('#6e1424', -20, -20, 40, 6); part('#3a0914', -20, 12, 40, 8);
+    part('#5c1020', -20, -14, 3, 26); part('#5c1020', 17, -14, 3, 26);
+    // Molten seams split the plates and pulse with the sun core.
+    const seam = .55 + .45 * Math.abs(Math.sin(tickN * .07));
+    ctx.globalAlpha = seam;
+    part('#ff7a4a', -20, 0, 8, 2); part('#ff7a4a', 12, 0, 8, 2); part('#ff9b35', -1, 17, 2, 3);
+    part('#d9532c', -14, 2, 2, 8); part('#d9532c', 12, 2, 2, 8);
+    ctx.globalAlpha = 1;
+    part('#2a0610', -17, -12, 34, 11);
+    part('#ffb347', -17, -13, 34, 1); part('#c2452e', -17, -1, 34, 1);
+    const hot = attacking || e.shootTicks > 0;
+    ctx.shadowColor = hot ? '#ffcc33' : '#ffb27a'; ctx.shadowBlur = Math.min(4,hot ? 6 : 3);
+    part(hot ? '#ffe9a0' : '#fff0dc', -13, -9, 9, 5); part(hot ? '#ffe9a0' : '#fff0dc', 4, -9, 9, 5);
+    ctx.shadowBlur = 0; part('#ff7a4a', -10, -8, 3, 3); part('#ff7a4a', 7, -8, 3, 3);
+    part('#a83b2c', -10, 2, 20, 14); part('#d9532c', -9, 3, 18, 12); part('#ff7a4a', -7, 4, 14, 10); part('#ffc08a', -4, 6, 8, 6);
+    // Short gold rays mark the chest sun emblem.
+    part('#ffcc33', -1, 0, 2, 2); part('#ffcc33', -13, 8, 3, 2); part('#ffcc33', 10, 8, 3, 2); part('#ffcc33', -1, 16, 2, 1);
+    ctx.shadowColor = '#fff0dc'; ctx.shadowBlur = Math.min(4,4 + Math.abs(Math.sin(tickN * .08)) * 3); part('#fff0dc', -2, 8, 4, 2); ctx.shadowBlur = 0;
+    // Three small stepped flame marks flank the core on the lower armor.
+    for (const fx of [-16, 12]) { part('#b92d0b', fx, 14, 4, 4); part('#ed6414', fx + 1, 10 + (Math.floor(tickN / 9) % 2), 2, 5); }
+    // Five stepped solar flares form the crown; the ruby gem crowns the centre spike.
+    const crownLift = attacking ? 6 : 0;
+    ctx.shadowColor = '#ffcc33'; ctx.shadowBlur = 4;
+    [10, 6, 13, 6, 10].forEach((h, i) => {
+      const x = -24 + i * 10, height = h + crownLift;
+      part('#ffcc33', x, -24 - height, 8, height); part('#fff0b0', x + 3, -24 - height, 2, Math.max(2, height - 4));
+    });
+    ctx.shadowBlur = 0;
+    const gem = .6 + .4 * Math.abs(Math.sin(tickN * .09));
+    ctx.globalAlpha = gem; part('#ff3366', -2, -42 - crownLift, 4, 4); ctx.globalAlpha = 1;
+    // Embers rise beside him as crisp snapped squares.
+    for (let i = 0; i < 10; i++) {
+      const life = ((tickN + i * 23) % 90) / 90, side = i % 2 ? 1 : -1;
+      ctx.globalAlpha = Math.sin(life * Math.PI) * .8;
+      part(life < .4 ? '#ffe9a0' : life < .7 ? '#ff9b35' : '#e8353f', side * (30 + i % 3 * 4) - 1, Math.round((22 - life * 60) / 2) * 2, i % 3 ? 2 : 3, i % 3 ? 2 : 3);
+    }
+    ctx.globalAlpha = 1; ctx.restore();
+    drawBossHealthBar(ctx,sx-bSz/2-5,sy-bSz/2-26*m,bSz+10,e.hp,e.maxHp,'#ff334c');
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // ── Storm Reaper: fully custom draw (sleek angular striker, electric theme —
+  // no crown/tiara since she's a rogue, not royalty like the King/Queen) ──
+  if (e.type === 'storm_reaper') {
+    const rSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const modelScale = rSz / 48;
+    // Square afterimages preserve the fast hunter's movement tell.
+    if(e.tileX !== e.targetTileX || e.tileY !== e.targetTileY){
+      const dx=e.targetTileX-e.tileX, dy=e.targetTileY-e.tileY;
+      ctx.save();ctx.shadowBlur=0;ctx.fillStyle='#52ffd6';
+      for(let i=2;i>=1;i--){ctx.globalAlpha=.14/i;ctx.fillRect(sx-dx*i*8-rSz/2,sy-dy*i*8-rSz/2,rSz,rSz);}
+      ctx.restore();
+    }
+    ctx.save();ctx.translate(sx,sy);ctx.scale(modelScale,modelScale);
+    drawStormReaperModel(ctx,tickN,flash,attacking || e.shootTicks>0,Math.max(0,e.shootTicks/14),1-Math.max(0,Math.min(1,e.attackTimer/cfg.attackCooldown)),attacking?castProgress*.5:e.shootTicks>0?.5+(1-e.shootTicks/14)*.5:0);
+    ctx.restore();
+    drawBossHealthBar(ctx,sx-(rSz+10)/2,sy-53*modelScale,rSz+10,e.hp,e.maxHp,'#52ffd6');
+    ctx.globalAlpha=1;ctx.shadowBlur=0;return;
+  }
+
+  // ── Devourer: fully custom draw (blocky, matching the rest of the game's pixel-art
+  // language — grows via literal fused blocks stuck to her body, not organic curves) ──
+  if (e.type === 'devourer') {
+    const stacks = e.chargeDirX; // absorb-stack counter, reused from the charger's unused field
+    const stackGrowth = 1 + stacks * 0.06;
+    // Brief feeding swell settles into the permanent stack-grown size.
+    const feedingScale = 1 + 0.12 * Math.sin(Math.PI * Math.min(1, e.healFlashTicks / 26));
+    const vSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale * stackGrowth * feedingScale);
+    const vH = vSz / 2;
+    const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09));
+    const hpPct = e.hp / e.maxHp;
+    const vFlash = e.flashTicks > 0;
+    const vHealFlash = e.healFlashTicks > 0; // pulses brightly right when she absorbs something
+
+    // Big absorb shockwave — blocky expanding square ring, the moment she eats
+    if (vHealFlash) {
+      const shockProgress = 1 - e.healFlashTicks / 26; // 0 -> 1
+      ctx.save();
+      ctx.globalAlpha = 1 - shockProgress;
+      ctx.shadowColor = '#c8ff88'; ctx.shadowBlur = 3;
+      const ringSz1 = vSz * (1 + shockProgress * 2.2);
+      ctx.strokeStyle = '#88ff44'; ctx.lineWidth = 5;
+      ctx.strokeRect(sx - ringSz1 / 2, sy - ringSz1 / 2, ringSz1, ringSz1);
+      const ringSz2 = vSz * (0.7 + shockProgress * 1.8);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+      ctx.strokeRect(sx - ringSz2 / 2, sy - ringSz2 / 2, ringSz2, ringSz2);
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    }
+
+    // Always-on violet aura ring — matches her minimap glow, gives her the same idle
+    // presence the other three bosses have (King's ground-fire, Queen's motes, Reaper's halo)
+    ctx.save();
+    ctx.globalAlpha = 0.35 * pulse;
+    ctx.strokeStyle = '#6b2fa8';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#6b2fa8'; ctx.shadowBlur = 3;
+    ctx.strokeRect(sx - vH * 1.5, sy - vH * 1.5, vH * 3, vH * 3);
+    ctx.restore();
+
+    // Orbiting spore particles — blocky squares drifting around her, the persistent
+    // "consuming aura" tell she was missing (King has embers, Queen has motes, Reaper has arcs)
+    const sporeCount = 5;
+    for (let i = 0; i < sporeCount; i++) {
+      const ang = tickN * 0.025 + (Math.PI * 2 * i) / sporeCount;
+      const orbitR = vH + 10 + 3 * Math.sin(tickN * 0.06 + i);
+      const spx = sx + Math.cos(ang) * orbitR;
+      const spy = sy + Math.sin(ang) * orbitR;
+      const sporeAlpha = 0.5 + 0.4 * Math.abs(Math.sin(tickN * 0.1 + i * 1.3));
+      ctx.fillStyle = i % 2 === 0 ? `rgba(136,255,68,${sporeAlpha})` : `rgba(107,47,168,${sporeAlpha})`;
+      ctx.shadowColor = '#88ff44'; ctx.shadowBlur = 3;
+      ctx.fillRect(spx - 2, spy - 2, 4, 4);
+    }
+    ctx.shadowBlur = 0;
+
+    // Ground corruption pool — a sickly wash beneath her, bigger with more stacks
+    ctx.shadowColor = '#88ff44'; ctx.shadowBlur = Math.min(4,Math.floor(16 * pulse));
+    ctx.fillStyle = `rgba(107,47,168,${0.22 * pulse})`;
+    ctx.fillRect(sx - vH - 6, sy + vH - 4, vSz + 12, 10);
+    ctx.shadowBlur = 0;
+
+    // Approved square pufferfish model. Ambient spores/aura/pool above stay unchanged.
+    ctx.save(); ctx.translate(sx, sy);
+    const modelScale = vSz / 50;
+    ctx.scale(modelScale, modelScale);
+    const part = (color: string, x: number, y: number, width: number, height: number) => {
+      ctx.fillStyle = vFlash ? '#ffffff' : vHealFlash && color === '#7134a2' ? '#c8a0ff' : color;
+      ctx.fillRect(x, y, width, height);
+    };
+
+
+ // Dark purple extensions inherit the body's violet glow, like King's shoulders and Queen's ornaments.
+ ctx.save();ctx.shadowColor='#9945c7';ctx.shadowBlur=3;
+ part('#50206a',-31,-13,10,21);part('#50206a',21,-20,10,15);
+ part('#50206a',-20,24,14,8);part('#50206a',8,24,17,5);ctx.restore();
+ // Short rectangular side antennae give the silhouette a pufferfish rhythm.
+ ctx.save();ctx.shadowColor='#9945c7';ctx.shadowBlur=3;
+ for(const side of [-1,1]){
+  ctx.save();ctx.scale(side,1);
+  part('#7134a2',24,-20,12,5);part('#7134a2',24,-3,16,5);part('#7134a2',24,15,12,5);
+  ctx.restore();
+ }
+ ctx.restore();
+ ctx.shadowColor='#8e45c0';ctx.shadowBlur=3;part('#7134a2',-25,-25,50,50);ctx.shadowBlur=0;
+ part('#32153e',-21,-21,42,42);part('#482153',-17,-16,34,32);
+ // One large flat eye and a simple hungry mouth: no reflections, plates, or intricate shading.
+ part('#9dd959',-8,-14,16,14);part('#18311b',attacking ? -1 : -3,-12,attacking ? 3 : 6,10);
+ part('#19211b',-15,e.shootTicks > 0 || vHealFlash ? 4 : 7,30,e.shootTicks > 0 || vHealFlash ? 19 : attacking ? 15 : 11);
+ for(const[x,h]of [[-12,7],[-5,5],[2,7],[9,5]])part('#c4ee8b',x,e.shootTicks > 0 || vHealFlash ? 4 : 7,4,h);
+ if(e.shootTicks > 0 || vHealFlash)for(const x of [-10,-1,8])part('#c4ee8b',x,19,4,4);
+ part('#78a647',-17,-3,3,3);part('#78a647',14,-6,3,2);part('#78a647',15,0,2,2);
+ // Small swallowed-creature eyes sit inside the lopsided side chunk.
+ part('#28402b',-29,-7,6,8);part('#b9d97c',-28,-5,2,2);part('#b9d97c',-25,-2,2,2);
+ part('#432149',23,-16,6,6);part('#96be60',25,-15,2,2);
+ ctx.save();ctx.shadowColor='#9945c7';ctx.shadowBlur=3;
+ part('#7134a2',-18,-29,5,6);part('#7134a2',12,-31,6,7);ctx.restore();
+
+    ctx.restore();
+
+    // Absorb-stack counter, small text above the HP bar
+    ctx.font = '9px monospace';
+    ctx.fillStyle = '#c8ff88';
+    ctx.textAlign = 'center';
+    ctx.fillText(`x${stacks}`, sx, sy - vH - 20);
+    ctx.textAlign = 'left';
+
+    // HP bar above her
+    drawBossHealthBar(ctx,sx-(vSz+10)/2,sy-vH-14,vSz+10,e.hp,e.maxHp,'#9dd959');
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // ── Frost Warden: fully custom draw (icy blocky theme — crystalline crown, frosty aura,
+  // matches the game's rectangle-based sprite style like the rest of the bosses) ──
+  if (e.type === 'frost_warden') {
+    const wSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const wFlash = e.flashTicks > 0;
+    const modelScale = wSz / 48;
+    ctx.save(); ctx.translate(Math.round(sx), Math.round(sy)); ctx.scale(modelScale, modelScale); ctx.shadowBlur = 0;
+    const part = (color: string, x: number, y: number, width: number, height: number) => { ctx.fillStyle = wFlash ? '#ffffff' : color; ctx.fillRect(x, y, width, height); };
+    const C = { rim: '#bfeaf9', deep: '#123a52', panel: '#1d5b7a', grid: '#2a7da3', ice: '#7fd0ef', pale: '#eafcff', shade: '#8fcde6' };
+    const cast = castProgress, release = e.shootTicks > 0 ? e.shootTicks / 20 : 0;
+    // Four ice cubes ride a flat orbit; the rear half passes behind the casing.
+    const orbit = (front: boolean) => {
+      for (let i = 0; i < 4; i++) {
+        const a = tickN * .03 + i * Math.PI / 2;
+        if ((Math.sin(a) >= 0) !== front) continue;
+        const x = Math.round(Math.cos(a) * 40), y = Math.round(Math.sin(a) * 12) + 4;
+        ctx.globalAlpha = front ? 1 : .45; part(C.ice, x - 4, y - 4, 8, 8); part(C.pale, x - 4, y - 4, 8, 2); part(C.pale, x - 4, y - 2, 2, 6);
+      }
+      ctx.globalAlpha = 1;
+    };
+    orbit(false);
+    // The original frost-shield snowflake backs the casing: a glowing hexagon with six branched rays.
+    {
+      const corners: [number, number][] = [];
+      for (let i = 0; i < 6; i++) { const a = -Math.PI / 2 + i * Math.PI / 3; corners.push([Math.cos(a) * 37, Math.sin(a) * 37]); }
+      ctx.save(); ctx.shadowColor = '#9fe3ff'; ctx.shadowBlur = 8;
+      ctx.beginPath(); corners.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath();
+      ctx.strokeStyle = 'rgba(138,219,250,.28)'; ctx.lineWidth = 10; ctx.stroke();
+      ctx.shadowBlur = 5; ctx.strokeStyle = 'rgba(222,247,255,.8)'; ctx.lineWidth = 4; ctx.stroke();
+      for (let i = 0; i < 6; i++) {
+        const angle = -Math.PI / 2 + i * Math.PI / 3, ux = Math.cos(angle), uy = Math.sin(angle), px = -uy, py = ux;
+        ctx.beginPath(); ctx.moveTo(ux * 36, uy * 36); ctx.lineTo(ux * 55, uy * 55);
+        for (const side of [-1, 1]) { ctx.moveTo(ux * 46, uy * 46); ctx.lineTo(ux * 41 + px * side * 6, uy * 41 + py * side * 6); }
+        ctx.strokeStyle = 'rgba(141,211,240,.3)'; ctx.lineWidth = 8; ctx.shadowBlur = 7; ctx.stroke();
+        ctx.strokeStyle = '#dff7ff'; ctx.lineWidth = 3; ctx.shadowBlur = 3; ctx.stroke();
+      }
+      ctx.restore();
+    }
+    // Stepped crystal spikes grow from each corner while a shield is cast, then flare on release.
+    const reach = Math.round(cast * 5 + release * 4);
+    for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      part(C.ice, cx * (25 + reach) - 6, cy * (25 + reach) - 6, 12, 12);
+      part(C.rim, cx * (33 + reach) - 5, cy * (33 + reach) - 5, 10, 10);
+      part(C.pale, cx * (40 + reach) - 3, cy * (40 + reach) - 3, 6, 6);
+    }
+    // Crisp ice-block casing: lit top, shaded base, dark panel and a frosted window grid.
+    ctx.shadowColor = '#9fe3ff'; ctx.shadowBlur = 3; part(C.rim, -22, -22, 44, 44); ctx.shadowBlur = 0;
+    part(C.pale, -22, -22, 44, 3); part(C.shade, -22, 19, 44, 3);
+    part(C.deep, -18, -18, 36, 36); part(C.panel, -15, -15, 30, 30);
+    part(C.grid, -15, -1, 30, 2); part(C.grid, -1, -15, 2, 30);
+    for (const [x, y] of [[-13, -13], [9, -13], [-13, 9], [9, 9]]) part(C.ice, x, y, 4, 4);
+    // Snowflake core: an eight-point star that pulses and widens while she channels a shield.
+    const arm = 8 + Math.round(cast * 4), glow = .7 + .3 * Math.abs(Math.sin(tickN * .06));
+    ctx.shadowColor = '#9fe3ff'; ctx.shadowBlur = 3; ctx.globalAlpha = glow;
+    part(C.pale, -2, -arm, 4, arm * 2); part(C.pale, -arm, -2, arm * 2, 4);
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) part(C.ice, dx * 5 - 1, dy * 5 - 1, 3, 3);
+    ctx.globalAlpha = 1; part('#ffffff', -3, -3, 6, 6); part(C.deep, -1, -1, 2, 2); ctx.shadowBlur = 0;
+    orbit(true);
+    // Shield release sends a crisp square frost pulse outward.
+    if (release > 0) {
+      const radius = 28 + (1 - release) * 25;
+      ctx.globalAlpha = release * .85; ctx.strokeStyle = '#e4faff'; ctx.lineWidth = 3;
+      ctx.strokeRect(Math.round(-radius), Math.round(-radius), Math.round(radius * 2), Math.round(radius * 2)); ctx.globalAlpha = 1;
+    }
+    // A few crisp snowflakes drift down around her.
+    for (let i = 0; i < 6; i++) {
+      const life = ((tickN + i * 21) % 110) / 110, side = i % 2 ? 1 : -1;
+      const x = side * (30 + i % 3 * 6), y = Math.round(-36 + life * 72);
+      ctx.globalAlpha = Math.sin(life * Math.PI) * .7; part(C.pale, x - 2, y, 5, 1); part(C.pale, x, y - 2, 1, 5);
+    }
+    ctx.globalAlpha = 1; ctx.restore();
+    drawBossHealthBar(ctx,sx-(wSz+10)/2,sy-modelScale*64,wSz+10,e.hp,e.maxHp,'#a7ddf4');
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // Ghost is semi-transparent
+  if (e.type === 'ghost') ctx.globalAlpha = 0.55 + 0.2 * Math.abs(Math.sin(tickN * 0.08));
+  // Queen echo — unstable, flickers faster and dimmer than a ghost (it's decaying)
+  if (e.type === 'queen_echo') ctx.globalAlpha = 0.35 + 0.35 * Math.abs(Math.sin(tickN * 0.28));
+  // Splitter Queen destabilizes visually just before she phase-jumps away
+  if (e.type === 'splitter_queen' && e.phaseTimer <= QUEEN_PHASE_TELEGRAPH) {
+    const jProgress = 1 - e.phaseTimer / QUEEN_PHASE_TELEGRAPH; // 0 -> 1 as jump nears
+    ctx.globalAlpha = 1 - jProgress * 0.5 * (0.5 + 0.5 * Math.abs(Math.sin(tickN * 0.5)));
+  }
+
+  // ── Splitter Queen: fully custom draw (regal counterpart to the King boss) ──
+  if (e.type === 'splitter_queen') {
+    const qSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const qH = qSz / 2;
+    const qPad = Math.max(3, Math.floor(qSz * 0.10));
+    const pulse = 0.7 + 0.3 * Math.abs(Math.sin(tickN * 0.06));
+    const hpPct = e.hp / e.maxHp;
+    const qFlash = e.flashTicks > 0;
+    const bodyColor = qFlash ? '#ffffff' : '#8800cc';
+
+    // Outer violet glow
+    ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = Math.floor(16 * pulse);
+
+    // Slender epaulettes (tapered, unlike the King's blunt shoulder spikes)
+    const epW = Math.max(3, Math.floor(qSz * 0.13));
+    const epH = Math.max(6, Math.floor(qSz * (attacking ? 0.42 : 0.24)));
+    ctx.fillStyle = qFlash ? '#ffffff' : '#5a0088';
+    ctx.fillRect(sx - qH - epW, sy - Math.floor(epH * 0.55), epW, epH);
+    ctx.fillRect(sx + qH, sy - Math.floor(epH * 0.55), epW, epH);
+    ctx.fillStyle = qFlash ? '#ffffff' : '#ee99ff';
+    ctx.fillRect(sx - qH - epW - 2, sy - Math.floor(epH * 0.55), 2, 2);
+    ctx.fillRect(sx + qH + epW, sy - Math.floor(epH * 0.55), 2, 2);
+
+    // Short stepped royal tassels hang from the shoulder edges, rather than a fin or large cloak.
+    ctx.save(); ctx.translate(sx, sy); ctx.shadowBlur = 0;
+    for (const side of [-1, 1]) {
+      ctx.save(); ctx.scale(side, 1);
+      ctx.fillStyle = 'rgba(136,0,204,0.42)'; ctx.beginPath();
+      ctx.moveTo(qH, -6); ctx.lineTo(qH + 8, -6); ctx.lineTo(qH + 8, 7);
+      ctx.lineTo(qH + 12, 7); ctx.lineTo(qH + 12, 18); ctx.lineTo(qH + 6, 18);
+      ctx.lineTo(qH + 6, 9); ctx.lineTo(qH + 3, 9); ctx.lineTo(qH + 3, 0);
+      ctx.lineTo(qH, 0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#bf62d9'; ctx.fillRect(qH + 7, 14, 4, 3);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // Main body
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(sx - qH, sy - qH, qSz, qSz);
+    ctx.shadowBlur = 0;
+
+    // Cloak hem — stepped, alternating-height fringe along her lower edge (pixel-art zigzag)
+    if (!qFlash) {
+      const hemSegW = Math.max(2, Math.floor(qSz / 5));
+      const hemH1 = Math.max(3, Math.floor(qSz * 0.12));
+      const hemH2 = Math.max(2, Math.floor(qSz * 0.06));
+      ctx.fillStyle = '#5a0088';
+      for (let i = 0; i < 5; i++) {
+        const hh = i % 2 === 0 ? hemH1 : hemH2;
+        ctx.fillRect(sx - qH + i * hemSegW, sy + qH, hemSegW - 1, hh);
+      }
+    }
+
+    // Inner plate + diamond gem motif (silver, not the King's gold cross)
+    if (!qFlash) {
+      ctx.fillStyle = '#4a0066';
+      ctx.fillRect(sx - qH + qPad, sy - qH + qPad, qSz - qPad * 2, qSz - qPad * 2);
+
+      // A few tiny jewel markings inside the face, like Sea Chanter's sparse scales.
+      ctx.fillStyle = '#a84ac5';
+      for (const side of [-1, 1]) {
+        ctx.fillRect(sx + side * (qH - qPad - 2) - 1, sy + 2, 2, 3);
+        ctx.fillRect(sx + side * (qH - qPad - 4) - 1, sy + 8, 2, 2);
+      }
+      ctx.fillStyle = '#c76ce2';
+      for (const offset of [-6, 0, 6]) {
+        ctx.fillRect(sx + offset - 1, sy + qH - qPad - 2, 2, 2);
+      }
+
+      // Twinkling center gem — brightness pulses independently for a "living jewel" feel
+      const gemTwinkle = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09));
+      ctx.fillStyle = `rgba(255,255,255,${gemTwinkle})`;
+      const gemSz = Math.max(3, Math.floor(qSz * 0.14));
+      drawStepGem(ctx, sx, sy, Math.ceil(gemSz * .7), `rgba(255,255,255,${gemTwinkle})`);
+
+      // Corner gem studs — small diamonds echoing the center gem, one per plate corner
+      const studSz = Math.max(2, Math.floor(qSz * 0.07));
+      const studInset = qPad + Math.floor(studSz * 0.8);
+      ctx.fillStyle = '#ee99ffcc';
+      for (const [ox, oy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+        const stx = sx + ox * (qH - studInset);
+        const sty = sy + oy * (qH - studInset);
+        drawStepGem(ctx, stx, sty, Math.max(2, Math.ceil(studSz * .7)), '#ee99ffcc');
+      }
+    }
+
+    // Tiara (3 spikes: tall center gem-spike, shorter sides) — regal vs. the King's 5-spike crown
+    if (!qFlash) {
+      ctx.fillStyle = '#ddaaff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+      const tiaraH = Math.max(6, Math.floor(qSz * (attacking ? 0.40 : 0.26)));
+      const sideH = Math.floor(tiaraH * 0.55);
+      const tW = Math.max(3, Math.floor(qSz * 0.12));
+      ctx.fillRect(sx - Math.floor(tW / 2), sy - qH - tiaraH, tW, tiaraH); // center spike
+      ctx.fillRect(sx - qH + qPad, sy - qH - sideH, tW, sideH); // left spike
+      ctx.fillRect(sx + qH - qPad - tW, sy - qH - sideH, tW, sideH); // right spike
+      // Gem tip on center spike — twinkles out of sync with the center gem
+      const tipTwinkle = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.09 + Math.PI / 2));
+      ctx.shadowColor = '#ff66ee'; ctx.shadowBlur = Math.floor(6 * tipTwinkle);
+      ctx.fillStyle = '#ff66ee';
+      ctx.fillRect(sx - 2, sy - qH - tiaraH - 3, 4, 4);
+      ctx.shadowBlur = 0;
+    }
+
+    // 2 large almond eyes — fewer/larger than the King's 4, glow gold when attacking
+    if (!qFlash) {
+      const eSz = Math.max(4, Math.floor(qSz * 0.20));
+      const pSz = Math.max(2, Math.floor(eSz * 0.55));
+      const focused = attacking || e.shootTicks > 0;
+      const eyeY = sy - qH + qPad + Math.floor(qSz * 0.20);
+      const ex1 = sx - Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
+      const ex2 = sx + Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex1, eyeY, eSz, eSz); ctx.fillRect(ex2, eyeY, eSz, eSz);
+      ctx.fillStyle = attacking ? '#ffcc00' : '#ee44ff';
+      ctx.shadowColor = attacking ? '#ffcc00' : '#ee44ff'; ctx.shadowBlur = attacking ? 12 : 6;
+      const pupilW = focused ? Math.max(2, Math.floor(pSz * .5)) : pSz;
+      ctx.fillRect(ex1 + (focused ? Math.floor(eSz / 2) : 1), eyeY + 1, pupilW, focused ? eSz - 2 : pSz);
+      ctx.fillRect(ex2 + 1, eyeY + 1, pupilW, focused ? eSz - 2 : pSz);
+      ctx.shadowBlur = 0;
+
+      // Third eye — central eye below the main pair, sitting where her nose would be,
+      // same construction as the other two
+      const eyeGap = Math.max(4, Math.floor(qSz * 0.12));
+      const eSz3 = Math.max(4, Math.floor(eSz * (e.shootTicks > 0 ? 1.15 : 0.9)));
+      const pSz3 = Math.max(2, Math.floor(eSz3 * 0.55));
+      const eye3Y = eyeY + eSz + eyeGap;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx - Math.floor(eSz3 / 2), eye3Y, eSz3, eSz3);
+      ctx.fillStyle = attacking ? '#ffcc00' : '#ee44ff';
+      ctx.shadowColor = attacking ? '#ffcc00' : '#ee44ff'; ctx.shadowBlur = attacking ? 12 : 6;
+      ctx.fillRect(sx - Math.floor(eSz3 / 2) + 1, eye3Y + 1, pSz3, pSz3);
+      ctx.shadowBlur = 0;
+
+      // Thin, closed regal mouth (no teeth, unlike the King), pushed down below the third eye
+      const mW = Math.max(6, Math.floor(qSz * 0.42));
+      const mH = Math.max(1, Math.floor(qSz * 0.05));
+      const mouthGap = Math.max(3, Math.floor(qSz * 0.08));
+      ctx.fillStyle = '#4a0066';
+      ctx.fillRect(sx - Math.floor(mW / 2), eye3Y + eSz3 + mouthGap, mW, mH);
+    }
+
+    // Foreground crown base, raised around her lower body at 75% opacity with no aura glow.
+    ctx.save(); ctx.translate(sx, sy + qH - 6); ctx.scale(.88, .75);
+    const crownHalf = qSz * 0.8;
+    const baseY = 14;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = qFlash ? 'rgba(255,255,255,.75)' : 'rgba(86,0,133,.75)'; ctx.beginPath();
+    ctx.moveTo(-crownHalf, baseY); ctx.lineTo(-crownHalf, -12);
+    ctx.lineTo(-crownHalf + 5, -12); ctx.lineTo(-crownHalf + 5, -4);
+    ctx.lineTo(-crownHalf + 10, -4); ctx.lineTo(-crownHalf + 10, 6);
+    ctx.lineTo(-qSz * .34, 6); ctx.lineTo(-qSz * .34, -4);
+    ctx.lineTo(-qSz * .22, -4); ctx.lineTo(-qSz * .22, 5);
+    ctx.lineTo(-3, 5); ctx.lineTo(-3, -2); ctx.lineTo(3, -2);
+    ctx.lineTo(3, 5); ctx.lineTo(qSz * .22, 5);
+    ctx.lineTo(qSz * .22, -4); ctx.lineTo(qSz * .34, -4);
+    ctx.lineTo(qSz * .34, 6); ctx.lineTo(crownHalf - 10, 6);
+    ctx.lineTo(crownHalf - 10, -4); ctx.lineTo(crownHalf - 5, -4);
+    ctx.lineTo(crownHalf - 5, -12); ctx.lineTo(crownHalf, -12);
+    ctx.lineTo(crownHalf, baseY); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    // Forehead gemstone beneath the central tiara spike, matching the corner gems.
+    const foreheadGem = Math.max(4, Math.floor(qSz * .14));
+    ctx.save(); ctx.shadowColor = '#dd77ff'; ctx.shadowBlur = 3;
+    drawStepGem(ctx, sx, sy - qH + 1, foreheadGem, qFlash ? '#ffffff' : '#edb2ff');
+    ctx.shadowBlur = 0; drawStepGem(ctx, sx, sy - qH + 1, foreheadGem - 2, qFlash ? '#ffffff' : '#b546d3');
+    ctx.restore();
+
+    // Idle aura ring — a thick breathing violet glow so she reads as magical even at rest.
+    const auraR = qH + 10 + Math.floor(4 * pulse);
+    ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = 6;
+    ctx.strokeStyle = `rgba(221,68,255,${0.18 + 0.12 * pulse})`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx - auraR, sy - auraR, auraR * 2, auraR * 2);
+    ctx.shadowBlur = 0;
+
+    // HP bar above her
+    drawBossHealthBar(ctx,sx-(qSz+10)/2,sy-qH-16,qSz+10,e.hp,e.maxHp,'#d96af0');
+
+    if (e.windupTicks > 0) {
+      const progress = 1 - e.windupTicks / QUEEN_WINDUP_TICKS;
+      const ringR = qH + 6 + Math.floor(progress * 10);
+      const ringPulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() * 0.018));
+      ctx.shadowColor = '#cc33ff';
+      ctx.shadowBlur = 10 + Math.floor(progress * 16);
+      ctx.strokeStyle = `rgba(221,${Math.floor(80 + 100 * progress)},255,${0.6 + 0.4 * ringPulse})`;
+      ctx.lineWidth = 2 + Math.floor(progress * 2);
+      ctx.strokeRect(sx - ringR, sy - ringR, ringR * 2, ringR * 2);
+      ctx.shadowBlur = 0;
+    }
+
+
+    // Revolving magic ring — a segmented halo of tick marks spinning continuously around her,
+    // on a tilted ellipse so it reads as a ring orbiting in 3D, not a flat static circle
+    const ringR = qH + 21;
+    const ringSegs = 8;
+    const ringSpin = tickN * 0.06;
+    for (let r = 0; r < ringSegs; r++) {
+      const ang = ringSpin + (r * Math.PI * 2) / ringSegs;
+      const rx = sx + Math.cos(ang) * ringR;
+      const ry = sy + Math.sin(ang) * ringR * 0.42;
+      const depthFade = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(ang)); // segments at the "back" dim out
+      const segSz = 2.5;
+      ctx.globalAlpha = depthFade;
+      ctx.shadowColor = '#ee66ff'; ctx.shadowBlur = 6;
+      ctx.fillStyle = '#ffbbff';
+      ctx.fillRect(rx - segSz / 2, ry - segSz / 2, segSz, segSz);
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Orbiting magic motes — inner ring (3, faster/closer) + outer ring (2, slower/wider)
+    // for a layered "boss presence" that's always alive, not tied to any event
+    const orbitR = qH + 16;
+    for (let m = 0; m < 3; m++) {
+      const ang = tickN * 0.05 + (m * Math.PI * 2) / 3;
+      const mx = sx + Math.cos(ang) * orbitR;
+      const my = sy + Math.sin(ang) * orbitR * 0.6; // flattened ellipse orbit
+      const moteSz = 3;
+      ctx.shadowColor = '#ff88ee'; ctx.shadowBlur = 8;
+      ctx.fillStyle = '#ffccff';
+      ctx.fillRect(mx - moteSz / 2, my - moteSz / 2, moteSz, moteSz);
+      ctx.shadowBlur = 0;
+    }
+    const outerOrbitR = qH + 26;
+    for (let m = 0; m < 2; m++) {
+      const ang = -tickN * 0.025 + (m * Math.PI) + Math.PI / 4; // opposite direction, slower
+      const mx = sx + Math.cos(ang) * outerOrbitR;
+      const my = sy + Math.sin(ang) * outerOrbitR * 0.6;
+      const moteSz = 2;
+      ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = 6;
+      ctx.fillStyle = '#ee99ff';
+      ctx.fillRect(mx - moteSz / 2, my - moteSz / 2, moteSz, moteSz);
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }
+
+  // ── Queen Echo: a paler, simplified fragment of the Queen's silhouette ─
+  if (e.type === 'queen_echo') {
+    const qSz = Math.floor(TILE_SIZE * cfg.bodyFraction * attackScale * impactScale);
+    const qH = qSz / 2;
+    const qPad = Math.max(2, Math.floor(qSz * 0.10));
+    const eFlash = e.flashTicks > 0;
+
+    ctx.shadowColor = '#dd44ff'; ctx.shadowBlur = 6;
+
+    // Epaulettes with tips — same shape/colors as the real Queen (the flicker/translucency
+    // already established earlier is what reads as "echo", not a separate off-palette color)
+    const epW = Math.max(3, Math.floor(qSz * 0.13));
+    const epH = Math.max(6, Math.floor(qSz * 0.24));
+    ctx.fillStyle = eFlash ? '#ffffff' : '#5a0088';
+    ctx.fillRect(sx - qH - epW, sy - Math.floor(epH * 0.55), epW, epH);
+    ctx.fillRect(sx + qH, sy - Math.floor(epH * 0.55), epW, epH);
+    ctx.fillStyle = eFlash ? '#ffffff' : '#ee99ff';
+    ctx.fillRect(sx - qH - epW - 2, sy - Math.floor(epH * 0.55), 2, 2);
+    ctx.fillRect(sx + qH + epW, sy - Math.floor(epH * 0.55), 2, 2);
+
+    // Main body — the Queen's real color, not a separate hue; alpha flicker sells the "echo" read
+    ctx.fillStyle = eFlash ? '#ffffff' : '#8800cc';
+    ctx.fillRect(sx - qH, sy - qH, qSz, qSz);
+    ctx.shadowBlur = 0;
+
+    if (!eFlash) {
+      // Inner plate + diamond gem motif — same as the Queen's
+      ctx.fillStyle = '#4a0066';
+      ctx.fillRect(sx - qH + qPad, sy - qH + qPad, qSz - qPad * 2, qSz - qPad * 2);
+      const gemSz = Math.max(3, Math.floor(qSz * 0.14));
+      drawStepGem(ctx, sx, sy, Math.ceil(gemSz * .7), 'rgba(255,255,255,0.55)');
+
+      // Glitch scanlines — a couple of horizontally-shifted slivers, the one thing that tells
+      // her apart from the real Queen up close (an unstable copy, not just a dimmer one)
+      const glitchY1 = sy - qH + Math.floor(qSz * (0.35 + 0.1 * Math.sin(tickN * 0.2)));
+      const glitchY2 = sy - qH + Math.floor(qSz * (0.65 + 0.1 * Math.cos(tickN * 0.17)));
+      const glitchH = Math.max(1, Math.floor(qSz * 0.05));
+      const glitchShift = Math.floor(qSz * 0.12 * Math.sin(tickN * 0.3));
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillRect(sx - qH + glitchShift, glitchY1, qSz, glitchH);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fillRect(sx - qH - glitchShift, glitchY2, qSz, glitchH);
+
+      // Tiara (3 spikes + gem tip) — same shape as the Queen's
+      ctx.fillStyle = '#ddaaff';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 6;
+      const tiaraH = Math.max(6, Math.floor(qSz * 0.26));
+      const sideH = Math.floor(tiaraH * 0.55);
+      const tW = Math.max(3, Math.floor(qSz * 0.12));
+      ctx.fillRect(sx - Math.floor(tW / 2), sy - qH - tiaraH, tW, tiaraH);
+      ctx.fillRect(sx - qH + qPad, sy - qH - sideH, tW, sideH);
+      ctx.fillRect(sx + qH - qPad - tW, sy - qH - sideH, tW, sideH);
+      ctx.fillStyle = '#ff66ee';
+      ctx.fillRect(sx - 2, sy - qH - tiaraH - 3, 4, 4);
+      ctx.shadowBlur = 0;
+
+      // 2 large almond eyes, same glow color as the Queen's — no mouth (she's a silent fragment)
+      const eSz = Math.max(4, Math.floor(qSz * 0.20));
+      const pSz = Math.max(2, Math.floor(eSz * 0.55));
+      const eyeY = sy - qH + qPad + Math.floor(qSz * 0.20);
+      const ex1 = sx - Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
+      const ex2 = sx + Math.floor(qSz * 0.22) - Math.floor(eSz / 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(ex1, eyeY, eSz, eSz); ctx.fillRect(ex2, eyeY, eSz, eSz);
+      ctx.fillStyle = '#ee44ff';
+      ctx.shadowColor = '#ee44ff'; ctx.shadowBlur = 5;
+      ctx.fillRect(ex1 + 1, eyeY + 1, pSz, pSz); ctx.fillRect(ex2 + 1, eyeY + 1, pSz, pSz);
+      ctx.shadowBlur = 0;
+
+      // Third eye — same enlarged central eye as the real Queen's, below the main pair
+      const eyeGap = Math.max(4, Math.floor(qSz * 0.12));
+      const eSz3 = Math.max(4, Math.floor(eSz * 0.9));
+      const pSz3 = Math.max(2, Math.floor(eSz3 * 0.55));
+      const eye3Y = eyeY + eSz + eyeGap;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx - Math.floor(eSz3 / 2), eye3Y, eSz3, eSz3);
+      ctx.fillStyle = '#ee44ff';
+      ctx.shadowColor = '#ee44ff'; ctx.shadowBlur = 5;
+      ctx.fillRect(sx - Math.floor(eSz3 / 2) + 1, eye3Y + 1, pSz3, pSz3);
+      ctx.shadowBlur = 0;
+    }
+
+    // Attack wind-up aiming ring (same treatment as the real Queen's)
+    if (e.windupTicks > 0) {
+      const progress = 1 - e.windupTicks / QUEEN_WINDUP_TICKS;
+      const ringR = qH + 6 + Math.floor(progress * 10);
+      const ringPulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() * 0.018));
+      ctx.shadowColor = '#cc33ff';
+      ctx.shadowBlur = 10 + Math.floor(progress * 16);
+      ctx.strokeStyle = `rgba(221,${Math.floor(80 + 100 * progress)},255,${0.6 + 0.4 * ringPulse})`;
+      ctx.lineWidth = 2 + Math.floor(progress * 2);
+      ctx.strokeRect(sx - ringR, sy - ringR, ringR * 2, ringR * 2);
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    return;
+  }

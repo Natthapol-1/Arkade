@@ -1,8 +1,8 @@
 const fs=require('fs'),path=require('path'),Module=require('module'),ts=require('typescript');
 require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,f);
 const {createCanvas}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/@napi-rs/canvas');
-const c=require('../app/ruby-star/constants.ts'),engine=require('../app/ruby-star/engine.ts'),source=fs.readFileSync('app/ruby-star/page.tsx','utf8');
-const code='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {"+Object.keys(engine).filter(k=>!(k in c)).join(',')+"}=require('./engine.ts');"+source.slice(source.indexOf('const BG_COLOR'),source.indexOf('function BossSpawnButton('))+';exports.drawGame=drawGame;';
+const c=require('../app/ruby-star/constants.ts'),engine=require('../app/ruby-star/engine.ts'),source=fs.readFileSync('app/ruby-star/RubyStarGame.tsx','utf8');
+const code='const {'+Object.keys(c).join(',')+"}=require('./constants.ts');const {"+Object.keys(engine).filter(k=>!(k in c)).join(',')+"}=require('./engine.ts');const {drawNeptuneUnit,drawNeptuneOverlay,drawSkyLaserImpact}=require('./neptune-art.ts');const {drawEncounterEnemy,drawEncounterTelegraphs,drawEncounterEffects}=require('./encounter-art.ts');"+source.slice(source.indexOf('const BG_COLOR'),source.indexOf('// Challenge HUD centre: the guardian'))+';exports.drawGame=drawGame;exports.drawBattlefieldPad=drawBattlefieldPad;';
 const renderer=new Module(path.resolve('app/ruby-star/battlefield-preview.cjs'),module);renderer.filename=path.resolve('app/ruby-star/battlefield-preview.cjs');renderer.paths=module.paths;
 renderer._compile(ts.transpileModule(code,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,renderer.filename);
 const output=process.argv[2]||'.',prefix=process.argv[3]||'battlefield';
@@ -16,3 +16,12 @@ for(const [name,width,height,x,y,mobile]of [['overview',1040,1040,25,25,true],['
  if(JSON.stringify(state.map)!==mapBefore||JSON.stringify(state.frostIceTiles)!==iceBefore)throw new Error('Rendering mutated battlefield state');
  fs.writeFileSync(path.join(output,prefix+'-'+name+'.png'),canvas.toBuffer('image/png'));
 }
+
+const pads=createCanvas(1200,420),pctx=pads.getContext('2d');pctx.fillStyle='#0b1424';pctx.fillRect(0,0,1200,420);
+for(const [i,color]of c.CHAMBER_COLORS.entries()){
+ pctx.fillStyle=color;pctx.font='bold 15px monospace';pctx.textAlign='center';pctx.fillText(c.CHAMBER_LABELS[i],i*300+150,30);
+ pctx.save();pctx.translate(i*300+54,58);pctx.scale(4,4);renderer.exports.drawBattlefieldPad(pctx,0,0,color,40,i);pctx.restore();
+ renderer.exports.drawBattlefieldPad(pctx,i*300+126,292,color,40,i);
+ pctx.fillStyle='#9baec9';pctx.font='12px monospace';pctx.fillText('48px gameplay size',i*300+150,367);
+}
+fs.writeFileSync(path.join(output,'teleport-pad-design.png'),pads.toBuffer('image/png'));

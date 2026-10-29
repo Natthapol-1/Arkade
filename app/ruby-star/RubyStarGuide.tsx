@@ -1,8 +1,9 @@
 'use client';
 
+import { playUiSfx } from './ui-sfx';
 import { useEffect, useRef, useState } from 'react';
 import PixelArrow from '@/components/PixelArrow';
-import { BOSS_NAMES, BOSS_TYPES, ENEMY_CONFIGS, SPECIAL_SKILLS, type BossType, type EnemyType } from './constants';
+import { BOSS_NAMES, BOSS_TYPES, BOSS_SKILL_REWARDS, ENEMY_CONFIGS, SPECIAL_SKILLS, type BossType, type EnemyType } from './constants';
 
 const controls = [
   ['WASD / Arrows', 'Move'],
@@ -13,7 +14,7 @@ const controls = [
   ['Q', 'Place bomb · press again to explode'],
   ['E', 'Carry or place Ruby'],
   ['Space', 'Heal, including on a pad'],
-  ['X', 'Teleport when on a pad'],
+  ['X', 'Teleport on or next to a pad'],
   ['F', 'Use your celestial skill'],
 ];
 
@@ -33,10 +34,10 @@ const aliens: { type: EnemyType; name: string; description: string }[] = [
   { type: 'queen_echo', name: 'Queen Echo', description: 'A Queen copy that keeps shooting until defeated.' },
 ];
 
-const bosses: Record<BossType, { description: string; skill: string }> = {
+export const bosses: Record<BossType, { description: string; skill: string }> = {
   fiery_king: {
     description: 'Grows faster and stronger over time. Keep attacking to interrupt his arena blast.',
-    skill: 'Burns every enemy in the arena.',
+    skill: 'Burns all enemies. Regular kills give no energy.',
   },
   splitter_queen: {
     description: 'Teleports between chambers and leaves shooting copies. Defeat her to clear them all.',
@@ -47,8 +48,8 @@ const bosses: Record<BossType, { description: string; skill: string }> = {
     skill: 'Strikes nearby enemies with a powerful storm.',
   },
   devourer: {
-    description: 'Eats other aliens to grow stronger. A meteor can hurt her, but cannot finish her.',
-    skill: 'Creates a field that pulls enemies inward.',
+    description: 'Fast. Eats aliens to grow, and splits into a copy per meal when defeated or left alone too long. Kill every copy to win.',
+    skill: 'Pulls enemies in, damages them and blocks their teleporting.',
   },
   frost_warden: {
     description: 'Slows you, freezes floor tiles and shields aliens. Her ice shields block meteors.',
@@ -63,8 +64,16 @@ const bosses: Record<BossType, { description: string; skill: string }> = {
     skill: 'Heals you and Ruby, and pushes enemies away.',
   },
   thorn_weaver: {
-    description: 'Marks the ground, then grows thorns that slow and poison you. Step out before they erupt.',
+    description: 'Marks the ground with slowing, poisonous thorns. Instantly grows a larger field around itself when approached.',
     skill: 'Plants a field that slows and damages enemies.',
+  },
+  aegis_sentinel: {
+    description: 'Break both pylons to expose its core. Its shield reflects damage; surviving pylons explode and relocate.',
+    skill: 'Briefly cuts damage to you and Ruby, and reflects attacks back.',
+  },
+  astral_twins: {
+    description: 'One fights up close; the other tracks you with ranged shots. Defeat both within 12 seconds, or the fallen twin revives. The survivor goes berserk meanwhile.',
+    skill: 'A twin beside Ruby copies your attacks for a while.',
   },
 };
 
@@ -80,7 +89,8 @@ export default function RubyStarGuide() {
   return <div ref={root} className="rs-guide">
     <div className="rs-guide-nav">
       <h3>{sheet === 'main' ? 'HOW TO PLAY' : 'ALIENS & BOSSES'}</h3>
-      <button type="button" className="btn rs-guide-link" onClick={() => setSheet(sheet === 'main' ? 'aliens' : 'main')}>
+      <button type="button" className="btn rs-guide-link" onMouseEnter={() => playUiSfx('hover')}
+        onClick={() => { playUiSfx(sheet === 'main' ? 'page' : 'back'); setSheet(sheet === 'main' ? 'aliens' : 'main'); }}>
         {sheet !== 'main' && <PixelArrow direction="left" />}
         <span>{sheet === 'main' ? 'ALIENS & BOSSES' : 'MAIN RULES'}</span>
         {sheet === 'main' && <PixelArrow />}
@@ -102,10 +112,10 @@ export default function RubyStarGuide() {
           <p>Carrying Ruby keeps it safe but slows you down. With enemies clear, press Space near Ruby or while carrying it to heal both.</p>
         </section>
         <section className="rs-guide-section"><h4>METEORS</h4>
-          <p>Meteors move clockwise. Leave the flashing chamber with Ruby before impact.</p>
+          <p>Meteors move clockwise and damage all units in the chamber. Leave the flashing chamber with Ruby before impact.</p>
         </section>
         <section className="rs-guide-section"><h4>TELEPORT</h4>
-          <p>Press X on a pad to choose a chamber. Carried Ruby travels with you and is placed on arrival.</p>
+          <p>Press X on or next to a pad to choose a chamber. Carried Ruby travels with you and is placed on arrival.</p>
         </section>
         <section className="rs-guide-section"><h4>STAR ENERGY</h4>
           <p>Kills and blue shards fill energy. When full, your next ability starts a power boost. Red shards heal you.</p>
@@ -113,7 +123,10 @@ export default function RubyStarGuide() {
       </div>
 
       <section className="rs-guide-section"><h4>SPACE EVENTS</h4>
-        <p>Occasional events warn first. Watch for gravity, eclipses and a golden shard to collect. Rare Supernovas react to lasers and area attacks—escape before they explode.</p>
+        <p><strong>Black Hole:</strong> Pulls you and aliens toward the center.</p>
+        <p><strong>Shooting Star:</strong> Collect its shard to heal and recharge.</p>
+        <p><strong>Eclipse:</strong> Briefly stops enemies from moving or attacking.</p>
+        <p><strong>Supernova:</strong> Hit it with lasers or area attacks, then escape the blast.</p>
       </section>
       <section className="rs-guide-section"><h4>CONSTELLATIONS</h4>
         <p>Every 3 stages, choose an upgrade that lasts for the run. Each constellation can be chosen once.</p>
@@ -143,11 +156,11 @@ export default function RubyStarGuide() {
           {BOSS_TYPES.map(type => <article key={type} className="rs-guide-entry" style={{ borderLeftColor: ENEMY_CONFIGS[type].color }}>
             <h5 style={{ color: ENEMY_CONFIGS[type].color }}>{BOSS_NAMES[type]}</h5>
             <p>{bosses[type].description}</p>
-            <p className="rs-guide-skill"><strong style={{ color: type === 'devourer' ? '#c3c3d4' : SPECIAL_SKILLS[type].color }}>Celestial skill: {SPECIAL_SKILLS[type].name}</strong>{bosses[type].skill}</p>
+            <p className="rs-guide-skill"><strong style={{ color: type === 'devourer' ? '#c3c3d4' : SPECIAL_SKILLS[BOSS_SKILL_REWARDS[type]].color }}>Celestial skill: {SPECIAL_SKILLS[BOSS_SKILL_REWARDS[type]].name}</strong>{bosses[type].skill}</p>
           </article>)}
         </div>
       </section>
-      <button type="button" className="btn btn-ghost rs-guide-back" onClick={() => setSheet('main')}><PixelArrow direction="left" /> MAIN RULES</button>
+      <button type="button" className="btn btn-ghost rs-guide-back" onMouseEnter={() => playUiSfx('hover')} onClick={() => { playUiSfx('back'); setSheet('main'); }}><PixelArrow direction="left" /> MAIN RULES</button>
     </>}
   </div>;
 }

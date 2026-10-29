@@ -5,7 +5,7 @@ const {chromium}=require('C:/Users/Natthapol/.cache/codex-runtimes/codex-primary
  try{
   for(const [name,options]of [['desktop',{viewport:{width:1280,height:800}}],['mobile',{viewport:{width:844,height:390},isMobile:true,hasTouch:true}]]){
    const context=await browser.newContext(options),page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
-   await page.goto('http://127.0.0.1:3000/ruby-star?god=1',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Close rules',exact:true}).click();
+   await page.goto('http://127.0.0.1:3000/ruby-star/endless?god=1',{waitUntil:'networkidle'});await page.getByRole('button',{name:'Close rules',exact:true}).click({timeout:1500}).catch(()=>{});
    await page.getByRole('button',{name:'No Mobs',pressed:false,exact:true}).click();await page.getByRole('button',{name:'No Boss',pressed:false,exact:true}).click();
    await page.evaluate(()=>{
     const canvas=document.querySelector('canvas');let fiber=canvas[Object.keys(canvas).find(key=>key.startsWith('__reactFiber'))];

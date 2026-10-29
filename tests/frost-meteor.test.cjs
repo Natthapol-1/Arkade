@@ -147,3 +147,13 @@ test('Warden can refresh an existing shield when all eligible allies are shielde
   engine.tick(state);
   assert.equal(ally.icyShieldHP, constants.FROST_SHIELD_HP);
 });
+
+test('Warden ice shield grows with prior boss defeats up to its cap', () => {
+  for (const defeats of [0, 5, 12, 15, 30]) {
+    const { state, warden, ally } = fresh();
+    state.bossesKilled = defeats; ally.icyShieldHP = 0; warden.windupTicks = 1;
+    engine.tick(state);
+    assert.equal(ally.icyShieldHP, Math.min(constants.FROST_SHIELD_HP_MAX, constants.FROST_SHIELD_HP + defeats * constants.FROST_SHIELD_HP_PER_DEFEAT));
+    if (defeats >= 15) assert.equal(ally.icyShieldHP, 45);
+  }
+});
