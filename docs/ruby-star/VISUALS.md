@@ -155,7 +155,7 @@ God controls: [desktop](visual-reference/god-celestial-controls-desktop.png), [m
 
 ## Thorn field footprints
 
-Weaver’s aimed field is 4×4 tiles; its instant proximity field is 6×6. Both use floor-clipped bent roots with thorn shoots (26 per 4×4 field, scaled by area) and a luminous square boundary. The proximity field has a mint-teal wash plus a thicker, gently pulsing teal boundary; normal aimed fields retain their green palette. Rendering and hazard membership share radius-aware bounds. See [field comparison](visual-reference/thorn-fields.png).
+Weaver’s aimed field is 4×4 tiles; its instant proximity field is 6×6. Both are kept plain to match the Gaia overgrowth tiles: a flat green wash clipped to floor, one small blocky thorn sprout per tile (a stem that grows in, one leaf, a pale tip) and a luminous square boundary with a soft 4px glow, in the same green. The warning stays a pale-gold outlined area with an exclamation marker and a falling seed. Rendering and hazard membership share radius-aware bounds. See [field comparison](visual-reference/thorn-fields.png).
 
 ## Aegis Sentinel and Astral Twins
 

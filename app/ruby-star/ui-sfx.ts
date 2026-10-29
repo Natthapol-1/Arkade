@@ -25,7 +25,7 @@ function blip(type: OscillatorType, from: number, to: number, start: number, dur
   osc.start(t); osc.stop(t + dur + 0.02);
 }
 
-export type UiSfx = 'hover' | 'endless' | 'ascension' | 'locked' | 'page' | 'back' | 'close' | 'confirm' | 'teleport';
+export type UiSfx = 'hover' | 'endless' | 'ascension' | 'locked' | 'page' | 'back' | 'close' | 'confirm' | 'teleport' | 'victory' | 'charged';
 
 export function playUiSfx(kind: UiSfx) {
   switch (kind) {
@@ -47,6 +47,13 @@ export function playUiSfx(kind: UiSfx) {
     case 'teleport': // pad power-up: rising warble with a scanner shimmer
       blip('sine', 180, 720, 0, .22, .07); blip('triangle', 360, 1440, .04, .2, .04);
       blip('square', 1760, 2350, .18, .12, .03); blip('square', 2350, 1760, .27, .1, .025); break;
+    case 'victory': // challenge fanfare: rising arpeggio, a held major chord and a high shimmer
+      blip('square', 523, 523, 0, .11, .05); blip('square', 659, 659, .11, .11, .05); blip('square', 784, 784, .22, .11, .05);
+      blip('square', 1047, 1047, .33, .55, .05); blip('triangle', 784, 784, .33, .55, .04); blip('triangle', 659, 659, .33, .55, .035);
+      blip('sawtooth', 262, 262, .33, .5, .025); blip('triangle', 2093, 3136, .5, .4, .03); blip('triangle', 3136, 2093, .7, .35, .025); break;
+    case 'charged': // a room strike is ready: bright rising chime with a sustained shimmer
+      blip('square', 784, 784, 0, .08, .05); blip('square', 1175, 1175, .08, .08, .05); blip('square', 1568, 1568, .16, .18, .055);
+      blip('triangle', 3136, 2637, .2, .35, .035); break;
     case 'confirm': // two-tone acknowledge
       blip('square', 988, 988, 0, .06, .04); blip('square', 1480, 1480, .06, .1, .045); break;
   }

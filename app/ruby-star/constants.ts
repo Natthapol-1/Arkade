@@ -201,7 +201,9 @@ export function hallwayOfTile(tileX: number, tileY: number): number {
 // ─── Enemy types ─────────────────────────────────────────────────────────────
 
 export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'energy_leech' | 'fiery_king' | 'splitter_queen' | 'queen_echo' | 'storm_reaper' | 'devourer' | 'frost_warden' | 'blind_prayer' | 'sea_chanter' | 'thorn_weaver' | 'aegis_sentinel' | 'aegis_construct' | 'astral_twins'
-  | 'fish_blue' | 'fish_red' | 'stinger' | 'water_clone' | 'water_bomb';
+  | 'fish_blue' | 'fish_red' | 'stinger' | 'water_clone' | 'water_bomb' | 'jellyfish' | 'pufferfish'
+  | 'seed_pod' | 'blossom' | 'sporeling' | 'vine_crawler' | 'angry_mushroom' | 'lifebloom'
+  | 'moon_illusion';
 
 export const ENERGY_LEECH_DRAIN = 20;
 
@@ -236,14 +238,61 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     bodyFraction: 0.68, scoreValue: 15, damageToPlayer: 4, damageToRuby: 3,
     attackCooldown: 70, attackRange: 1, bombExplodeRange: 0,
   },
+  jellyfish: { // fragile; killing one during a dive reveals a clone
+    maxHp: 2, speed: 0.5, color: '#ff9ce6', shieldColor: '#ffd6f4',
+    bodyFraction: 0.66, scoreValue: 10, damageToPlayer: 5, damageToRuby: 3,
+    attackCooldown: 70, attackRange: 1, bombExplodeRange: 0,
+  },
+  pufferfish: { // chases you, swells up when close, then bursts into spikes that knock you back (melee handled by the challenge)
+    maxHp: 7, speed: 1.7, color: '#ffc94a', shieldColor: '#fff0b8',
+    bodyFraction: 0.7, scoreValue: 20, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 150, attackRange: 0, bombExplodeRange: 0,
+  },
   water_clone: {
-    maxHp: 8, speed: 1.1, color: '#6fc7ff', shieldColor: '#d8f2ff',
+    maxHp: 8, speed: 1.3, color: '#6fc7ff', shieldColor: '#d8f2ff',
     bodyFraction: 0.9, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
     attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
   },
   water_bomb: {
     maxHp: 6, speed: 0, color: '#7fd0ff', shieldColor: '#e1f6ff',
     bodyFraction: 0.6, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  // Gaia challenge units. Pods and blossoms are her plants (objectives, no rewards); sporelings and crawlers are aliens.
+  seed_pod: {
+    maxHp: 6, speed: 0, color: '#c6e86a', shieldColor: '#eaffb0',
+    bodyFraction: 0.55, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  blossom: {
+    maxHp: 12, speed: 0, color: '#ff8fc8', shieldColor: '#ffd6ec',
+    bodyFraction: 0.7, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  // Moon challenge: an illusion of the Shadow Queen. Looks and attacks exactly like her disguise; shatters when destroyed.
+  moon_illusion: {
+    maxHp: 4, speed: 0, color: '#dd88ff', shieldColor: '#dd88ff',
+    bodyFraction: 0.80, scoreValue: 0, damageToPlayer: 3, damageToRuby: 2,
+    attackCooldown: 70, attackRange: 8, bombExplodeRange: 0,
+  },
+  lifebloom: { // friendly: a phase 3 flower that heals you and Ruby when broken
+    maxHp: 1, speed: 0, color: '#9fffc8', shieldColor: '#e8fff0',
+    bodyFraction: 0.6, scoreValue: 0, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  sporeling: {
+    maxHp: 5, speed: 0.55, color: '#b9a8ff', shieldColor: '#e2d9ff',
+    bodyFraction: 0.66, scoreValue: 15, damageToPlayer: 5, damageToRuby: 4,
+    attackCooldown: 70, attackRange: 1, bombExplodeRange: 0,
+  },
+  angry_mushroom: { // fast melee; its hit knocks you back two tiles, and it leaves vines where it runs
+    maxHp: 8, speed: 3, color: '#ff5a4a', shieldColor: '#ffc2b8',
+    bodyFraction: 0.7, scoreValue: 20, damageToPlayer: 3, damageToRuby: 2,
+    attackCooldown: 80, attackRange: 1, bombExplodeRange: 0,
+  },
+  vine_crawler: {
+    maxHp: 8, speed: 1.2, color: '#5fbf4a', shieldColor: '#b6f0a0',
+    bodyFraction: 0.7, scoreValue: 15, damageToPlayer: 0, damageToRuby: 0,
     attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
   },
   normal: {
@@ -657,30 +706,36 @@ export const TUTORIAL_STEP_PAUSE = 75; // ticks of "done" feedback before the ne
 
 // Celestial Challenge (prototype): the guardian is the only boss, and its skill recharges after each cast.
 export const TRIAL_BOSS_DELAY = 300;        // ticks (5s) before the guardian's arrival warning starts
+export const SPECIAL_RECAST_LOCK = 90; // endless: 1.5s after a cast before F works again, so a skill earned by that cast isn't wasted
 export const TRIAL_SKILL_COOLDOWN = 1200;   // ticks (20s) after casting before the skill returns
+export const TRIAL_SKILL_COOLDOWNS: Partial<Record<SpecialSkill, number>> = { thorn_weaver: 2400 }; // Gaia's Roots: 40s
+export function trialSkillCooldown(skill: SpecialSkill) { return TRIAL_SKILL_COOLDOWNS[skill] ?? TRIAL_SKILL_COOLDOWN; }
 
-// Neptune challenge (Sea Chanter): three phases of NEPTUNE_PHASE_HP each. Healing can never lift her into a
+// Neptune challenge (Sea Chanter): three phases with their own HP (NEPTUNE_PHASE_HPS). Healing can never lift her into a
 // finished phase. Dive points are fractions of the current phase; at each one she dives, drops water clones
 // and stays under until they are all destroyed (HP snaps down to the dive point) or time runs out
 // (each surviving clone restores NEPTUNE_CLONE_HEAL of the phase). Diving at 0 ends the phase; clearing
 // phase 3's final dive leaves her surfaced and exposed, and the next hit kills her.
-export const NEPTUNE_PHASE_HP = 2000;
-export const NEPTUNE_DIVE_POINTS: Record<1 | 2 | 3, number[]> = { 1: [.75, .5, .25, 0], 2: [.5, 0], 3: [.66, .33, 0] };
-export const NEPTUNE_CLONES: Record<1 | 2 | 3, number> = { 1: 3, 2: 3, 3: 3 };
-export const NEPTUNE_FINAL_CLONES = 4;      // phase 3's last dive, the one that decides the fight
+export const NEPTUNE_PHASE_HPS: Record<1 | 2 | 3, number> = { 1: 2000, 2: 2400, 3: 3000 }; // phase 2 +20%, phase 3 +50%
+export const NEPTUNE_TOTAL_HP = NEPTUNE_PHASE_HPS[1] + NEPTUNE_PHASE_HPS[2] + NEPTUNE_PHASE_HPS[3];
+// HP left once a phase is emptied (later phases sit below it on the bar), and the top of a phase.
+export function neptunePhaseFloorHP(phase: 1 | 2 | 3) { return phase === 1 ? NEPTUNE_PHASE_HPS[2] + NEPTUNE_PHASE_HPS[3] : phase === 2 ? NEPTUNE_PHASE_HPS[3] : 0; }
+export function neptunePhaseCeilHP(phase: 1 | 2 | 3) { return neptunePhaseFloorHP(phase) + NEPTUNE_PHASE_HPS[phase]; }
+export const NEPTUNE_DIVE_POINTS: Record<1 | 2 | 3, number[]> = { 1: [.75, .5, .25, 0], 2: [.66, .33, 0], 3: [.66, .33, 0] };
+export const NEPTUNE_CLONES: Record<1 | 2 | 3, number> = { 1: 3, 2: 3, 3: 4 };
 export const NEPTUNE_DIVE_TICKS: Record<1 | 2 | 3, number> = { 1: 1200, 2: 1200, 3: 960 }; // 20s, 20s, 16s
-export const NEPTUNE_CLONE_DROP_GAP = 150;  // a clone every 2.5s, each in a random room
 export const NEPTUNE_CLONE_HEAL = .1;       // share of phase HP per surviving clone
 export const NEPTUNE_CLONE_HEAL_BLOCK = 240; // hitting a clone stops her ally-feeding heal for 4s
-export const NEPTUNE_DIVE_SPEED = 6.5;
+export const NEPTUNE_DIVE_SPEED = 12; // very fast: on this map you hunt her clones, not her
 export const NEPTUNE_BOMB_INTERVAL = 360;   // phase 2+: a water ball every 6s while surfaced
 export const NEPTUNE_BOMB_FUSE = 180;       // 3s before it bursts
 export const NEPTUNE_BOMB_RADIUS = 4;       // tiles
+export const NEPTUNE_SONG_BONUS = 2;       // her water waves and bursts deal +2 here (to you and Ruby alike)
 export const NEPTUNE_BOMB_DAMAGE = 25;      // to player and Ruby inside the burst
-export const NEPTUNE_BOMB_SELF_DAMAGE = .05; // share of phase HP she takes when you pop it first
+export const NEPTUNE_BOMB_SELF_DAMAGE = .03; // share of phase HP she takes when you pop it first
 export const NEPTUNE_ATTACK_MULT: Record<1 | 2 | 3, number> = { 1: 1, 2: 1.5, 3: 1.5 };
 export const NEPTUNE_LIFESTEAL = 1;         // phase 3: her hits heal her for the damage dealt
-export const NEPTUNE_STRIKE_DAMAGE = .1;    // meteors and the sky laser deal this share of phase HP
+export const NEPTUNE_STRIKE_DAMAGE = .07;   // meteors and the sky laser deal this share of phase HP
 export const NEPTUNE_HEAL_CHARGE_MAX = 120;  // healing received to charge the sky laser
 export const NEPTUNE_LASER_WARNING = 180;   // 3s from choosing a room to the strike
 export const NEPTUNE_FISH_CAP = 12;
@@ -689,7 +744,9 @@ export const NEPTUNE_FISH_SPAWN_GAP = 120;
 export const NEPTUNE_FISH_HEAL = 8;         // blue fish heal you this much
 export const NEPTUNE_FISH_BOSS_HEAL = .03;  // ...or heal her this share of phase HP if she is diving
 export const NEPTUNE_FISH_HURT = 6;         // red fish cost you this much
-export const NEPTUNE_STINGER_CHANCE = .35;  // share of natural alien spawns replaced by stingers
+export const NEPTUNE_STINGER_CHANCE = .35;  // share of natural alien spawns replaced by stingers...
+export const NEPTUNE_PUFFER_CHANCE = .2;    // ...and then by pufferfish
+export const NEPTUNE_PUFF_TICKS = 36, NEPTUNE_PUFF_RADIUS = 2.5, NEPTUNE_PUFF_DAMAGE = 7, NEPTUNE_PUFF_KNOCKBACK = 2;
 export const NEPTUNE_POISON_TICKS = 240;    // stinger poison: 2 damage per second for 4s
 export const NEPTUNE_POISON_DAMAGE = 2;
 export const NEPTUNE_TIDE_TICKS = 600;      // phases 1–2: one 10s tide every 40–60s
@@ -697,6 +754,102 @@ export const NEPTUNE_TIDE_GAP: [number, number] = [2400, 3600];
 export const NEPTUNE_TIDE_ROTATE = 900;     // phase 3: two tides always flowing, moving every 15s
 export const NEPTUNE_TIDE_WITH = 1.4, NEPTUNE_TIDE_AGAINST = .7;
 export const NEPTUNE_TIDE_PUSH_GAP = 50;    // ticks between one-tile pushes when not swimming with the flow
+export const NEPTUNE_JELLY_GAP: [number, number] = [1200, 1800]; // a jellyfish drifts in every 20–30s...
+export const NEPTUNE_JELLY_CAP = 2;         // ...with at most two around
+export const NEPTUNE_JELLY_DIVE_CHANCE = .5; // each dive also has this chance to bring one 4s in, even at the cap
+export const NEPTUNE_JELLY_DIVE_DELAY = 240;
+export const NEPTUNE_REVEAL_TICKS = 240;    // killing one during a dive marks a clone for 4s
+export const NEPTUNE_SHARK_GAP: [number, number] = [900, 1500];  // a shark every 15–25s
+export const NEPTUNE_SHARK_WARNING = 72;    // lane warning before it charges
+export const NEPTUNE_SHARK_SPEED = .5;      // tiles per tick
+export const NEPTUNE_SHARK_DAMAGE = 18;
+export const NEPTUNE_SHARK_KNOCKBACK = 3;   // tiles you are thrown sideways off its lane
+export const NEPTUNE_SHARK_BOSS_DAMAGE = .05; // share of phase HP when she is caught in its lane
+
+// Moon challenge (Shadow Queen): an illusion fight. She wears her Echo's look and hides among illusions that copy her;
+// just before each jump she shows her true self and is vulnerable. Phase 1 only for now.
+export const MOON_PHASE_HP = 2000;
+export const MOON_FIRST_CLONES = 4;          // illusions on her first jump...
+export const MOON_CLONES_PER_JUMP = 2;       // ...and on every jump after
+export const MOON_CLONE_CAP = 8;             // the oldest fades when a new one would pass this
+export const MOON_REVEAL_TICKS = 90;         // she shows her true self for the last 1.5s before a jump
+export const MOON_REVEAL_DAMAGE_MULT = 2.5;  // and takes this much more damage then
+export const MOON_QUEEN_DAMAGE_MULT = .6;    // her own hits are softer here (there are many shooters)
+export const MOON_SHARD_COUNT = 8;           // a destroyed illusion bursts into a ring of crystal shards
+export const MOON_SHARD_SPEED = 5;           // px per tick
+export const MOON_SHARD_TICKS = 90;          // about 9 tiles of travel
+export const MOON_SHARD_DAMAGE = 6;          // to you
+export const MOON_SHARD_RUBY_DAMAGE = 4;     // to a placed Ruby
+export const MOON_SHARD_HIT_RADIUS = .45;    // tiles
+export const MOON_STRIKE_DAMAGE = .08;       // meteors deal this share of the phase to her
+export const MOON_MARK_TICKS = 360;          // C marks the nearest Queen or illusion for 6s; the mark follows her jumps
+export const MOON_MARK_COOLDOWN = 720;       // 12s from each cast
+
+// Gaia challenge (Thorn Weaver): overgrowth fight. Every floor tile has a growth level 0–3 (clean, moss, vines,
+// thicket). Vines slow you and heal her; you clear them with attacks, meteors, Sunfire and Gaia's Roots.
+// Three phases of GAIA_PHASE_HP; phases 1–2 end with a short wither, and phase 3 plays like phase 2 until she dies.
+export const GAIA_PHASE_HP = 3000;
+export const GAIA_WITHER_TICKS = 180;            // 3s between phases
+export const GAIA_SEEK_RANGE = 8;               // when not fleeing she walks to overgrowth this close and lingers there
+export const GAIA_CAST_COOLDOWN = 90;            // aimed fields every 1.5s after one lands (4s elsewhere)
+export const GAIA_THORN_RUBY_DAMAGE = 1;         // a placed Ruby inside his field: 1 every 0.75s...
+export const GAIA_THORN_RUBY_CUT = 3;            // ...after the eruption cuts it for this (you take 12)
+export const GAIA_THORN_CONTACT_DAMAGE = 3;      // standing in his thorn field: 3 every 0.75s here (1 elsewhere), plus poison
+export const GAIA_TRAIL_GAP = 90;                // she grows tiles within GAIA_TRAIL_RADIUS every 1.5s
+export const GAIA_TRAIL_RADIUS = 2;
+export const GAIA_CREEP_GAP = 180;               // every 3s vines creep into neighbours...
+export const GAIA_CREEP_CHANCE = .15;            // ...clean neighbour -> moss
+export const GAIA_MOSS_CHANCE = .08;             // ...moss next to vines -> vines
+export const GAIA_CREEP_CAP = 120;               // at most this many upgrades per creep pass
+export const GAIA_VINE_SLOW = .6, GAIA_THICKET_SLOW = .45;
+export const GAIA_THICKET_DAMAGE = 1;            // per second while standing in thicket
+export const GAIA_VINE_HEAL = .005, GAIA_THICKET_HEAL = .01; // share of phase HP per second she heals on vines / thicket
+export const GAIA_THICKET_ARMOR = .75;           // damage she takes while standing in thicket
+export const GAIA_SCORCH_TICKS = 600;            // scorched tiles cannot regrow for 10s
+export const GAIA_WARD_RADIUS = 2;               // placed Ruby keeps ground clean within this Chebyshev radius
+export const GAIA_RING_RADIUS = 3;               // the ring vines must close around Ruby
+export const GAIA_RING_WARN = .8;
+export const GAIA_RING_DAMAGE = 3;               // per second while the ring is closed
+// Sunfire (C) charges from overgrowth you clear (1 per level) and can be fired at any charge. A partial charge bursts around you at once,
+// its reach and damage growing with the charge. A full charge picks a room, winds up, then burns the whole room:
+// it costs you HP, and hits her hard if she is in that chamber.
+export const GAIA_SUN_MAX = 100;
+export const GAIA_SUN_CHARGE_RATE = 1.2;         // Sunfire charge per growth level you clear
+export const GAIA_POD_CHARGE = 10;               // breaking a seed pod adds this much
+export const GAIA_SUN_MIN = 10;                  // smallest charge you can fire
+export const GAIA_SUN_RADIUS: [number, number] = [2, 7]; // partial burst radius in tiles, from minimum to almost full
+export const GAIA_SUN_WARNING = 180;             // full charge: 3s wind-up before the chamber burns
+// Meteors and full Sunfire hit her the same: a share of the current phase, ignoring her armor and thicket.
+// A partial Sunfire deals that share scaled by its charge.
+export const GAIA_STRIKE_DAMAGE = .1;
+export const GAIA_SUN_SELF_DAMAGE = 50;          // full charge burns you and placed Ruby for this if inside the room (dodge it)
+export const GAIA_STONE_COUNT = 8;
+export const GAIA_STONE_SELF_DAMAGE = .05;       // a field burned by a Sunstone costs her this share of phase HP
+export const GAIA_STONE_TRAVEL = 60, GAIA_STONE_RELIGHT = 60;
+// Phase 3: each aimed cast adds a second field one field-width from you toward your nearest lit Sunstone, and lit
+// stones hop 2 tiles in a random direction every 4s.
+export const GAIA_P3_TWIN_OFFSET = 4;            // tiles between the two fields
+export const GAIA_STONE_DRIFT_GAP = 240, GAIA_STONE_DRIFT_TICKS = 20, GAIA_STONE_DRIFT_STEP = 2; // every 4s, 2 tiles, random way
+export const GAIA_POD_GAP: Record<1 | 2 | 3, number> = { 1: 900, 2: 1080, 3: 1080 };
+export const GAIA_POD_FUSE = 480;                // 8s to burst
+export const GAIA_POD_BURST_RADIUS = 3;
+export const GAIA_BLOSSOM_GAP = 1200, GAIA_BLOSSOM_MAX = 3;
+// Lifeblooms (help): rare in phase 1, more in phase 2, most in phase 3.
+export const GAIA_LIFEBLOOM_GAP: Record<1 | 2 | 3, number> = { 1: 1500, 2: 900, 3: 360 }; // 25s, 15s, 6s
+export const GAIA_LIFEBLOOM_MAX: Record<1 | 2 | 3, number> = { 1: 1, 2: 2, 3: 3 };
+export const GAIA_LIFEBLOOM_HEAL = 20, GAIA_LIFEBLOOM_LIFE = 900;
+export const GAIA_BLOSSOM_KILL_HEAL = 15;         // breaking a blossom heals you this much
+export const GAIA_BLOSSOM_SELF_DAMAGE = .08;     // breaking a blossom costs her this share of the phase
+export const GAIA_BLOSSOM_HEAL = .005;           // share of phase HP per second, per blossom
+export const GAIA_BLOSSOM_SHOT_GAP = 180, GAIA_BLOSSOM_SHOT_RANGE = 7, GAIA_BLOSSOM_SHOT_DAMAGE = 4;
+export const GAIA_POLLEN_SLOW_TICKS = 60, GAIA_POLLEN_SLOW = .7;
+export const GAIA_SNARE_GAP = 360, GAIA_SNARE_WARNING = 60, GAIA_SNARE_DAMAGE = 6, GAIA_SNARE_ROOT = 90;
+export const GAIA_SPAWN_RATE = .6, GAIA_EXTRA_ENEMIES = 3; // aliens spawn 1.7× as often here, with 3 more allowed at once
+export const GAIA_ALIEN_CHANCE = .5;             // share of natural alien spawns replaced by Gaia aliens: 40% Ragecaps,
+                                                 // 30% each sporelings and vine crawlers
+export const GAIA_MUSHROOM_KNOCKBACK = 2;        // tiles a Ragecap's hit pushes you
+export const GAIA_SPORE_TICKS = 240, GAIA_SPORE_RADIUS = 2, GAIA_SPORE_SLOW = .7;
+export const GAIA_POLLEN_GAP = 2700, GAIA_POLLEN_TICKS = 480, GAIA_POLLEN_LASER = .5, GAIA_POLLEN_DRIFT_SLOW = .75; // inside the haze
 
 export const METEORITE_CYCLE = 1800; // ticks (~30s) until next strike is chosen
 export const METEORITE_WARNING = 300;  // ticks of warning (5s)

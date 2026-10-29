@@ -30,7 +30,10 @@ function Body({ trial }: { trial: Trial }) {
     case 'gaia': return <span className="sm-orb" style={{ background:
       'linear-gradient(#78cc4f, #78cc4f) 22% 24% / 34% 22% no-repeat, linear-gradient(#78cc4f, #78cc4f) 62% 66% / 30% 26% no-repeat, linear-gradient(#ffffff, #ffffff) 70% 14% / 22% 8% no-repeat, #2f6fd0',
       boxShadow: shade(s, '#1c4790', '#7fb0ff') }} />;
-    case 'moon': return <span className="sm-orb" style={{ background: '#d9d1f0', boxShadow: `inset ${-Math.round(s * .36)}px 0 0 #5d4e86, inset 3px 3px 0 #ffffff` }} />;
+    case 'moon': return <>
+      <span className="sm-orb" style={{ background: '#c6a2ff', boxShadow: `inset ${-Math.round(s * .36)}px 0 0 #4a2d8c, inset 3px 3px 0 #f3e6ff` }} />
+      <span className="sm-spot" style={{ left: '22%', top: '30%', width: s * .2, height: s * .2, background: '#a27ee8' }} />
+    </>;
     case 'jupiter': return <>
       <span className="sm-orb" style={{ background: 'repeating-linear-gradient(180deg, #e0a36a 0 9px, #b9713f 9px 15px, #f2cf9a 15px 20px)', boxShadow: shade(s, '#7a4322', '#ffe2b8') }} />
       <span className="sm-spot" style={{ left: '56%', top: '56%', width: s * .22, height: s * .13, background: '#c8452f', boxShadow: 'inset -3px -3px 0 #8f2b1c' }} />
@@ -62,11 +65,15 @@ function Body({ trial }: { trial: Trial }) {
 export default function CelestialTrialsMap() {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(() => Math.max(0, TRIALS.findIndex(t => t.ready)));
+  const [notReady, setNotReady] = useState<{ name: string; key: number } | null>(null);
+  useEffect(() => { if (!notReady) return; const timer = setTimeout(() => setNotReady(null), 1600); return () => clearTimeout(timer); }, [notReady]);
+  const ready = TRIALS.map((t, i) => t.ready ? i : -1).filter(i => i >= 0);
   useEffect(() => { setQuery(window.location.search); }, []);
   const trial = TRIALS[selected], skill = trialSkill(trial);
 
   const select = useCallback((index: number) => {
+    if (!TRIALS[index].ready) { playUiSfx('locked'); setNotReady({ name: TRIALS[index].name, key: Date.now() }); return; }
     setSelected(current => { if (current !== index) playUiSfx('page'); return index; });
   }, []);
   const begin = useCallback(() => {
@@ -76,13 +83,14 @@ export default function CelestialTrialsMap() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') { event.preventDefault(); select((selected + 1) % TRIALS.length); }
-      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') { event.preventDefault(); select((selected - 1 + TRIALS.length) % TRIALS.length); }
+      const at = ready.indexOf(selected);
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') { event.preventDefault(); select(ready[(at + 1) % ready.length]); }
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') { event.preventDefault(); select(ready[(at - 1 + ready.length) % ready.length]); }
       else if (event.key === 'Enter' && !(event.target instanceof HTMLButtonElement)) begin();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, select, begin]);
+  }, [selected, select, begin, ready]);
 
   return (
     <main className="ruby-star-ui sm-page">
@@ -143,10 +151,23 @@ export default function CelestialTrialsMap() {
         .sm-begin { margin-left: auto; padding: 14px 20px; font-family: var(--font-pixel); font-size: .8rem; cursor: pointer; white-space: nowrap;
           color: #0b0c14; background: var(--glow); border: 2px solid #ffffffaa; box-shadow: 0 0 14px color-mix(in srgb, var(--glow) 50%, transparent); }
         .sm-begin:hover, .sm-begin:focus-visible { outline: none; filter: brightness(1.12); box-shadow: 0 0 22px var(--glow); }
+        /* EXIT stands out against the dark map: brighter frame, panel fill and a soft glow (overrides the shared button's inline style). */
+        .sm-exit button { padding: 12px 22px !important; font-size: 1rem !important; gap: 10px !important; color: #e7e9f6 !important; background: #161b36 !important;
+          border: 2px solid #7f8cff !important; border-radius: 0 !important; box-shadow: 0 0 12px #7f8cff55; }
+        .sm-exit button:hover, .sm-exit button:focus-visible { outline: none; color: #ffffff !important; background: #222a52 !important; border-color: #c9cfff !important; box-shadow: 0 0 18px #7f8cffaa; }
+        .sm-node.sm-locked { filter: grayscale(1) brightness(.45); }
+        .sm-node.sm-locked:hover, .sm-node.sm-locked:focus-visible { filter: grayscale(1) brightness(.6); transform: translate(-50%, -50%); }
+        .sm-node.sm-locked .sm-art { animation: none; }
+        .sm-lock { position: absolute; left: 50%; top: 50%; z-index: 3; width: 14px; height: 11px; transform: translate(-50%, -30%); background: #c9cde0;
+          box-shadow: inset -3px -3px 0 #7d84a3; }
+        .sm-lock::before { content: ''; position: absolute; left: 3px; top: -7px; width: 8px; height: 8px; box-sizing: border-box; border: 2px solid #c9cde0; border-bottom: 0; }
+        .sm-toast { position: absolute; left: 50%; bottom: 18px; z-index: 5; transform: translateX(-50%); padding: 10px 16px; font-family: var(--font-pixel); font-size: .7rem;
+          letter-spacing: .08em; color: #ffd6d6; background: #1a0f16f2; border: 2px solid #c75b6b; box-shadow: 0 0 14px #c75b6b55; animation: smToast 1.6s ease forwards; }
+        @keyframes smToast { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
       `}</style>
       <div className="sm-stars" aria-hidden="true" />
       <div className="sm-inner">
-        <BackButton href={'/ruby-star' + query} playSound={() => playUiSfx('back')} arrow={<PixelArrow direction="left" />} />
+        <div className="sm-exit"><BackButton href={'/ruby-star' + query} playSound={() => playUiSfx('back')} arrow={<PixelArrow direction="left" />} /></div>
         <h1 className="sm-title">CELESTIAL CHALLENGE</h1>
         <p className="sm-sub">CHOOSE A WORLD</p>
         <div className="sm-map" role="group" aria-label="Star map">
@@ -158,22 +179,23 @@ export default function CelestialTrialsMap() {
           {TRIALS.map((body, i) => {
             const glow = trialSkill(body).color === '#303036' ? '#bcbccd' : trialSkill(body).color;
             return (
-              <button key={body.id} type="button" className="sm-node" aria-pressed={i === selected} aria-label={`Challenge: ${body.name}`}
+              <button key={body.id} type="button" className={'sm-node' + (body.ready ? '' : ' sm-locked')} aria-pressed={i === selected} aria-label={`Challenge: ${body.name}${body.ready ? '' : ' (not ready)'}`}
                 style={{ left: `${body.x}%`, top: `${body.y}%`, ['--glow' as string]: glow, ['--s' as string]: `${body.size}px`, ['--delay' as string]: `${-i * .37}s` }}
-                onMouseEnter={() => playUiSfx('hover')} onFocus={() => select(i)}
+                onMouseEnter={() => playUiSfx('hover')} onFocus={() => { if (body.ready) select(i); }}
                 onClick={() => i === selected ? begin() : select(i)}>
                 <span className="sm-art"><Body trial={body} /></span>
+                {!body.ready && <span className="sm-lock" aria-hidden="true" />}
                 {i === selected && <span className="sm-select" aria-hidden="true" />}
                 <span className="sm-label" style={{ top: `calc(100% + ${body.id === 'sun' || body.id === 'sirius' ? Math.round(body.size * .3) + 10 : 18}px)` }}>{body.name}</span>
               </button>
             );
           })}
+          {notReady && <div key={notReady.key} className="sm-toast" role="status">{notReady.name} · CHALLENGE NOT READY</div>}
         </div>
         <section className="sm-panel" aria-live="polite" style={{ ['--glow' as string]: skill.color === '#303036' ? '#bcbccd' : skill.color }}>
           <div>
             <div className="sm-panel-name">CHALLENGE: {trial.name}</div>
             <div className="sm-panel-row">Guardian: <strong>{trialBossName(trial)}</strong> · Celestial skill: <strong>{skill.name}</strong></div>
-            <div className="sm-panel-note">Prototype: defeat this guardian, the only boss, to win. Its celestial skill recharges every 30s. Full multi-phase challenge in development.</div>
           </div>
           <button type="button" className="sm-begin" onMouseEnter={() => playUiSfx('hover')} onClick={begin}>BEGIN CHALLENGE ▶</button>
         </section>

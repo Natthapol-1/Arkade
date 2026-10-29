@@ -4,12 +4,18 @@ import { stopAmbientEventSounds, pauseAmbientEventSounds } from './event-audio';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { drawEncounterEnemy, drawEncounterTelegraphs, drawEncounterEffects } from './encounter-art';
 import { drawNeptuneUnit, drawNeptuneOverlay, drawSkyLaserImpact, drawWaterBurst } from './neptune-art';
+import { drawGaiaUnit, drawGaiaGround, drawGaiaOverlay, drawForestBackdrop, drawForestAmbience, GAIA_CHAMBER_COLORS } from './gaia-art';
+import { drawMoonBackdrop, drawMoonAmbience, drawMoonCrystalBlock, drawMoonReflection, drawMoonEffects, isMoonMap, MOON_CHAMBER_COLORS } from './moon-art';
+import { isMoonBoss, moonWearsGuise, useMoonMark, canUseMoonMark } from './moon';
 import BackButton from '@/components/BackButton';
 import { useRouter } from 'next/navigation';
 import PixelArrow from '@/components/PixelArrow';
 import RulesModal from '@/components/RulesModal';
 import RubyStarGuide, { bosses as BOSS_GUIDE } from './RubyStarGuide';
 import NeptuneGuide from './NeptuneGuide';
+import GaiaGuide from './GaiaGuide';
+import MoonGuide from './MoonGuide';
+import VictoryScreen from './VictoryScreen';
 import { playUiSfx } from './ui-sfx';
 import { findTrial, TrialBody } from './trials';
 import ConstellationChoice from './ConstellationChoice';
@@ -22,8 +28,8 @@ import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
   SPECIAL_SKILLS, SPECIAL_UNLOCK_KILLS, SPECIAL_REAPER_RADIUS, SPECIAL_CHANTER_RADIUS, SPECIAL_WEAVER_RADIUS, SPECIAL_SINGULARITY_RADIUS,
   T_WALL, T_TELEPORT,
-  CHAMBER_BOUNDS, CHAMBER_LABELS, CHAMBER_COLORS, HALLWAY_BOUNDS, DEVOURER_SELF_SPLIT_TICKS, DEVOURER_SELF_SPLIT_WARNING, TUTORIAL_STEPS, TRIAL_SKILL_COOLDOWN,
-  NEPTUNE_PHASE_HP, NEPTUNE_DIVE_POINTS, NEPTUNE_HEAL_CHARGE_MAX,
+  CHAMBER_BOUNDS, CHAMBER_LABELS, CHAMBER_COLORS, HALLWAY_BOUNDS, DEVOURER_SELF_SPLIT_TICKS, DEVOURER_SELF_SPLIT_WARNING, TUTORIAL_STEPS, trialSkillCooldown,
+  NEPTUNE_PHASE_HPS, neptunePhaseFloorHP, NEPTUNE_DIVE_POINTS, NEPTUNE_HEAL_CHARGE_MAX, GAIA_PHASE_HP, GAIA_SUN_MAX, GAIA_SUN_MIN, MOON_MARK_COOLDOWN,
   chamberOfTile,
   ENEMY_CONFIGS, isBossType, BOSS_TYPES, BOSS_NAMES, BossType, BOSS_SKILL_REWARDS, SpecialSkill,
   PLAYER_MAX_HP, RUBY_MAX_HP,
@@ -39,10 +45,12 @@ import {
   GameState, RubyStarMode, createModeState, tick, CONSTELLATIONS, chooseConstellation, openGodConstellations, closeGodConstellations, getBombRadius,
   AMBIENT_EVENTS, STAR_FALL_TICKS, SUPERNOVA_CHARGE_TICKS, SUPERNOVA_BLAST_TICKS, triggerAmbientEvent, AmbientEventKind,
   useLaser, useBullet, activateWave, useSpeedBoost, useBomb, useSpecialSkill, godSpawnBoss, createInitialState, godSetNoMobs, godSetNoBossSpawns, godAdvanceStage,
-  chooseStartingSkill, godSetNeptunePhase, openSkyLaser, chooseSkyLaser, cancelSkyLaser, canOpenSkyLaser, toggleCarryRuby, tryActivateTeleport, isNearTeleportPad, doTeleport, cancelTeleport,
+  chooseStartingSkill, chooseSkyLaser, cancelSkyLaser, toggleCarryRuby, tryActivateTeleport, isNearTeleportPad, doTeleport, cancelTeleport,
   healRuby, isPlayerChilled, isMovementReversed, isSeaChanterDiving, isEnemyVisibleOnMinimap, startChargeSound, stopChargeSound, stopPoisonSound, stopSingularitySound, stopGaiaFieldSound,
   METEOR_CLOCKWISE_ORDER, getMirrorTwinTile, devourerBodyScale,
 } from './engine';
+import { godSetNeptunePhase, openSkyLaser, canOpenSkyLaser } from './neptune';
+import { godSetGaiaPhase, useSunfire, playStrikeCharged } from './gaia';
 
 // ─── Canvas colors ────────────────────────────────────────────────────────────
 const BG_COLOR = '#000010';
@@ -559,7 +567,7 @@ function drawMinimap(
   isMobileTouch = false,
 ) {
   const S = isMobileTouch ? 3 : 4; // px per tile — smaller on mobile, unchanged on desktop
-  const ROOM_COLORS: readonly string[] = state.neptune ? OCEAN_CHAMBER_COLORS : CHAMBER_COLORS; // Neptune uses the ocean palette
+  const ROOM_COLORS: readonly string[] = state.neptune ? OCEAN_CHAMBER_COLORS : state.gaia ? GAIA_CHAMBER_COLORS : isMoonMap(state) ? MOON_CHAMBER_COLORS : CHAMBER_COLORS; // challenge worlds use their own palette
   const MW = MAP_COLS * S;
   const MH = MAP_ROWS * S;
   const PAD = 8;
@@ -580,12 +588,15 @@ function drawMinimap(
       const px = MX + tx * S;
       const py = MY + ty * S;
       if (tile === T_WALL) {
-        ctx.fillStyle = state.neptune ? '#020d18' : '#060615';
+        ctx.fillStyle = state.neptune ? '#020d18' : state.gaia ? '#04120a' : isMoonMap(state) ? '#0a0614' : '#060615';
       } else {
         const ch = chamberOfTile(tx, ty);
         ctx.fillStyle = ch >= 0 ? ROOM_COLORS[ch] + '28' : '#17283c';
       }
       ctx.fillRect(px, py, S, S);
+      // Gaia: overgrowth shows tile by tile, so you can read which rooms are feeding her.
+      const growth = state.gaia?.growth[ty * MAP_COLS + tx] ?? 0;
+      if (growth >= 2) { ctx.fillStyle = growth >= 3 ? '#2f7a1fcc' : '#4fae2f99'; ctx.fillRect(px, py, S, S); }
     }
   }
 
@@ -627,6 +638,24 @@ function drawMinimap(
     const [r1, c1, r2, c2] = CHAMBER_BOUNDS[skyLaser.chamber];
     ctx.fillStyle = 'rgba(160,236,255,0.5)';
     ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
+  }
+  // Gaia: Sunfire's target blinks gold, and lit Sunstones show as gold dots.
+  const sunfire = state.gaia?.sunfire;
+  if (sunfire && Math.floor(tickN / 6) % 2 === 0) {
+    const [r1, c1, r2, c2] = CHAMBER_BOUNDS[sunfire.chamber];
+    ctx.fillStyle = 'rgba(255,211,106,0.5)';
+    ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
+  }
+  for (const stone of state.gaia?.stones ?? []) {
+    if (stone.travel > 0) continue;
+    ctx.fillStyle = stone.lit ? '#ffd36a' : '#7a7258';
+    ctx.fillRect(MX + stone.x * S - 1, MY + stone.y * S - 1, S + 2, S + 2);
+  }
+  // Neptune: a clone revealed by a jellyfish blinks pink.
+  const revealed = state.neptune?.reveal && state.enemies.find(c => c.id === state.neptune!.reveal!.cloneId);
+  if (revealed && Math.floor(tickN / 8) % 2 === 0) {
+    ctx.save(); ctx.strokeStyle = '#ff9ce6'; ctx.lineWidth = 2; ctx.strokeRect(MX + revealed.tileX * S - 4, MY + revealed.tileY * S - 4, S + 8, S + 8);
+    ctx.fillStyle = '#ffd6f4'; ctx.fillRect(MX + revealed.tileX * S - 1, MY + revealed.tileY * S - 1, S + 2, S + 2); ctx.restore();
   }
   // Tide rooms: a faint blue wash with chevrons drifting along the current, like the tide on the floor.
   for (const tide of state.neptune?.tides ?? []) {
@@ -684,8 +713,32 @@ function drawMinimap(
   // Enemies
   for (const e of state.enemies) {
     if (!isEnemyVisibleOnMinimap(e)) continue;
-    ctx.fillStyle = ENEMY_CONFIGS[e.type].color;
+    ctx.fillStyle = state.moon && moonWearsGuise(state, e) ? ENEMY_CONFIGS.moon_illusion.color : ENEMY_CONFIGS[e.type].color; // the Moon Queen hides among her illusions
     ctx.fillRect(MX + e.tileX * S, MY + e.tileY * S, S, S);
+  }
+
+  // Moon Mark: an ice-blue frame around the marked dot, so you can follow her across the map.
+  const markedOnMap = state.moon?.mark && state.enemies.find(e => e.id === state.moon!.mark!.id);
+  if (state.moon?.mark && markedOnMap && (state.moon.mark.ticks > 60 || Math.floor(tickN / 6) % 2 === 0)) {
+    const x = Math.round(MX + (markedOnMap.tileX + .5) * S), y = Math.round(MY + (markedOnMap.tileY + .5) * S), r = 6 + Math.floor(Math.abs(Math.sin(tickN * .1)) * 2);
+    ctx.save(); ctx.strokeStyle = '#a9e6ff'; ctx.shadowColor = '#a9e6ff'; ctx.shadowBlur = 6; ctx.lineWidth = 2; ctx.strokeRect(x - r, y - r, r * 2, r * 2); ctx.restore();
+  }
+
+  // Gaia phase 3: lifeblooms (your heal) show as mint crosses.
+  for (const e of state.enemies) {
+    if (e.type !== 'lifebloom' || e.hp <= 0) continue;
+    const x = Math.round(MX + (e.tileX + .5) * S), y = Math.round(MY + (e.tileY + .5) * S);
+    ctx.save(); ctx.globalAlpha = .75 + .25 * Math.abs(Math.sin(tickN * .12)); ctx.fillStyle = '#9fffc8'; ctx.shadowColor = '#9fffc8'; ctx.shadowBlur = 5;
+    ctx.fillRect(x - 2, y - 6, 4, 12); ctx.fillRect(x - 6, y - 2, 12, 4); ctx.restore();
+  }
+  // Gaia: healing blossoms stand out as pulsing pink flowers, so you can find and cut them.
+  for (const e of state.enemies) {
+    if (e.type !== 'blossom' || e.hp <= 0) continue;
+    const x = Math.round(MX + (e.tileX + .5) * S), y = Math.round(MY + (e.tileY + .5) * S);
+    ctx.save(); ctx.globalAlpha = .75 + .25 * Math.abs(Math.sin(tickN * .12)); ctx.shadowColor = '#ff8fc8'; ctx.shadowBlur = 5;
+    ctx.fillStyle = '#ff8fc8'; ctx.fillRect(x - 2, y - 6, 4, 4); ctx.fillRect(x - 2, y + 2, 4, 4); ctx.fillRect(x - 6, y - 2, 4, 4); ctx.fillRect(x + 2, y - 2, 4, 4);
+    ctx.shadowBlur = 0; ctx.fillStyle = '#ffd36a'; ctx.fillRect(x - 2, y - 2, 4, 4);
+    ctx.restore();
   }
 
   // Pylons sit above ordinary alien dots, with the same gold/cyan silhouette as their model.
@@ -716,7 +769,7 @@ function drawMinimap(
 
   // Boss on minimap — huge pulsing dot with glowing core and border
   for (const e of state.enemies) {
-    if (isBossType(e.type) && isEnemyVisibleOnMinimap(e)) {
+    if (isBossType(e.type) && isEnemyVisibleOnMinimap(e) && !(state.moon && moonWearsGuise(state, e))) {
       if (e.type === 'aegis_sentinel' || e.type === 'astral_twins') {
         const x = MX + e.tileX * S, y = MY + e.tileY * S;
         ctx.fillStyle = e.twin?.downedTicks ? '#65657a' : e.twin?.index === 1 ? '#83cfff' : ENEMY_CONFIGS[e.type].color;
@@ -727,6 +780,19 @@ function drawMinimap(
       const pulse = 0.6 + 0.4 * Math.abs(Math.sin(tickN * 0.12));
       const bx = MX + e.tileX * S;
       const by = MY + e.tileY * S;
+      // Gaia: the green Weaver would vanish against green vines, so it gets a dark backing, a bright gold
+      // body and an expanding white ring, readable even in a fully overgrown room.
+      if (state.gaia && e.type === 'thorn_weaver') {
+        const cx = bx + S / 2, cy = by + S / 2, ring = 8 + ((tickN * .3) % 8);
+        ctx.save();
+        ctx.globalAlpha = 1 - ((tickN * .3) % 8) / 8; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+        ctx.strokeRect(cx - ring, cy - ring, ring * 2, ring * 2);
+        ctx.globalAlpha = 1; ctx.fillStyle = '#05080a'; ctx.fillRect(cx - 7, cy - 7, 14, 14);
+        ctx.shadowColor = '#ffd36a'; ctx.shadowBlur = 6; ctx.fillStyle = `rgba(255,${200 + Math.round(40 * pulse)},106,1)`; ctx.fillRect(cx - 5, cy - 5, 10, 10);
+        ctx.shadowBlur = 0; ctx.fillStyle = '#294525'; ctx.fillRect(cx - 2, cy - 2, 4, 4);
+        ctx.restore();
+        continue;
+      }
 
       // Deep purple for the Queen, cyan for the Reaper (glow matches her own color), the
       // Devourer's dot fills toxic green (her veins) but glows violet (her body color), white
@@ -1237,6 +1303,8 @@ function drawThornGround(ctx: CanvasRenderingContext2D, state: GameState, camX: 
   for (const e of state.enemies) {
     if (e.type === 'thorn_weaver' && e.hp > 0 && (e.thorn?.windupTicks ?? 0) > 0)
       areas.push({ x: e.thorn!.aimX, y: e.thorn!.aimY, ticks: e.thorn!.windupTicks, radius: THORN_RADIUS, warning: true });
+    if (e.type === 'thorn_weaver' && e.hp > 0 && (e.thorn?.windupTicks ?? 0) > 0 && e.thorn!.aim2) // Gaia phase 3 twin cast
+      areas.push({ x: e.thorn!.aim2.x, y: e.thorn!.aim2.y, ticks: e.thorn!.windupTicks, radius: THORN_RADIUS, warning: true });
   }
   for (const rawArea of areas) {
     const bounds=getThornFieldBounds(rawArea.x,rawArea.y,rawArea.radius),area={...rawArea,x:bounds.x,y:bounds.y};
@@ -1250,52 +1318,24 @@ function drawThornGround(ctx: CanvasRenderingContext2D, state: GameState, camX: 
     const growth = area.warning ? 0 : Math.min(1, age / 24);
     const progress = area.warning ? 1 - area.ticks / THORN_WINDUP : 1;
     // A continuous translucent wash tints floor tiles, keeping walls clear and no grid seams.
-    ctx.globalAlpha = fade * (area.warning ? .09 + progress * .05 : .2);
+    ctx.globalAlpha = fade * (area.warning ? .09 + progress * .05 : .26);
     ctx.fillStyle = area.warning ? '#b5bd50' : '#729d3d'; // the defence field shares the normal field's green
     for(let ty=bounds.top/TILE_SIZE;ty<bounds.bottom/TILE_SIZE;ty++){
       for(let tx=bounds.left/TILE_SIZE;tx<bounds.right/TILE_SIZE;tx++){
         if((state.map[ty]?.[tx] ?? T_WALL)!==T_WALL)ctx.fillRect(tx*TILE_SIZE-camX,ty*TILE_SIZE-camY,TILE_SIZE,TILE_SIZE);
       }
     }
-    // Stable irregular placements avoid a tiled garden, without flickering between frames.
-    const seedBase = Math.floor(area.x * 13 + area.y * 7);
-    const noise = (i: number) => { const n = Math.sin(i * 127.1 + seedBase) * 43758.5453; return n - Math.floor(n); };
-    for (let i = 0; !area.warning && i < Math.round(26 * (area.radius / THORN_RADIUS) ** 2); i++) {
-      const wx = area.x + (noise(i * 4 + 1) * 2 - 1) * (area.radius - 5);
-      const wy = area.y + (noise(i * 4 + 2) * 2 - 1) * (area.radius - 5);
-      if ((state.map[Math.floor(wy / TILE_SIZE)]?.[Math.floor(wx / TILE_SIZE)] ?? T_WALL) === T_WALL) continue;
-      const x = Math.round(wx - camX), y = Math.round(wy - camY);
-      const direction = noise(i * 4 + 3) > .5 ? 1 : -1;
-      const reach = 9 + Math.floor(noise(i * 4 + 4) * 17);
-      ctx.globalAlpha = fade * (area.warning ? .25 + progress * .4 : .7);
-      ctx.strokeStyle = '#477f48';ctx.lineWidth = 3;ctx.shadowBlur=0;
-      // Bent branching roots, rather than identical crosses on a cell grid.
-      ctx.beginPath();ctx.moveTo(x - direction * reach, y + 5);
-      ctx.lineTo(x - direction * reach, y);ctx.lineTo(x, y);ctx.lineTo(x, y - reach * .4);
-      ctx.lineTo(x + direction * 7, y - reach * .4);ctx.stroke();
-      // Thin alien current runs through selected roots, without adding a floor grid.
-      if(i%3===0){
-        ctx.globalAlpha=fade*(.3+.18*Math.sin(tickN*.05+i));ctx.strokeStyle='#b3ef9b';ctx.lineWidth=1;ctx.stroke();
-        ctx.fillStyle='#d5ffd1';ctx.fillRect(x-2,y-2,4,4);
-      }
-      const height = Math.round((8 + noise(i + 300) * 12) * growth);
-      const lean = direction * Math.round(height * .3);
-      ctx.globalAlpha = fade * .9;ctx.fillStyle = '#4a8756';ctx.fillRect(x-2,y-height/2,4,height/2+4);
-      ctx.fillStyle='#85c76a';ctx.fillRect(x+lean-2,y-height,4,height/2+3);
-      ctx.fillRect(Math.min(x,x+lean)-2,y-height/2-2,Math.abs(lean)+4,4);
-      ctx.fillStyle=i%3 ? '#64a65b' : '#a2d585';
-      ctx.fillRect(x+lean+direction*3-(direction<0?8:0),y-height+5,8,4);
-      ctx.shadowColor='#adf7a3';ctx.shadowBlur=4;
-      ctx.fillStyle='#daffd0';ctx.fillRect(x+lean-1,y-height-4,3,5);ctx.shadowBlur=0;
-      // Tiny crystalline collars make the thorns read as energy-grown alien plants.
-      if(i%3===0){ctx.fillStyle='#99da88';ctx.fillRect(x+lean-3,y-height-1,7,3);}
-      if(i%7===0){ctx.fillStyle='#cb86c4';ctx.fillRect(x+lean-3,y-height-5,7,4);ctx.fillStyle='#ffd2f0';ctx.fillRect(x+lean-1,y-height-5,3,2);}
-      const drift = ((tickN + i * 13) % 100) / 100;
-      if(i%4===0){ctx.globalAlpha=fade*Math.sin(drift*Math.PI)*.5;ctx.fillStyle='#c3f4bc';ctx.fillRect(x+direction*drift*7,y-height-drift*16,2,3);if(i%8===0)ctx.fillRect(x+direction*drift*7-2,y-height-drift*16+1,6,1);}
-      if(age<30 && i%3===0){ctx.globalAlpha=fade*(1-age/30);ctx.fillStyle='#c9d98e';ctx.fillRect(x,y-Math.sin(age/30*Math.PI)*30,3,4);}
+    // One simple thorn sprout per tile, matching the plain overgrowth style: a stem that grows in, then a pale tip.
+    for(let ty=bounds.top/TILE_SIZE;!area.warning&&ty<bounds.bottom/TILE_SIZE;ty++)for(let tx=bounds.left/TILE_SIZE;tx<bounds.right/TILE_SIZE;tx++){
+      if((state.map[ty]?.[tx]??T_WALL)===T_WALL)continue;
+      const n=Math.sin(tx*127.1+ty*311.7)*43758.5453,h=n-Math.floor(n);
+      const x=tx*TILE_SIZE-camX+12+Math.floor(h*22),y=ty*TILE_SIZE-camY+34,height=Math.round(18*growth);
+      ctx.globalAlpha=fade;ctx.fillStyle='#4f8f3c';ctx.fillRect(x-3,y-height,6,height);
+      ctx.fillStyle='#85c76a';ctx.fillRect(x+3,y-Math.round(height*.6),6,4);
+      if(height>6){ctx.fillStyle='#e0f4a8';ctx.fillRect(x-2,y-height-4,4,4);}
     }
     // One luminous boundary marks the actual walkable hazard tiles.
-    ctx.globalAlpha=fade*(area.warning?.6+progress*.3:.45);ctx.strokeStyle=area.warning?'#ffd68b':'#99cf68';ctx.shadowColor=area.warning?'#ffbc65':'#88bc45';ctx.shadowBlur=8;ctx.lineWidth=3;
+    ctx.globalAlpha=fade*(area.warning?.6+progress*.3:.45);ctx.strokeStyle=area.warning?'#ffd68b':'#99cf68';ctx.shadowColor=area.warning?'#ffbc65':'#88bc45';ctx.shadowBlur=4;ctx.lineWidth=3;
     const floor=(tx:number,ty:number)=>tx>=bounds.left/TILE_SIZE&&tx<bounds.right/TILE_SIZE&&ty>=bounds.top/TILE_SIZE&&ty<bounds.bottom/TILE_SIZE&&(state.map[ty]?.[tx]??T_WALL)!==T_WALL;
     ctx.beginPath();
     for(let ty=bounds.top/TILE_SIZE;ty<bounds.bottom/TILE_SIZE;ty++)for(let tx=bounds.left/TILE_SIZE;tx<bounds.right/TILE_SIZE;tx++){
@@ -2418,12 +2458,34 @@ function drawGuideBoss(ctx: CanvasRenderingContext2D, x: number, y: number, tick
   hideBossHeadBars = hide;
 }
 
+// Moon rule sheet: the Queen disguised as her Echo, or showing her true self.
+let guideQueen: GameState['enemies'][0] | null = null;
+function drawGuideQueen(ctx: CanvasRenderingContext2D, x: number, y: number, tick: number, disguised: boolean) {
+  if (!guideQueen) { const s = createInitialState(); godSpawnBoss(s, 'splitter_queen'); guideQueen = s.enemies.find(e => e.type === 'splitter_queen') ?? null; }
+  if (!guideQueen) return;
+  guideQueen.hp = guideQueen.maxHp; guideQueen.phaseTimer = 999;
+  const hide = hideBossHeadBars; hideBossHeadBars = true;
+  ctx.save(); ctx.translate(x, y); ctx.scale(.6, .6); drawEnemy(ctx, disguised ? { ...guideQueen, type: 'queen_echo' } : guideQueen, 0, 0, tick); ctx.restore();
+  hideBossHeadBars = hide;
+}
+
+let guideWeaver: GameState['enemies'][0] | null = null;
+function drawGuideWeaver(ctx: CanvasRenderingContext2D, x: number, y: number, tick: number) {
+  if (!guideWeaver) { const s = createInitialState(); godSpawnBoss(s, 'thorn_weaver'); guideWeaver = s.enemies.find(e => e.type === 'thorn_weaver') ?? null; }
+  if (!guideWeaver) return;
+  guideWeaver.hp = guideWeaver.maxHp; guideWeaver.targetTileX = guideWeaver.tileX + 1; guideWeaver.targetTileY = guideWeaver.tileY;
+  const hide = hideBossHeadBars; hideBossHeadBars = true;
+  ctx.save(); ctx.translate(x, y); ctx.scale(.6, .6); drawEnemy(ctx, guideWeaver, 0, 0, tick); ctx.restore();
+  hideBossHeadBars = hide;
+}
+
 function drawEnemy(ctx: CanvasRenderingContext2D, e: GameState['enemies'][0], sx: number, sy: number, tickN: number, shielded = false) {
   const cfg = ENEMY_CONFIGS[e.type];
   if (e.type === 'aegis_sentinel' || e.type === 'aegis_construct' || e.type === 'astral_twins') {
     drawEncounterEnemy(ctx, e, sx, sy, tickN, !(hideBossHeadBars && e.type !== 'aegis_construct')); return;
   }
   if (drawNeptuneUnit(ctx, e, sx, sy, tickN)) return;
+  if (drawGaiaUnit(ctx, e, sx, sy, tickN)) return;
   const size = Math.floor(TILE_SIZE * cfg.bodyFraction);
   const half = size / 2;
   const pad = Math.max(2, Math.floor(size * 0.12));
@@ -4028,9 +4090,9 @@ function drawBattlefieldIce(ctx: CanvasRenderingContext2D, x: number, y: number,
 function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, viewW: number, viewH: number, tick: number) {
   ctx.save();const size=TILE_SIZE,ice=new Set(state.frostIceTiles.map(([x,y])=>x+','+y)),eclipse=eclipseVisualStrength(state);
   const x0=Math.max(0,Math.floor(camX/size)-1),y0=Math.max(0,Math.floor(camY/size)-1),x1=Math.min(MAP_COLS-1,Math.ceil((camX+viewW)/size)+1),y1=Math.min(MAP_ROWS-1,Math.ceil((camY+viewH)/size)+1);
-  const ocean=!!state.neptune;
+  const ocean=!!state.neptune,forest=!!state.gaia,moon=isMoonMap(state);
   const battlefieldColor=(ch:number)=>{
-    const base=ocean?(ch>=0?OCEAN_CHAMBER_COLORS[ch]:'#5fb8ff'):ch>=0?CHAMBER_COLORS[ch]:'#8899ff';
+    const base=ocean?(ch>=0?OCEAN_CHAMBER_COLORS[ch]:'#5fb8ff'):forest?(ch>=0?GAIA_CHAMBER_COLORS[ch]:'#b8d86a'):moon?(ch>=0?MOON_CHAMBER_COLORS[ch]:'#d8c2ff'):ch>=0?CHAMBER_COLORS[ch]:'#8899ff';
     if(eclipse<=0)return base;
     const night=ch>=0?['#7986d7','#a185c8','#748dba','#aa95cc'][ch]:'#8b8fcf';
     const channel=(offset:number)=>Math.round(parseInt(base.slice(offset,offset+2),16)*(1-eclipse)+parseInt(night.slice(offset,offset+2),16)*eclipse).toString(16).padStart(2,'0');
@@ -4043,12 +4105,13 @@ function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: 
     const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=battlefieldColor(ch);ctx.shadowBlur=0;
     if(wall(tx,ty)){
       if(!cover(tx,ty))continue;
-      ctx.fillStyle=ocean?'#06263a':'#0f0f28';ctx.fillRect(x,y,size,size);ctx.fillStyle=color+'22';ctx.fillRect(x,y,size,size);
+      if(moon){drawMoonCrystalBlock(ctx,state,tx,ty,x,y,color,tick);continue;} // the Moon: every cover block is crystal
+      ctx.fillStyle=ocean?'#06263a':forest?'#102a14':moon?'#1c1236':'#0f0f28';ctx.fillRect(x,y,size,size);ctx.fillStyle=color+'22';ctx.fillRect(x,y,size,size);
       ctx.shadowColor=color;ctx.shadowBlur=3;ctx.strokeStyle=color+'55';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,size-2,size-2);continue;
     }
-    ctx.fillStyle=ocean?(ch>=0?'#04192c':'#031424'):ch>=0?'#0d0d22':'#0a0a1a';ctx.fillRect(x,y,size,size);
-    if(ch>=0){ctx.fillStyle=color+(ocean?'14':'10');ctx.fillRect(x,y,size,size);}
-    ctx.strokeStyle=ocean?'#9fe4ff0d':'#ffffff0f';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,size-1,size-1);
+    ctx.fillStyle=ocean?(ch>=0?'#04192c':'#031424'):forest?(ch>=0?'#0c1a0e':'#0a160c'):moon?(ch>=0?'#0b0717':'#090614'):ch>=0?'#0d0d22':'#0a0a1a';ctx.fillRect(x,y,size,size);
+    if(ch>=0){ctx.fillStyle=color+(ocean||forest||moon?'14':'10');ctx.fillRect(x,y,size,size);}
+    ctx.strokeStyle=ocean?'#9fe4ff0d':forest?'#d8f0a00d':moon?'#e9d8ff10':'#ffffff0f';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,size-1,size-1);
   }
   // Glowing colored borders follow the map's exposed edges, preserving door openings.
   for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
@@ -4064,6 +4127,8 @@ function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: 
     if(ice.has(tx+','+ty))drawBattlefieldIce(ctx,x,y,tick);
   }
   if(ocean)drawOceanAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
+  else if(forest)drawForestAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
+  else if(moon)drawMoonAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
   else drawFloorStars(ctx,state,camX,camY,x0,y0,x1,y1,tick);
   ctx.restore();
 }
@@ -4354,6 +4419,8 @@ function drawGame(
   ctx.scale(worldZoom, worldZoom);
 
   if (state.neptune) drawOceanBackdrop(ctx, viewW, viewH, camX, camY, tickN); // Neptune: the void becomes open ocean
+  else if (state.gaia) drawForestBackdrop(ctx, viewW, viewH, camX, camY, tickN); // Gaia: a dusky forest
+  else if (isMoonMap(state)) drawMoonBackdrop(ctx, viewW, viewH, camX, camY, tickN); // the Moon: a shadowy crystal cavern
   else drawSpaceBackdrop(ctx, viewW, viewH, camX, camY, tickN); // endless: a quiet starfield behind the station
 
   drawBattlefield(ctx,state,camX,camY,viewW,viewH,tickN);
@@ -4379,6 +4446,7 @@ function drawGame(
     }
   }
 
+  drawGaiaGround(ctx, state, camX, camY, viewW, viewH, tickN);
   drawThornGround(ctx, state, camX, camY, tickN);
   drawNeptuneOverlay(ctx, state, camX, camY, tickN);
   drawEncounterTelegraphs(ctx, state, camX, camY);
@@ -4565,9 +4633,16 @@ function drawGame(
   for (const e of state.enemies) {
     const sx = e.x - camX;
     const sy = e.y - camY;
-    drawEnemy(ctx, e, sx, sy, tickN, shieldedIds.has(e.id));
+    // Gaia: she fades into the soil while withering between phases.
+    if (state.gaia && e.id === state.gaia.bossId && state.gaia.wither > 0) ctx.globalAlpha = .25 + .2 * Math.abs(Math.sin(tickN * .1));
+    // Moon: she and her illusions share the Echo look; only she casts a reflection on the crystal floor.
+    if (state.moon && moonWearsGuise(state, e)) {
+      if (isMoonBoss(state, e)) drawMoonReflection(ctx, sx, sy, tickN);
+      drawEnemy(ctx, { ...e, type: 'queen_echo' }, sx, sy, tickN, shieldedIds.has(e.id));
+    } else drawEnemy(ctx, e, sx, sy, tickN, shieldedIds.has(e.id));
     ctx.globalAlpha = 1; // reset in case ghost modified it
   }
+  drawMoonEffects(ctx, state, camX, camY, tickN);
 
   // Death particles — blocky debris burst on enemy kill
   for (const p of state.deathParticles) {
@@ -4584,7 +4659,7 @@ function drawGame(
 
   // Ordinary attacks only: each boss has a dedicated beam, strike, wave or field.
   for(const enemy of state.enemies){
-    if(enemy.shootTicks<=0||isBossType(enemy.type)||enemy.type==='queen_echo')continue;
+    if(enemy.shootTicks<=0||isBossType(enemy.type)||enemy.type==='queen_echo'||enemy.type==='moon_illusion')continue;
     const x=enemy.x-camX,y=enemy.y-camY;
     const targetX=enemy.targeting==='ruby'&&state.rubyTileX!==-1?(state.rubyTileX+.5)*TILE_SIZE-camX:(state.lunarDecoy?.x??state.playerX)-camX;
     const targetY=enemy.targeting==='ruby'&&state.rubyTileY!==-1?(state.rubyTileY+.5)*TILE_SIZE-camY:(state.lunarDecoy?.y??state.playerY)-camY;
@@ -4685,6 +4760,7 @@ function drawGame(
     if((fx.kind==='frost_warden'||fx.kind==='aegis_sentinel') && state.rubyTileX!==-1)drawCelestialCast(ctx,fx.kind,(state.rubyTileX+.5)*TILE_SIZE-camX,(state.rubyTileY+.5)*TILE_SIZE-camY,age,tickN);
   }
 
+  drawGaiaOverlay(ctx, state, camX, camY, tickN);
   drawMeteorImpact(ctx, state, camX, camY);
   drawSkyLaserImpact(ctx, state, camX, camY);
 
@@ -4728,17 +4804,35 @@ function GuardianBar({ state }: { state: GameState }) {
   if (neptune) {
     // Three phase segments, phase 3 on the left and phase 1 on the right; dive points marked inside the active one.
     const segments = [3, 2, 1].map(phase => {
-      const floor = (3 - phase) * NEPTUNE_PHASE_HP, fill = present ? Math.max(0, Math.min(1, (hp - floor) / NEPTUNE_PHASE_HP)) : 0;
+      const floor = neptunePhaseFloorHP(phase as 1 | 2 | 3), fill = present ? Math.max(0, Math.min(1, (hp - floor) / NEPTUNE_PHASE_HPS[phase as 1 | 2 | 3])) : 0;
       return { phase, fill: phase < neptune.phase ? 0 : phase > neptune.phase ? (present ? 1 : 0) : fill };
     });
     return <div className="rs-guardian" role="meter" aria-label={`${BOSS_NAMES[boss]} health`} aria-valuemin={0} aria-valuemax={100}
       aria-valuenow={Math.round(pct * 100)} style={{ ['--guardian' as string]: color }}>
-      <span className="rs-guardian-name">{present ? `${BOSS_NAMES[boss]} · PHASE ${neptune.phase}${neptune.dive ? ' · DIVING' : ''}` : 'GUARDIAN INCOMING'}</span>
+      <span className="rs-guardian-name">{present ? `${BOSS_NAMES[boss]} · PHASE ${neptune.phase}${neptune.dive ? ` · DIVING · CLONES ${state.enemies.filter(c => neptune.dive!.cloneIds.includes(c.id) && c.hp > 0).length}/${neptune.dive.cloneIds.length + neptune.dive.dropsLeft}` : ''}` : 'GUARDIAN INCOMING'}</span>
       <span className="rs-guardian-segments">
         {segments.map(seg => <span key={seg.phase} className="rs-guardian-bar" data-active={seg.phase === neptune.phase || undefined}>
           <span className="rs-guardian-fill" style={{ width: `${seg.fill * 100}%`, opacity: seg.phase === neptune.phase ? 1 : .55 }} />
           {seg.phase === neptune.phase && NEPTUNE_DIVE_POINTS[neptune.phase].filter(point => point > 0).map(point =>
             <span key={point} className="rs-guardian-mark" style={{ left: `${point * 100}%` }} />)}
+        </span>)}
+      </span>
+    </div>;
+  }
+  const gaia = state.gaia;
+  if (gaia) {
+    // Three phase segments like Neptune's; the name line shows what she is doing.
+    const segments = [3, 2, 1].map(phase => {
+      const floor = (3 - phase) * GAIA_PHASE_HP, fill = present ? Math.max(0, Math.min(1, (hp - floor) / GAIA_PHASE_HP)) : 0;
+      return { phase, fill: phase < gaia.phase ? 0 : phase > gaia.phase ? (present ? 1 : 0) : fill };
+    });
+    const status = gaia.wither > 0 ? ' · WITHERING' : '';
+    return <div className="rs-guardian" role="meter" aria-label={`${BOSS_NAMES[boss]} health`} aria-valuemin={0} aria-valuemax={100}
+      aria-valuenow={Math.round(pct * 100)} style={{ ['--guardian' as string]: color }}>
+      <span className="rs-guardian-name">{present ? `${BOSS_NAMES[boss]} · PHASE ${gaia.phase}${status}` : 'GUARDIAN INCOMING'}</span>
+      <span className="rs-guardian-segments">
+        {segments.map(seg => <span key={seg.phase} className="rs-guardian-bar" data-active={seg.phase === gaia.phase || undefined}>
+          <span className="rs-guardian-fill" style={{ width: `${seg.fill * 100}%`, opacity: seg.phase === gaia.phase ? 1 : .55 }} />
         </span>)}
       </span>
     </div>;
@@ -4817,7 +4911,7 @@ function TeleportMinimap({ state, onPick, available: availableRooms }: { state: 
       <canvas ref={ref} width={w} height={h} aria-label="Map" style={{ width: w*scale, height: h*scale, imageRendering: 'pixelated', display: 'block' }} />
       {[0, 1, 2, 3].map(ch => {
         const [r1, c1, r2, c2] = CHAMBER_BOUNDS[ch];
-        const available = (availableRooms ?? state.teleportDestOptions).includes(ch), color = (state.neptune ? OCEAN_CHAMBER_COLORS : CHAMBER_COLORS)[ch];
+        const available = (availableRooms ?? state.teleportDestOptions).includes(ch), color = (state.neptune ? OCEAN_CHAMBER_COLORS : state.gaia ? GAIA_CHAMBER_COLORS : isMoonMap(state) ? MOON_CHAMBER_COLORS : CHAMBER_COLORS)[ch];
         return (
           <button key={ch} className="rs-teleport-room" disabled={!available} aria-label={`[${ch + 1}] ${CHAMBER_LABELS[ch]}`}
             title={available ? `Teleport to ${CHAMBER_LABELS[ch]} (${ch + 1})` : undefined}
@@ -4965,8 +5059,8 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
     window.addEventListener('keydown', start, { once: true });
     return () => { clearTimeout(timer); window.removeEventListener('pointerdown', start); window.removeEventListener('keydown', start); };
   }, []);
-  const neptuneMap = trialInfo?.boss === 'sea_chanter';
-  const [showRules, setShowRules] = useState(neptuneMap); // play starts at once (Neptune opens its own sheet first); RULES opens the sheet
+  const neptuneMap = trialInfo?.boss === 'sea_chanter', gaiaMap = trialInfo?.boss === 'thorn_weaver', moonMap = trialInfo?.boss === 'splitter_queen';
+  const [showRules, setShowRules] = useState(neptuneMap || gaiaMap || moonMap); // play starts at once (Neptune opens its own sheet first); RULES opens the sheet
   const [, forceRender] = useState(0);
   const [isGodQuery, setIsGodQuery] = useState(false);
   // Ref (not state) — read imperatively inside the rAF draw loop, whose effect doesn't
@@ -5281,6 +5375,16 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
       if (e.key === 'x' || e.key === 'X') {
         e.preventDefault();
         if(!e.repeat){if(tryActivateTeleport(state))playUiSfx('teleport');rerender();}
+        return;
+      }
+      if ((e.key === 'c' || e.key === 'C') && state.gaia) { // Gaia: Sunfire fires at once with whatever is charged
+        e.preventDefault();
+        if (!e.repeat) { if (!useSunfire(state)) playUiSfx('locked'); else if ((state.gamePhase as string) === 'laserTarget') playUiSfx('teleport'); rerender(); }
+        return;
+      }
+      if ((e.key === 'c' || e.key === 'C') && state.moon) { // Moon: mark the nearest Queen or illusion
+        e.preventDefault();
+        if (!e.repeat) { if (!useMoonMark(state)) playUiSfx('locked'); rerender(); }
         return;
       }
       if ((e.key === 'c' || e.key === 'C') && state.neptune) {
@@ -5640,10 +5744,10 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
       <RulesModal
         isOpen={showRules}
         onClose={() => { setShowRules(false); bgmRef.current?.playMusic(); }}
-        title={neptuneMap ? ':: NEPTUNE' : ':: RUBY STAR'}
+        title={neptuneMap ? ':: NEPTUNE' : gaiaMap ? ':: GAIA' : moonMap ? ':: THE MOON' : ':: RUBY STAR'}
         playSound={button => playUiSfx(button)}
       >
-        {neptuneMap ? <NeptuneGuide drawBoss={drawGuideBoss} /> : <RubyStarGuide />}
+        {neptuneMap ? <NeptuneGuide drawBoss={drawGuideBoss} /> : gaiaMap ? <GaiaGuide drawBoss={drawGuideWeaver} /> : moonMap ? <MoonGuide drawQueen={drawGuideQueen} /> : <RubyStarGuide />}
       </RulesModal>
 
       {state?.gamePhase === 'skillChoice' && !showRules && <StartingSkillChoice state={state}
@@ -5694,8 +5798,8 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
 
           {state?.neptune && (() => {
             const charge = state.neptune.healCharge / NEPTUNE_HEAL_CHARGE_MAX, ready = charge >= 1;
-            return <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="meter" aria-label="Sky laser charge"
-              aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(charge * 100)} title={ready ? 'Sky laser ready — press C' : 'Healing charges the sky laser'}>
+            return <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="meter" aria-label="Trident charge"
+              aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(charge * 100)} title={ready ? 'Trident ready — press C' : 'Healing charges the Trident'}>
               <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges">
                 <path d="M7 1H9V4H11V7H13V12H11V14H5V12H3V7H5V4H7Z" fill={ready ? '#e8fbff' : '#59c8ff'} />
               </svg>
@@ -5703,6 +5807,38 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
                 borderRadius: '2px', background: 'rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${charge * 100}%`, background: ready ? '#e8fbff' : '#2f9be0',
                   boxShadow: ready ? '0 0 10px #9fe4ff' : 'none', animation: ready ? 'pulseGlow 0.8s ease-in-out infinite' : undefined }} />
+              </div>
+              {ready && <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: '#e8fbff' }}>C</span>}
+            </div>;
+          })()}
+
+          {state?.gaia && (() => {
+            const charge = state.gaia.sunCharge / GAIA_SUN_MAX, ready = charge >= 1, usable = state.gaia.sunCharge >= GAIA_SUN_MIN && !state.gaia.sunfire;
+            return <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="meter" aria-label="Sunfire charge"
+              aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(charge * 100)} title={ready ? 'Full Sunfire: C picks a room to burn' : 'Clearing vines charges Sunfire. C fires a smaller burst now, or wait for a full charge'}>
+              <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges">
+                <path d="M7 0H9V3H7ZM7 13H9V16H7ZM0 7H3V9H0ZM13 7H16V9H13ZM5 4H11V5H12V11H11V12H5V11H4V5H5Z" fill={ready ? '#fff3b8' : '#ffd36a'} />
+              </svg>
+              <div style={{ width: 'calc(var(--batt-w) * .8)', height: 'var(--batt-h)', border: `1px solid ${ready ? '#fff3b8' : 'rgba(255,211,106,.45)'}`,
+                borderRadius: '2px', background: 'rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${charge * 100}%`, background: ready ? '#fff3b8' : '#e0a83a',
+                  boxShadow: ready ? '0 0 10px #ffd36a' : 'none', animation: ready ? 'pulseGlow 0.8s ease-in-out infinite' : undefined }} />
+              </div>
+              {usable && <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: ready ? '#fff3b8' : '#c9a24a' }}>C</span>}
+            </div>;
+          })()}
+
+          {state?.moon && (() => {
+            const ready = canUseMoonMark(state), charge = 1 - state.moon.markCooldown / MOON_MARK_COOLDOWN;
+            return <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="meter" aria-label="Moon Mark recharge"
+              aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(charge * 100)} title={ready ? 'Moon Mark ready: C marks the nearest Queen' : 'Moon Mark recharging'}>
+              <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges">
+                <path d="M0 0H5V2H2V5H0ZM11 0H16V5H14V2H11ZM0 11H2V14H5V16H0ZM14 11H16V16H11V14H14ZM7 4H9V6H10V7H12V9H10V10H9V12H7V10H6V9H4V7H6V6H7Z" fill={ready ? '#e8fbff' : '#a9e6ff'} />
+              </svg>
+              <div style={{ width: 'calc(var(--batt-w) * .8)', height: 'var(--batt-h)', border: `1px solid ${ready ? '#e8fbff' : 'rgba(169,230,255,.45)'}`,
+                borderRadius: '2px', background: 'rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${charge * 100}%`, background: ready ? '#e8fbff' : '#6fb6e0',
+                  boxShadow: ready ? '0 0 10px #a9e6ff' : 'none', animation: ready ? 'pulseGlow 0.8s ease-in-out infinite' : undefined }} />
               </div>
               {ready && <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: '#e8fbff' }}>C</span>}
             </div>;
@@ -5743,7 +5879,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
             totalCooldown={state?.constellations.includes('bombRate') ? 240 : 300} />
           {state?.trial && <CelestialStatus name={SPECIAL_SKILLS[state.trial.skill].name}
             color={state.trial.skill === 'devourer' ? '#bcbccd' : SPECIAL_SKILLS[state.trial.skill].color}
-            cooldown={state.specialSkill ? 0 : state.trial.cooldown || TRIAL_SKILL_COOLDOWN} totalCooldown={TRIAL_SKILL_COOLDOWN} />}
+            cooldown={state.specialSkill ? 0 : state.trial.cooldown || trialSkillCooldown(state.trial.skill)} totalCooldown={trialSkillCooldown(state.trial.skill)} />}
           {isGodQuery && (
             <button
               className="btn btn-ghost"
@@ -5810,9 +5946,22 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
             <button type="button" style={{background:'#283b51',color:'#c9e9ff',border:'2px solid #72b5e7',cursor:'pointer'}}
               onClick={() => {if(stateRef.current)stateRef.current.starEnergy=STAR_ENERGY_MAX;rerender();}}>Full Energy</button>
           </div>
-          {state?.neptune && <button type="button" title="Fill the healing bar so C fires the sky laser"
+          {state?.trial && <div className="rs-god-actions" role="group" aria-label="Celestial skill and C bar">
+          {state?.trial && <button type="button" title="Give the celestial skill back now, skipping its cooldown"
+            style={{background:'#2c2347',color:'#e6dcff',border:'2px solid #a58cff',padding:'7px',fontWeight:700,cursor:'pointer'}}
+            onClick={() => {const current=stateRef.current;if(current?.trial){current.trial.cooldown=0;current.specialLockTicks=0;if(!current.specialSkill){current.specialSkill=current.trial.skill;playStrikeCharged();}}rerender();}}>Skill Ready</button>}
+          {state?.neptune && <button type="button" title="Fill the healing bar so C fires the Trident"
             style={{background:'#123a52',color:'#c9f2ff',border:'2px solid #59c8ff',padding:'7px',fontWeight:700,cursor:'pointer'}}
-            onClick={() => {const current=stateRef.current;if(current?.neptune)current.neptune.healCharge=NEPTUNE_HEAL_CHARGE_MAX;rerender();}}>Full Heal Bar</button>}
+            onClick={() => {const current=stateRef.current;if(current?.neptune){current.neptune.healCharge=NEPTUNE_HEAL_CHARGE_MAX;playStrikeCharged();}rerender();}}>Full Trident</button>}
+          {state?.gaia && <button type="button" title="Fill the Sunfire bar so C picks a room to burn"
+            style={{background:'#3a2f12',color:'#fff3b8',border:'2px solid #ffd36a',padding:'7px',fontWeight:700,cursor:'pointer'}}
+            onClick={() => {const current=stateRef.current;if(current?.gaia){current.gaia.sunCharge=GAIA_SUN_MAX;playStrikeCharged();}rerender();}}>Full Sunfire</button>}
+          </div>}
+          {state?.gaia && <div className="rs-god-actions" role="group" aria-label="Guardian phase" style={{gridTemplateColumns:'repeat(3, 1fr)'}}>
+            {([1, 2, 3] as const).map(phase => <button key={phase} type="button" aria-pressed={state.gaia?.phase === phase}
+              style={{background:state.gaia?.phase===phase?'#88bc45':'#16281a',color:state.gaia?.phase===phase?'#0b1a0c':'#dff3c0',border:'2px solid #8fdc4a',cursor:'pointer'}}
+              onClick={() => {if(stateRef.current)godSetGaiaPhase(stateRef.current, phase);rerender();}}>Phase {phase}</button>)}
+          </div>}
           {state?.neptune && <div className="rs-god-actions" role="group" aria-label="Guardian phase" style={{gridTemplateColumns:'repeat(3, 1fr)'}}>
             {([1, 2, 3] as const).map(phase => <button key={phase} type="button" aria-pressed={state.neptune?.phase === phase}
               style={{background:state.neptune?.phase===phase?'#3998d6':'#14283d',color:state.neptune?.phase===phase?'#04111e':'#c9f2ff',border:'2px solid #59c8ff',cursor:'pointer'}}
@@ -5904,10 +6053,10 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,4,16,0.84)', zIndex: 100, display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center', gap: '20px' }}
             onClick={(event) => { if (event.target !== event.currentTarget) return; cancelSkyLaser(state); playUiSfx('close'); rerender(); }}>
-            <p style={{ fontFamily: 'var(--font-pixel)', fontSize: '1rem', color: '#9fe4ff', textShadow: '0 0 16px #59c8ff', letterSpacing: '0.12em' }}>
-              SKY LASER — CHOOSE A ROOM
+            <p style={{ fontFamily: 'var(--font-pixel)', fontSize: '1rem', color: state.gaia ? '#ffe680' : '#9fe4ff', textShadow: `0 0 16px ${state.gaia ? '#ffd36a' : '#59c8ff'}`, letterSpacing: '0.12em' }}>
+              {state.gaia ? 'SUNFIRE' : 'TRIDENT'} — CHOOSE A ROOM
             </p>
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: '#b9bdd6', marginTop: -10 }}>It strikes 3s later. Get out of that room!</p>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: '#b9bdd6', marginTop: -10 }}>{state.gaia ? 'It burns 3s later. Get yourself and Ruby out of that room!' : 'It strikes 3s later. Get out of that room!'}</p>
             <TeleportMinimap state={state} available={[0, 1, 2, 3]} onPick={ch => { if (chooseSkyLaser(state, ch)) { playUiSfx('ascension'); rerender(); } }} />
             <button className="btn btn-ghost" style={{ fontSize: '0.7rem', padding: '6px 14px' }}
               onClick={() => { cancelSkyLaser(state); playUiSfx('close'); rerender(); }}>ESC / C — CANCEL</button>
@@ -5943,7 +6092,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
             fontFamily: 'var(--font-pixel)', fontSize: '0.9rem', color: state?.bossSpawnColor,
             textAlign: 'center', lineHeight: 1.6, pointerEvents: 'none',
           }}>
-            {state?.bossSpawnName}{state?.bossSpawnName?.startsWith('PHASE') ? '' : ' SPAWNED'}
+            {state?.bossSpawnName}{(Object.values(BOSS_NAMES) as string[]).includes(state?.bossSpawnName ?? '') ? ' SPAWNED' : ''}
           </div>
         )}
 
@@ -6044,29 +6193,16 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
 
         {/* Game over */}
         {phase === 'won' && trialInfo && (
-          <div className="game-over-overlay rs-game-over">
-            <section className="rs-end-panel" role="dialog" aria-modal="true" aria-labelledby="rs-win-title">
-              <h2 id="rs-win-title">CHALLENGE CLEARED</h2>
-              <div className="rs-end-body">
-                <div className="rs-end-stage"><span>CHALLENGE</span><strong style={{ fontSize: '1.4rem' }}>{trialInfo.name}</strong></div>
-                <dl className="rs-end-stats">
-                  <div><dt>TIME</dt><dd>{timeSurvived}<small>s</small></dd></div>
-                  <div><dt>KILLS</dt><dd>{state?.killScore ?? 0}</dd></div>
-                  <div><dt>PLAYER HP</dt><dd>{Math.round((state?.playerHP ?? 0) * 10) / 10}<small> / {PLAYER_MAX_HP}</small></dd></div>
-                  <div><dt>RUBY HP</dt><dd>{Math.round((state?.rubyHP ?? 0) * 10) / 10}<small> / {RUBY_MAX_HP}</small></dd></div>
-                </dl>
-              </div>
-              <button type="button" autoFocus onClick={() => { playUiSfx('back'); router.push('/ruby-star/challenge'); }} className="rs-end-restart">STAR MAP</button>
-              <button type="button" onClick={handleRestart} className="rs-end-restart" style={{ marginTop: 8 }}>RETRY</button>
-            </section>
-          </div>
+          <VictoryScreen title={`${BOSS_NAMES[trialInfo.boss]} DEFEATED`} world={trialInfo.name}
+            color={SPECIAL_SKILLS[BOSS_SKILL_REWARDS[trialInfo.boss]].color === '#303036' ? '#bcbccd' : SPECIAL_SKILLS[BOSS_SKILL_REWARDS[trialInfo.boss]].color}
+            onPlayAgain={handleRestart} onLobby={() => { playUiSfx('back'); router.push('/ruby-star'); }} />
         )}
 
         {phase === 'lost' && (
           <div className="game-over-overlay rs-game-over">
             <section className="rs-end-panel" role="dialog" aria-modal="true" aria-labelledby="rs-end-title">
-              <h2 id="rs-end-title">RUBY STAR</h2>
-              <div className="rs-end-body">
+              <h2 id="rs-end-title">{trialInfo ? 'GAME OVER' : 'RUBY STAR'}</h2>
+              {!trialInfo && <div className="rs-end-body">
                 <div className="rs-end-stage"><span>STAGE</span><strong>{state?.bossesKilled ?? 0}</strong></div>
                 <dl className="rs-end-stats">
                   <div><dt>TIME</dt><dd>{timeSurvived}<small>s</small></dd></div>
@@ -6074,8 +6210,9 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
                   <div><dt>PLAYER HP</dt><dd>{Math.round((state?.playerHP ?? 0) * 10) / 10}<small> / {PLAYER_MAX_HP}</small></dd></div>
                   <div><dt>RUBY HP</dt><dd>{Math.round((state?.rubyHP ?? 0) * 10) / 10}<small> / {RUBY_MAX_HP}</small></dd></div>
                 </dl>
-              </div>
+              </div>}
               <button type="button" autoFocus onClick={handleRestart} className="rs-end-restart">PLAY AGAIN</button>
+              {trialInfo && <button type="button" onClick={() => { playUiSfx('back'); router.push('/ruby-star'); }} className="rs-end-restart" style={{ marginTop: 8 }}>BACK TO LOBBY</button>}
             </section>
           </div>
         )}

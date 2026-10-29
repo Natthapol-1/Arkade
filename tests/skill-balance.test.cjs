@@ -12,7 +12,7 @@ test('Solar kills give no energy, including Runner bonus and Leech refunds; othe
  for(let i=0;i<24;i++)s.enemies.push({...template,id:i+100,type:i===0?'fast':i===1?'energy_leech':'normal',hp:1,maxHp:10,stolenEnergy:60});
  s.starEnergy=17;s.playerHP=20;s.specialSkill='fiery_king';e.useSpecialSkill(s);
  assert.equal(s.enemies.length,0);assert.equal(s.starEnergy,17);assert.equal(s.killScore>0,true);assert.equal(s.playerHP,100);
- const a={...template,type:'normal',hp:1,maxHp:10};s.enemies=[a];s.specialSkill='storm_reaper';e.useSpecialSkill(s);assert.equal(s.starEnergy,17+c.STAR_ENERGY_PER_KILL);
+ const a={...template,type:'normal',hp:1,maxHp:10};s.enemies=[a];s.specialSkill='storm_reaper';s.specialLockTicks=0;e.useSpecialSkill(s);assert.equal(s.starEnergy,17+c.STAR_ENERGY_PER_KILL);
 });
 
 test('Solar boss defeat still fully restores player, Ruby and energy, with normal boss rewards',()=>{

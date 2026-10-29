@@ -50,7 +50,7 @@ test('bomb and celestial cast poses pause and expire without locking abilities',
  s.gamePhase='playing';engine.useBomb(s);assert.equal(s.bomb,null);
  for(let i=0;i<24;i++)engine.tick(s);assert.equal(s.playerCastKind,null);
  for(const kind of Object.keys(c.SPECIAL_SKILLS)){
-  s.specialSkill=kind;engine.useSpecialSkill(s);assert.equal(s.playerCastKind,kind);
+  s.specialSkill=kind;s.specialLockTicks=0;engine.useSpecialSkill(s);assert.equal(s.playerCastKind,kind);
   for(let i=0;i<24;i++)engine.tick(s);assert.equal(s.playerCastKind,null);
  }
 });
@@ -70,7 +70,7 @@ test('Sirius Surge resets all player ability cooldowns and preserves a placed bo
 });
 test('specials do not heal Chanter or feed her ally support',()=>{
  const s=fresh(),sea=boss(s,'sea_chanter',40,40),ally=grunt(s,sea,41,40,100);ally.hp=30;sea.hp=sea.maxHp=100;s.specialSkill='fiery_king';engine.useSpecialSkill(s);assert.equal(sea.hp,90);assert.equal(ally.hp,5);
- sea.sea.mode='diving';sea.hp=40;s.specialSkill='fiery_king';engine.useSpecialSkill(s);close(sea.hp,24);assert.ok(!s.enemies.includes(ally));
+ sea.sea.mode='diving';sea.hp=40;s.specialSkill='fiery_king';s.specialLockTicks=0;engine.useSpecialSkill(s);close(sea.hp,24);assert.ok(!s.enemies.includes(ally));
 });
 test('boss killed by special can grant a replacement without losing it',()=>{
  const s=fresh();s.bossesKilled=9;const e=boss(s,'frost_warden');e.hp=1;s.specialSkill='fiery_king';engine.useSpecialSkill(s);

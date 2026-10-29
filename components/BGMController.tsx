@@ -35,6 +35,12 @@ const BGMController = forwardRef<BGMControllerHandle, BGMControllerProps>(
       });
     }, [volume]);
 
+    // Stop the music when the page unmounts, so it never keeps playing after you leave.
+    useEffect(() => {
+      const audios = audioRefs.current;
+      return () => audios.forEach(a => { if (a) { a.pause(); a.currentTime = 0; } });
+    }, []);
+
     useImperativeHandle(ref, () => ({
       toggleMusic,
       playMusic,

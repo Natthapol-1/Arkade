@@ -13,7 +13,8 @@ Ruby Star is a real-time top-down survival/defense game in Arkade, a Next.js 15 
 | `app/ruby-star/events.ts` | Minor-event scheduling, gravity, star landing/pickup and Eclipse |
 | `app/ruby-star/encounter-art.ts` | Approved Sentinel/pylon/twin sprites, attack/revival effects and floor/chamber warnings |
 | `app/ruby-star/engine.ts` | Pure mutable game state, 60Hz tick, movement/pathfinding, attacks, damage, rewards, spawning, hazards, audio |
-| `app/ruby-star/neptune-art.ts` | Neptune challenge art: fish, stingers, water clones, water balls, tides, sky laser |
+| `app/ruby-star/neptune.ts`, `app/ruby-star/gaia.ts`, `app/ruby-star/moon.ts` | Challenge logic and state types (`NeptuneState`, `GaiaState`, `MoonState`); the core engine calls in through `updateNeptune`/`updateGaia` and exported helpers, and the modules import engine helpers back |
+| `app/ruby-star/neptune-art.ts` | Neptune challenge art: fish, stingers, jellyfish, sharks, water clones, water balls, tides, Trident (sky laser) |
 | `app/ruby-star/BombStatus.tsx` | Icon-only HUD bomb ready/armed/cooldown indicator |
 | `app/ruby-star/CelestialStatus.tsx` | Icon-only HUD celestial skill ready/recharging indicator (Celestial Challenge) |
 | `app/ruby-star/page.tsx` | Mode lobby: title, carousel of mode cards, routing |
@@ -25,6 +26,10 @@ Ruby Star is a real-time top-down survival/defense game in Arkade, a Next.js 15 
 | `app/ruby-star/ConstellationChoice.tsx` | Paused run-upgrade interface, including the final single choice |
 | `app/ruby-star/RubyStarGuide.tsx` | Simple main rules and Aliens & Bosses sheet |
 | `app/ruby-star/NeptuneGuide.tsx` | Neptune challenge rule sheet: animated picture cards for what is new on that map |
+| `app/ruby-star/gaia-art.ts` | Gaia challenge art: overgrowth, Sunstones, pods, blossoms, sporelings, crawlers, Ragecaps, root binds, Sunfire, forest backdrop |
+| `app/ruby-star/moon-art.ts` | Moon challenge art: room palette, crystal cover blocks, polished crystal floor (sheen, reflections, mist, runes), motes, crystal-cavern backdrop, the Queen's floor reflection, shards, arrival and unmask effects |
+| `app/ruby-star/GaiaGuide.tsx`, `app/ruby-star/MoonGuide.tsx` | Gaia and Moon challenge rule sheets (same picture-card format) |
+| `app/ruby-star/VictoryScreen.tsx` | Full-screen challenge victory celebration (canvas burst, fanfare, buttons) |
 | `tests/*.test.cjs` | Node gameplay regression tests; transpile TypeScript directly |
 | `scripts/preview-*.cjs` | Render actual game drawing functions to PNG; no replacement mockup artwork |
 | `scripts/check-ruby-*.cjs`, `scripts/check-charge-cycle.cjs` | Browser UI and repeated-charge checks |
@@ -37,7 +42,7 @@ The simulation uses approximately 60 ticks/second, independent of monitor refres
 ## Implementation rules
 
 - Inspect relevant current source and local changes before editing; preserve unrelated work.
-- Keep gameplay in `engine.ts` and rendering/input in `RubyStarGame.tsx`. Cosmetic edits must not silently change damage, range, timing, collision, targeting or audio.
+- Keep gameplay in `engine.ts` and rendering/input in `RubyStarGame.tsx`. Each Celestial Challenge keeps its logic in its own module (`neptune.ts`, `gaia.ts`, `moon.ts`); give new challenges their own module too, leaving only short hooks in `engine.ts`. The modules and engine import each other, so they must not use each other's values at module load time, only inside functions. The shared room picker for full-charge room strikes (`chooseSkyLaser`, `cancelSkyLaser`) stays in `engine.ts`. Tests reach private engine helpers by appending an export to `engine.ts` when transpiling it, so moved code is imported from its own module. Cosmetic edits must not silently change damage, range, timing, collision, targeting or audio.
 - Treat game state other than `playing` as paused for simulation and ability actions. Pause/stop persistent audio appropriately too. Both teleport and Constellation choices pause the game. Constellations are one-time choices; exclude owned entries, offer the final single entry, and stop when exhausted.
 - Keep tile/pixel interpolation synchronized after knockback, pull, teleport or interrupted charge. Share field bounds between collision and drawing.
 - Keep target-specific effects scoped: Lunar AI substitution must restore player state in `finally`. Boss removal must clean up its hazards, audio and global effects.
@@ -89,6 +94,7 @@ Use meaningful regression tests for gameplay changes. For simple art edits, rend
 | `preview-rewards.cjs` | Output directory; Ruby, bomb, reward effects and blast boundary |
 | `preview-battlefield.cjs` | Output directory, optional prefix; overview, details and pads |
 | `preview-space-events.cjs` | Output PNG; actual event warnings, early/active/fading stages and renderer immutability |
+| `preview-moon.cjs` | Output directory; Moon world at three ages, crystal cover close-up, and disguised Queen among illusions vs revealed |
 | `preview-charger.cjs` | Inspect script arguments; warning, rush and recovery frames |
 
 Full-page source-extraction previews must also bind the three exported render helpers from `encounter-art.ts`.

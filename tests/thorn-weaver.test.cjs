@@ -112,14 +112,16 @@ test('standing plants deal one contact damage per 45 ticks, pause, and stop on l
  player(s,16,10);s.thornPoisonTicks=0;ticks(s,90);assert.equal(s.playerHP,99);assert.equal(s.thornContactTimer,0);
 });
 
-test('casting cue plays once when the warning starts, separately from the eruption',()=>{
+test('the field plays falling-thing.wav once, timed to land with the eruption, never the player charge sound',()=>{
  const oldAudio=global.Audio,played=[];
  global.Audio=class{constructor(src){this.src=src;}play(){played.push(this.src);return Promise.resolve();}pause(){}};
  try{
   const {s,boss}=fresh();cast(s,boss);
-  assert.equal(played.filter(x=>x==='/sounds/charging.wav').length,1);
+  assert.equal(played.filter(x=>x==='/sounds/charging.wav').length,0,'not the player charge sound');
+  assert.equal(played.filter(x=>x==='/sounds/falling-thing.wav').length,0,'not yet');
+  ticks(s,c.THORN_WINDUP-1);
+  assert.equal(played.filter(x=>x==='/sounds/falling-thing.wav').length,1,'falls before impact');
   assert.equal(played.filter(x=>x==='/sounds/place-plant.mp3').length,0);
-  ticks(s,c.THORN_WINDUP-1);assert.equal(played.filter(x=>x==='/sounds/charging.wav').length,1);
   e.tick(s);assert.equal(played.filter(x=>x==='/sounds/place-plant.mp3').length,1);
  }finally{e.stopPoisonSound();global.Audio=oldAudio;}
 });

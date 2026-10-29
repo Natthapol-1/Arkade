@@ -1,11 +1,19 @@
 import {
-  NEPTUNE_PHASE_HP, NEPTUNE_DIVE_POINTS, NEPTUNE_CLONES, NEPTUNE_FINAL_CLONES, NEPTUNE_DIVE_TICKS, NEPTUNE_CLONE_DROP_GAP, NEPTUNE_CLONE_HEAL, NEPTUNE_DIVE_SPEED,
-  NEPTUNE_BOMB_INTERVAL, NEPTUNE_BOMB_FUSE, NEPTUNE_BOMB_RADIUS, NEPTUNE_BOMB_DAMAGE, NEPTUNE_BOMB_SELF_DAMAGE, NEPTUNE_ATTACK_MULT, NEPTUNE_LIFESTEAL,
-  NEPTUNE_STRIKE_DAMAGE, NEPTUNE_HEAL_CHARGE_MAX, NEPTUNE_LASER_WARNING, NEPTUNE_FISH_CAP, NEPTUNE_FISH_RED_CHANCE, NEPTUNE_FISH_SPAWN_GAP,
-  NEPTUNE_FISH_HEAL, NEPTUNE_FISH_BOSS_HEAL, NEPTUNE_FISH_HURT, NEPTUNE_STINGER_CHANCE, NEPTUNE_POISON_TICKS, NEPTUNE_POISON_DAMAGE,
-  NEPTUNE_CLONE_HEAL_BLOCK, NEPTUNE_TIDE_TICKS, NEPTUNE_TIDE_GAP, NEPTUNE_TIDE_ROTATE, NEPTUNE_TIDE_WITH, NEPTUNE_TIDE_AGAINST, NEPTUNE_TIDE_PUSH_GAP,
+  NEPTUNE_PHASE_HPS, NEPTUNE_TOTAL_HP, NEPTUNE_DIVE_POINTS, NEPTUNE_DIVE_SPEED,
+  NEPTUNE_BOMB_INTERVAL, NEPTUNE_SONG_BONUS, NEPTUNE_BOMB_SELF_DAMAGE, NEPTUNE_ATTACK_MULT, NEPTUNE_LIFESTEAL,
+  NEPTUNE_STRIKE_DAMAGE,
+  NEPTUNE_FISH_HURT, NEPTUNE_STINGER_CHANCE, NEPTUNE_POISON_TICKS,
+  NEPTUNE_CLONE_HEAL_BLOCK, NEPTUNE_TIDE_GAP, NEPTUNE_TIDE_PUSH_GAP,
+  NEPTUNE_JELLY_GAP, NEPTUNE_SHARK_GAP, NEPTUNE_PUFFER_CHANCE, NEPTUNE_PUFF_RADIUS,
+  GAIA_CAST_COOLDOWN, GAIA_THORN_CONTACT_DAMAGE, GAIA_THORN_RUBY_DAMAGE, GAIA_THORN_RUBY_CUT,
+  GAIA_STRIKE_DAMAGE, GAIA_SUN_WARNING, NEPTUNE_LASER_WARNING,
+  MOON_PHASE_HP, MOON_QUEEN_DAMAGE_MULT, MOON_STRIKE_DAMAGE,
+  GAIA_POD_CHARGE,
+  GAIA_BLOSSOM_SELF_DAMAGE, GAIA_BLOSSOM_KILL_HEAL, GAIA_LIFEBLOOM_HEAL,
+  GAIA_ALIEN_CHANCE, GAIA_MUSHROOM_KNOCKBACK, GAIA_SPAWN_RATE, GAIA_EXTRA_ENEMIES,
 } from './constants';
 import { stopAmbientEventSounds, pauseAmbientEventSounds, resumeAmbientEventSounds } from './event-audio';
+import { playUiSfx } from './ui-sfx';
 import { createAmbientEvents, updateAmbientEvents, isEclipseActive, hitSupernova, SUPERNOVA_PLAYER_RADIUS, SUPERNOVA_FULL_DAMAGE_RADIUS, type AmbientEventState } from './events';
 export { AMBIENT_EVENTS, STAR_FALL_TICKS, SUPERNOVA_CHARGE_TICKS, SUPERNOVA_BLAST_TICKS, triggerAmbientEvent } from './events';
 export type { AmbientEventKind } from './events';
@@ -30,13 +38,13 @@ import {
   STAR_ENERGY_MAX, STAR_ENERGY_PER_KILL, ENERGY_LEECH_DRAIN,
   RESOURCE_SPAWN_INTERVAL, RESOURCE_MAX_ON_MAP, HEAL_AMOUNT, ENERGY_AMOUNT,
   RUBY_HEAL_AMOUNT, RUBY_HEAL_COOLDOWN, RUBY_HEAL_RANGE, RUBY_HEAL_CLEAR_RANGE,
-  METEORITE_CYCLE, METEORITE_WARNING, TUTORIAL_STEPS, TUTORIAL_STEP_PAUSE, TRIAL_BOSS_DELAY, TRIAL_SKILL_COOLDOWN, METEORITE_PLAYER_DMG, METEORITE_RUBY_DMG,
+  METEORITE_CYCLE, METEORITE_WARNING, TUTORIAL_STEPS, TUTORIAL_STEP_PAUSE, TRIAL_BOSS_DELAY, trialSkillCooldown, SPECIAL_RECAST_LOCK, METEORITE_PLAYER_DMG, METEORITE_RUBY_DMG,
   SNIPER_ATTACK_RANGE, SNIPER_WINDUP_TICKS, SNIPER_CHAIN_RANGE, SNIPER_CHAIN_DMG,
   HEALER_HEAL_RADIUS, HEALER_HEAL_AMOUNT, HEALER_HEAL_INTERVAL,
   CHARGER_CHARGE_SPEED, CHARGER_WINDUP_TICKS, CHARGER_CHARGE_TILES, CHARGER_SIGHT_RANGE, CHARGER_STUN_TICKS,
   SHIELDER_SHIELD_RANGE, KILL_SHIELD_HP,
   BOSS_SPAWN_INTERVAL, BOSS_WARNING_TICKS, BOSS_METEOR_DMG, BOSS_LATE_METEOR_DMG, BOSS_ATTACK_RANGE, BOSS_FIRST_SPAWN_TIMER,
-  BOSS_ANNOUNCEMENT_TICKS, BOSS_NAMES, BOSS_TYPES, BossType, isBossType, PRAYER_FLEE_REPATH_TICKS,
+  BOSS_ANNOUNCEMENT_TICKS, BOSS_NAMES, BossType, isBossType, PRAYER_FLEE_REPATH_TICKS,
   BOSS_SKILL_REWARDS, AEGIS_DAMAGE_MULT, AEGIS_REFLECT_RATIO, AEGIS_EXPOSE_TICKS, AEGIS_RESHIELD_WARNING_TICKS, AEGIS_EXPOSED_SPEED,
   PYLON_LIFETIME_TICKS, PYLON_OVERLOAD_WINDUP, PYLON_OVERLOAD_DAMAGE,
   TWIN_REVIVE_TICKS, TWIN_REVIVE_HP_RATIO, TWIN_REVIVE_HASTE_TICKS, TWIN_REVIVE_HASTE_MULT, TWIN_BERSERK_SPEED_MULT, TWIN_BERSERK_COOLDOWN_MULT, TWIN_BERSERK_DAMAGE_TAKEN, TWIN_MIN_SEPARATION,
@@ -59,9 +67,24 @@ import {
   FROST_CHILL_SPEED_MULT, FROST_CHILL_TICK_RATE, FROST_ICE_TILE_COUNT,
   FROST_FREEZE_DURATION, FROST_RELOCATE_INTERVAL, FROST_SHIELD_HP, FROST_SHIELD_HP_PER_DEFEAT, FROST_SHIELD_HP_MAX, FROST_SHIELD_CAST_DELAY,
   DIFFICULTY_OPENING_THRESHOLDS, DIFFICULTY_TIERS,
-  ENEMY_CONFIGS, EnemyType,
+  ENEMY_CONFIGS, EnemyType, BOSS_TYPES,
   generateMap,
 } from './constants';
+import {
+  blueFishPopped, chargeNeptuneHealing, healNeptune, isNeptuneObject, neptunePhaseFloor, neptuneRevealClone, neptuneTideSpeed, pufferBurst, updateFish, updateNeptune, updatePufferfish,
+} from './neptune';
+import type { NeptuneState } from './neptune';
+import {
+  addGaiaSunCharge, createGaiaState, gaiaAlienType, gaiaBoss, gaiaBossDamageMult, gaiaClearArea, gaiaClearRootsField, gaiaClearTile, gaiaLaserRangeMult, gaiaLevel, gaiaPhaseFloor, gaiaPlayerSpeed, gaiaScorchRoom, gaiaSeekPath, gaiaSelfDamage, gaiaSporeCloud, gaiaStoneBlocksField, gaiaStrikeDamage, gaiaTwinFieldAim, initializeGaiaBoss, isGaiaObject, updateGaia,
+} from './gaia';
+import type { GaiaState } from './gaia';
+export type { NeptuneTide, NeptuneState } from './neptune';
+export type { GaiaStone, GaiaState } from './gaia';
+import {
+  clearMoonIllusions, createMoonState, initializeMoonBoss, isMoonBoss, isMoonObject, moonBossDamageMult, moonQueenJumped, moonShatter, updateMoon,
+} from './moon';
+import type { MoonState } from './moon';
+export type { MoonShard, MoonState } from './moon';
 
 // Chamber indices are 0=ALPHA(TL), 1=BETA(TR), 2=DELTA(BL), 3=GAMMA(BR) — see constants.ts.
 // Clockwise strike order: ALPHA(TL) -> BETA(TR) -> GAMMA(BR) -> DELTA(BL).
@@ -178,6 +201,7 @@ export interface KingAbilities {
 
 export interface ThornAbilities {
   cooldown: number; defenseCooldown: number; windupTicks: number; aimX: number; aimY: number; fleeing: boolean;
+  aim2?: { x: number; y: number } | null; // Gaia phase 3: the second field of a twin cast
 }
 export interface ThornPatch { x: number; y: number; ticks: number; ownerId: number; radius?: number; }
 export interface EncounterEffect {
@@ -357,6 +381,8 @@ export interface GameState {
   tutorial: TutorialState | null;
   trial: { boss: BossType; skill: SpecialSkill; cooldown: number } | null; // cooldown counts down after a cast
   neptune: NeptuneState | null;
+  gaia: GaiaState | null;
+  moon: MoonState | null;
   ambientEvents: AmbientEventState;
   map: number[][];
   gameTick: number;
@@ -378,7 +404,7 @@ export interface GameState {
   playerQueuedDirX: number;
   playerQueuedDirY: number;
   playerStepProgress: number;
-  playerKnockback: { dirX: number; dirY: number; started: boolean } | null;
+  playerKnockback: { dirX: number; dirY: number; started: boolean; tilesLeft?: number } | null; // one tile unless tilesLeft says more
   playerHP: number;
   playerShieldHP: number; // Armored kill reward — absorbs damage before player HP
   playerSaturnShield: boolean;
@@ -404,6 +430,7 @@ export interface GameState {
   speedActiveTicks: number; // remaining ticks of speed boost
   speedFlashTicks: number; // burst glow ticks on initial cast
   playerCastTicks: number; // cosmetic cast pose; never blocks movement or attacks
+  specialLockTicks: number; // endless: brief lockout after a celestial cast
   playerCastKind: SpecialSkill | 'bomb' | null;
   bomb: Bomb | null;
   bombCooldown: number;
@@ -512,7 +539,7 @@ export interface GameState {
 
 // ─── BFS ─────────────────────────────────────────────────────────────────────
 
-function bfs(
+export function bfs(
   map: number[][],
   fx: number, fy: number,
   tx: number, ty: number,
@@ -553,7 +580,7 @@ function bfs(
 // ─── Audio helpers ───────────────────────────────────────────────────────────
 
 // Shared trim for player and enemy attack sounds, preserving their relative mix.
-const ATTACK_SFX_VOLUME = 0.765;
+export const ATTACK_SFX_VOLUME = 0.765;
 
 let _actx: AudioContext | null = null;
 function getAudioCtx(): AudioContext | null {
@@ -588,12 +615,12 @@ const CELESTIAL_AUDIO: Record<SpecialSkill | 'ready' | 'empty' | 'pickup' | 'sol
   blind_prayer:{file:'sirius-surge.wav',gain:1.3},aegis_sentinel:{file:'venus-veil.wav',gain:.8},astral_twins:{file:'binary-star.mp3',gain:.8},thorn_weaver:{file:'gaia-reach.wav',gain:.45},
   ready:{file:'skill-ready.wav',gain:.5},empty:{file:'empty-charge.wav',gain:.22},pickup:{file:'energy-pickup.wav',gain:.4},
 };
-function playCelestialSound(cue: keyof typeof CELESTIAL_AUDIO, multiplier = 1) {
+export function playCelestialSound(cue: keyof typeof CELESTIAL_AUDIO, multiplier = 1) {
   const clip = CELESTIAL_AUDIO[cue];
   playAudioOneShot('/sounds/celestial/' + clip.file, clip.gain * ATTACK_SFX_VOLUME * multiplier);
 }
 
-function playAudioOneShot(file: string, level: number) {
+export function playAudioOneShot(file: string, level: number) {
   try {
     const sound = new Audio(file); sound.volume = Math.min(1, level); sound.loop = false;
     let cleanup = () => {};
@@ -817,7 +844,7 @@ function playSFX_twinRevive() {
 
 function playSFX_twinTransfer() { playCelestialSound('ready'); }
 
-function playSFX_objectBreak(kind: 'frost' | 'pylon' | 'aegis') {
+export function playSFX_objectBreak(kind: 'frost' | 'pylon' | 'aegis') {
   const clips = {
     frost: { file: 'frost-shield-break.mp3', gain: .7 },
     pylon: { file: 'pylon-break.wav', gain: .85 },
@@ -953,20 +980,6 @@ export function playSFX_gameOver() {
 
 // ─── Initial state ────────────────────────────────────────────────────────────
 
-export interface NeptuneTide { chamber: number; dirX: number; dirY: number; ticks: number }
-export interface NeptuneState {
-  phase: 1 | 2 | 3; bossId: number;
-  armed: boolean[]; // per dive point of the current phase; re-arms once her HP rises above it
-  dive: { point: number; ticks: number; dropsLeft: number; dropTimer: number; cloneIds: number[] } | null;
-  healCharge: number;
-  laser: { chamber: number; ticks: number } | null;
-  laserImpact: { chamber: number; ticks: number } | null; // the strike's visual, separate from meteor impacts
-  bombTimer: number; fishTimer: number; poisonTicks: number; poisonTimer: number;
-  tides: NeptuneTide[]; tideTimer: number; tidePushTimer: number;
-  phaseBannerTicks: number;
-  exposed: boolean; // phase 3's final dive is cleared: no more dives, and the next hit kills her
-}
-
 export interface TutorialState {
   step: number; count: number; pauseTicks: number; retry: boolean;
   lastTile: [number, number]; cooldowns: Record<string, number>; carried: boolean;
@@ -1003,8 +1016,11 @@ export function createModeState(mode: RubyStarMode, trialBoss?: BossType): GameS
     state.bossTimer = TRIAL_BOSS_DELAY;
     if (trialBoss === 'sea_chanter') {
       state.neptune = { phase: 1, bossId: -1, armed: [], dive: null, healCharge: 0, laser: null, laserImpact: null, bombTimer: NEPTUNE_BOMB_INTERVAL,
-        fishTimer: 0, poisonTicks: 0, poisonTimer: 0, tides: [], tideTimer: NEPTUNE_TIDE_GAP[0], tidePushTimer: NEPTUNE_TIDE_PUSH_GAP, phaseBannerTicks: 0, exposed: false };
+        fishTimer: 0, poisonTicks: 0, poisonTimer: 0, tides: [], tideTimer: NEPTUNE_TIDE_GAP[0], tidePushTimer: NEPTUNE_TIDE_PUSH_GAP, phaseBannerTicks: 0, exposed: false,
+        reveal: null, shark: null, sharkTimer: NEPTUNE_SHARK_GAP[0], jellyTimer: NEPTUNE_JELLY_GAP[0] };
     }
+    if (trialBoss === 'thorn_weaver') createGaiaState(state);
+    if (trialBoss === 'splitter_queen') createMoonState(state);
   }
   if (mode === 'tutorial') {
     // A safe sandbox: no natural aliens, bosses, meteors or events; you and Ruby never drop below 1 HP.
@@ -1023,7 +1039,7 @@ export function createInitialState(): GameState {
   const map = generateMap();
   const [px, py] = PLAYER_START;
   return {
-    mode: 'endless', tutorial: null, trial: null, neptune: null,
+    mode: 'endless', tutorial: null, trial: null, neptune: null, gaia: null, moon: null,
     map,
     gameTick: 0,
     gamePhase: 'playing',
@@ -1068,6 +1084,7 @@ export function createInitialState(): GameState {
     speedActiveTicks: 0,
     speedFlashTicks: 0,
     playerCastTicks: 0,
+    specialLockTicks: 0,
     playerCastKind: null,
     bomb: null,
     bombCooldown: 0,
@@ -1150,12 +1167,12 @@ function tileDist(ax: number, ay: number, bx: number, by: number) {
   return Math.abs(ax - bx) + Math.abs(ay - by);
 }
 
-function tileEuclidDist(ax: number, ay: number, bx: number, by: number) {
+export function tileEuclidDist(ax: number, ay: number, bx: number, by: number) {
   const dx = ax - bx, dy = ay - by;
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function isFloorTile(map: number[][], tx: number, ty: number) {
+export function isFloorTile(map: number[][], tx: number, ty: number) {
   if (tx < 0 || tx >= MAP_COLS || ty < 0 || ty >= MAP_ROWS) return false;
   return map[ty][tx] !== T_WALL;
 }
@@ -1178,7 +1195,8 @@ function reflectVenusDamage(state: GameState, attacker: Enemy | undefined, amoun
   if (state.venusReflects.length > 24) state.venusReflects.shift();
 }
 
-function damagePlayer(state: GameState, amount: number, attacker?: Enemy) {
+export function damagePlayer(state: GameState, amount: number, attacker?: Enemy) {
+  if (attacker && isMoonBoss(state, attacker)) amount *= MOON_QUEEN_DAMAGE_MULT;
   if (state.neptune && attacker?.id === state.neptune.bossId) {
     amount *= NEPTUNE_ATTACK_MULT[state.neptune.phase];
     if (state.neptune.phase === 3 && !state.enemyDecoyActive) healNeptune(state, attacker, amount * NEPTUNE_LIFESTEAL);
@@ -1199,8 +1217,13 @@ function damagePlayer(state: GameState, amount: number, attacker?: Enemy) {
   if (state.playerHP <= 0) endGame(state);
 }
 
-function damageRuby(state: GameState, amount: number, attacker?: Enemy) {
+export function damageRuby(state: GameState, amount: number, attacker?: Enemy) {
   if (state.rubyTileX === -1) return; // carried — ruby not vulnerable
+  if (attacker && isMoonBoss(state, attacker)) amount *= MOON_QUEEN_DAMAGE_MULT;
+  if (state.neptune && attacker?.id === state.neptune.bossId) {
+    amount *= NEPTUNE_ATTACK_MULT[state.neptune.phase];
+    if (state.neptune.phase === 3) healNeptune(state, attacker, amount * NEPTUNE_LIFESTEAL);
+  }
   reflectVenusDamage(state, attacker, amount, (state.rubyTileX + .5) * TILE_SIZE, (state.rubyTileY + .5) * TILE_SIZE);
   if (state.godMode) return;
   amount *= 1 - 0.15 * constellationBonus(state, 'ruby');
@@ -1216,7 +1239,7 @@ function damageRuby(state: GameState, amount: number, attacker?: Enemy) {
   if (state.rubyHP <= 0) endGame(state);
 }
 
-function damageEnemy(state: GameState, e: Enemy, amount: number, source: 'player' | 'meteor' | 'enemy' | 'special' = 'player') {
+export function damageEnemy(state: GameState, e: Enemy, amount: number, source: 'player' | 'meteor' | 'enemy' | 'special' = 'player') {
   if (e.hp <= 0 || (e.twin?.downedTicks ?? 0) > 0 || amount <= 0) return;
   const wasSeaHunting = e.type === 'sea_chanter' && !isSeaChanterDiving(e);
   const previousHP = e.hp;
@@ -1247,7 +1270,22 @@ function damageEnemy(state: GameState, e: Enemy, amount: number, source: 'player
 
   // Underwater vulnerability boosts HP damage after shields absorb their share.
   if (isSeaChanterDiving(e)) actual *= SEA_DIVE_DAMAGE_MULTIPLIER;
+  const gaia = state.gaia;
+  if (gaia && e.id === gaia.bossId) actual *= gaiaBossDamageMult(state, e);
+  if (isMoonBoss(state, e)) actual *= moonBossDamageMult(state, e);
   e.hp -= actual;
+  if (gaia && e.id === gaia.bossId && gaia.phase < 3) e.hp = Math.max(e.hp, gaiaPhaseFloor(gaia) + .01); // phases 1–2 end only through the wither
+  if (gaia && previousHP > 0 && e.hp <= 0 && e.type === 'seed_pod' && source === 'player') addGaiaSunCharge(state, GAIA_POD_CHARGE);
+  // Breaking a lifebloom heals you and Ruby.
+  if (gaia && previousHP > 0 && e.hp <= 0 && e.type === 'lifebloom' && source !== 'enemy') {
+    healPlayer(state, GAIA_LIFEBLOOM_HEAL); healCore(state, GAIA_LIFEBLOOM_HEAL);
+    showRewardEffect(state, 'player', 'heal'); if (state.rubyTileX !== -1) showRewardEffect(state, 'ruby', 'heal');
+  }
+  // Breaking one of her blossoms (not one wilting away) costs her some of the phase and heals you.
+  if (gaia && previousHP > 0 && e.hp <= 0 && e.type === 'blossom' && source !== 'enemy') {
+    const boss = gaiaBoss(state); if (boss && gaia.wither === 0) gaiaSelfDamage(state, boss, GAIA_BLOSSOM_SELF_DAMAGE);
+    healPlayer(state, GAIA_BLOSSOM_KILL_HEAL); showRewardEffect(state, 'player', 'heal'); // and its nectar heals you
+  }
   const neptune = state.neptune;
   if (neptune && e.id === neptune.bossId && !neptune.exposed) e.hp = Math.max(e.hp, neptunePhaseFloor(neptune) + .01); // phases end only through the final dive
   // Hitting one of her clones stops her ally-feeding heal for a while.
@@ -1260,7 +1298,7 @@ function damageEnemy(state: GameState, e: Enemy, amount: number, source: 'player
     if (source === 'player' && e.type === 'fish_red') damagePlayer(state, NEPTUNE_FISH_HURT);
     if (e.type === 'water_bomb' && source !== 'enemy') {
       const boss = state.enemies.find(b => b.id === neptune.bossId && b.hp > 0);
-      if (boss) damageEnemy(state, boss, NEPTUNE_PHASE_HP * NEPTUNE_BOMB_SELF_DAMAGE, 'enemy');
+      if (boss) damageEnemy(state, boss, NEPTUNE_PHASE_HPS[neptune.phase] * NEPTUNE_BOMB_SELF_DAMAGE, 'enemy');
     }
   }
   const hpLost = Math.min(Math.max(0, previousHP), Math.max(0, actual));
@@ -1270,7 +1308,7 @@ function damageEnemy(state: GameState, e: Enemy, amount: number, source: 'player
   if (source === 'player' && hpLost > 0) {
     if (wasSeaHunting && e.hp > 0) {
       healSeaAllies(state, e, SEA_ALLY_HEAL_AMOUNT);
-    } else if (!isBossType(e.type) && e.type !== 'queen_echo' && e.type !== 'aegis_construct' && !isNeptuneObject(e.type)) {
+    } else if (!isBossType(e.type) && e.type !== 'queen_echo' && e.type !== 'aegis_construct' && !isChallengeObject(e.type)) {
       for (const chanter of state.enemies) {
         if (!isSeaChanterDiving(chanter) || chanter.hp <= 0 || state.gameTick < chanter.sea!.healingBlockedUntilTick) continue;
         chanter.hp = Math.min(chanter.maxHp, chanter.hp + Math.min(SEA_FEED_HEAL_CAP, hpLost * SEA_FEED_HEAL_RATIO));
@@ -1315,8 +1353,9 @@ function endGame(state: GameState) {
 
 function spawnEnemy(state: GameState) {
   const tier = DIFFICULTY_TIERS[Math.min(state.difficultyLevel, DIFFICULTY_TIERS.length - 1)];
-  const population = state.enemies.filter(e => !isNeptuneObject(e.type)).length; // fish and water objects never block aliens
-  if (population >= tier.maxEnemies) return;
+  const population = state.enemies.filter(e => !isChallengeObject(e.type)).length; // challenge objects never block aliens
+  const maxEnemies = tier.maxEnemies + (state.gaia ? GAIA_EXTRA_ENEMIES : 0);
+  if (population >= maxEnemies) return;
 
   // Pick a chamber far from player or near ruby depending on tension
   const chambers = [0, 1, 2, 3];
@@ -1334,13 +1373,15 @@ function spawnEnemy(state: GameState) {
   }
   if (!eligibleSpawns.length) return;
 
-  const spawnCount = Math.min(tier.spawnCount, tier.maxEnemies - population);
+  const spawnCount = Math.min(tier.spawnCount, maxEnemies - population);
   for (let s = 0; s < spawnCount; s++) {
     const idx = Math.floor(Math.random() * eligibleSpawns.length);
     const [tx, ty] = eligibleSpawns[idx];
 
     const typeIdx = Math.floor(Math.random() * tier.spawnTypes.length);
-    const type: EnemyType = state.neptune && Math.random() < NEPTUNE_STINGER_CHANCE ? 'stinger' : tier.spawnTypes[typeIdx];
+    const type: EnemyType = state.neptune && Math.random() < NEPTUNE_STINGER_CHANCE ? 'stinger'
+      : state.neptune && Math.random() < NEPTUNE_PUFFER_CHANCE ? 'pufferfish'
+      : state.gaia && Math.random() < GAIA_ALIEN_CHANCE ? gaiaAlienType() : tier.spawnTypes[typeIdx];
     const cfg = ENEMY_CONFIGS[type];
     const hpScaled = Math.ceil(cfg.maxHp * tier.hpMult) * REGULAR_ENEMY_HP_MULT * constellationAlienHPMult(state);
 
@@ -1428,8 +1469,9 @@ function fireSniperLaser(state: GameState, e: Enemy) {
 }
 
 function fireQueenBolt(state: GameState, e: Enemy, tgtX: number, tgtY: number, targetIsPlayer: boolean) {
-  const cfg = ENEMY_CONFIGS[e.type as 'splitter_queen' | 'queen_echo'];
-  state.laserBeams.push({ fromX: e.x, fromY: e.y, dirX: 0, dirY: 0, endX: tgtX, endY: tgtY, ticks: 20, color: cfg.color });
+  const cfg = ENEMY_CONFIGS[e.type as 'splitter_queen' | 'queen_echo' | 'moon_illusion'];
+  const color = isMoonBoss(state, e) ? ENEMY_CONFIGS.moon_illusion.color : cfg.color;
+  state.laserBeams.push({ fromX: e.x, fromY: e.y, dirX: 0, dirY: 0, endX: tgtX, endY: tgtY, ticks: 20, color });
   if (targetIsPlayer) damagePlayer(state, cfg.damageToPlayer, e);
   else if (state.rubyTileX !== -1) damageRuby(state, cfg.damageToRuby, e);
   e.shootTicks = 20;
@@ -1538,7 +1580,7 @@ function phaseQueenJump(state: GameState, e: Enemy) {
   const curChamber = chamberOfTile(e.tileX, e.tileY);
   const playerChamber = chamberOfTile(state.playerTileX, state.playerTileY);
 
-  state.enemies.push({
+  if (!state.moon) state.enemies.push({
     id: state.nextEnemyId++, type: 'queen_echo',
     x: e.x, y: e.y, tileX: e.tileX, tileY: e.tileY, targetTileX: e.tileX, targetTileY: e.tileY,
     stepProgress: 0, hp: 1, maxHp: 1,
@@ -1568,6 +1610,8 @@ function phaseQueenJump(state: GameState, e: Enemy) {
   e.windupTicks = 0;
   e.attackTimer = 0;
 
+  if (state.moon) { moonQueenJumped(state, e); playSFX_queenTeleport(); return; }
+
   // Each jump heals her a small amount — rewards ignoring her in favor of the decoys.
   if (e.hp < e.maxHp) {
     e.hp = Math.min(e.maxHp, e.hp + Math.min(QUEEN_PHASE_HEAL_CAP, Math.max(1, Math.round(e.maxHp * QUEEN_PHASE_HEAL_PCT))));
@@ -1585,12 +1629,12 @@ export function isMovementReversed(state: GameState): boolean {
 
 type SeaSound = 'dive' | 'attack' | 'heal' | 'singing' | 'diveSinging';
 const seaVoices: Partial<Record<SeaSound, HTMLAudioElement>> = {};
-function stopSeaSound(cue: SeaSound) {
+export function stopSeaSound(cue: SeaSound) {
   const voice = seaVoices[cue];
   if (voice) { voice.pause(); voice.ontimeupdate = null; delete seaVoices[cue]; }
 }
 function stopSeaSounds() { for (const cue of Object.keys(seaVoices) as SeaSound[]) stopSeaSound(cue); }
-function playSeaSound(cue: SeaSound) {
+export function playSeaSound(cue: SeaSound) {
   try {
     stopSeaSound(cue);
     const mix = { diveSinging: ['seaSinging4.mp3', 0.32], dive: ['seaDive.mp3', 0.28], attack: ['seaSong.mp3', 0.30], heal: ['seaHeal.mp3', 0.52], singing: ['seaSinging.mp3', 0.58] } as const;
@@ -1609,7 +1653,7 @@ function playSeaSound(cue: SeaSound) {
     seaVoices[cue] = voice; voice.play().catch(() => {});
   } catch { }
 }
-function playSeaHealing(e: Enemy) {
+export function playSeaHealing(e: Enemy) {
   const sea = e.sea;
   if (!sea || sea.healSoundCooldown > 0) return;
   sea.healSoundCooldown = 180; playSeaSound('heal');
@@ -1687,7 +1731,7 @@ function spawnDevourerCopies(state: GameState, parent: Enemy, wanted = parent.ch
   }
 }
 
-function createEncounterEnemy(state: GameState, type: EnemyType, tx: number, ty: number, hp: number): Enemy {
+export function createEncounterEnemy(state: GameState, type: EnemyType, tx: number, ty: number, hp: number): Enemy {
   return {
     id: state.nextEnemyId++, type, x: (tx + .5) * TILE_SIZE, y: (ty + .5) * TILE_SIZE,
     tileX: tx, tileY: ty, targetTileX: tx, targetTileY: ty, stepProgress: 0, hp, maxHp: hp,
@@ -1698,7 +1742,7 @@ function createEncounterEnemy(state: GameState, type: EnemyType, tx: number, ty:
   };
 }
 
-function freeChamberTiles(state: GameState, chamber: number): [number, number][] {
+export function freeChamberTiles(state: GameState, chamber: number): [number, number][] {
   const [r1, c1, r2, c2] = CHAMBER_BOUNDS[chamber];
   const tiles: [number, number][] = [];
   for (let y = r1 + 1; y < r2; y++) for (let x = c1 + 1; x < c2; x++) {
@@ -1748,11 +1792,13 @@ function initializeNewEncounter(state: GameState, boss: Enemy) {
   if (boss.type === 'aegis_sentinel') summonAegisConstructs(state, boss);
   if (boss.type === 'sea_chanter' && state.neptune) {
     // Neptune guardian: one body carrying all three phases; the challenge controls her dives.
-    boss.hp = boss.maxHp = NEPTUNE_PHASE_HP * 3;
+    boss.hp = boss.maxHp = NEPTUNE_TOTAL_HP;
     state.neptune.bossId = boss.id; state.neptune.phase = 1;
     state.neptune.armed = NEPTUNE_DIVE_POINTS[1].map(() => true);
     (boss.sea ??= createSeaChanterAbilities()).neptune = true;
   }
+  if (boss.type === 'thorn_weaver' && state.gaia) initializeGaiaBoss(state, boss);
+  if (boss.type === 'splitter_queen' && state.moon) initializeMoonBoss(state, boss);
   if (boss.type === 'devourer') {
     boss.chargeDirX = DEVOURER_START_STACKS; // the original is born with one stack, so it always splits
     // Its swarm multiplies effective HP, so it scales slower than the usual +15 per defeat.
@@ -1949,7 +1995,7 @@ function updateAstralTwin(state: GameState, e: Enemy) {
 function createThornAbilities(): ThornAbilities {
   return { cooldown: THORN_FIRST_DELAY, defenseCooldown: 0, windupTicks: 0, aimX: 0, aimY: 0, fleeing: false };
 }
-function clearThornHazards(state: GameState) {
+export function clearThornHazards(state: GameState) {
   stopPoisonSound();
   state.thornPatches = []; state.thornPoisonTicks = 0; state.thornPoisonTimer = 0; state.thornWasInside = false; state.thornContactTimer = 0;
 }
@@ -1975,7 +2021,13 @@ function updatePoisonSound(state: GameState) {
   } catch { poisonVoice = null; poisonSoundGap = 60; }
 }
 
-function playThornCut() {
+// The Weaver's field: a falling sound timed to land as the seed hits and the thorns erupt.
+const THORN_FALL_SOUND_TICKS = 45; // falling-thing.wav is 0.75s long
+function playThornFall() {
+  try { const sound = new Audio('/sounds/falling-thing.wav'); sound.volume = 0.6 * ATTACK_SFX_VOLUME; sound.play().catch(() => {}); } catch { }
+}
+
+export function playThornCut() {
   try { const sound = new Audio('/sounds/cut.mp3'); sound.volume = 0.95 * ATTACK_SFX_VOLUME; sound.play().catch(() => {}); } catch { }
 }
 function applyThornPoison(state: GameState) {
@@ -1992,6 +2044,7 @@ function isPlayerInThornField(state: GameState,x: number,y: number,radius = THOR
     state.playerX>=bounds.left&&state.playerX<bounds.right&&state.playerY>=bounds.top&&state.playerY<bounds.bottom;
 }
 function eruptThornField(state: GameState, e: Enemy, x: number, y: number, radius = THORN_RADIUS) {
+  if (gaiaStoneBlocksField(state, e, x, y, radius)) return; // Gaia: a Sunstone burns the field away
   const center = getThornFieldBounds(x, y, radius);
   (state.thornPatches ??= []).push({ x: center.x, y: center.y, radius, ticks: THORN_LIFETIME, ownerId: e.id });
   if (state.thornPatches.length > THORN_MAX_PATCHES) state.thornPatches.shift();
@@ -1999,11 +2052,19 @@ function eruptThornField(state: GameState, e: Enemy, x: number, y: number, radiu
     damagePlayer(state, ENEMY_CONFIGS.thorn_weaver.damageToPlayer, e); applyThornPoison(state);
     playThornCut(); state.thornWasInside = true; state.thornContactTimer = THORN_CONTACT_INTERVAL;
   }
+  // Gaia: the eruption also cuts a placed Ruby inside it (less than it cuts you).
+  if (state.gaia && state.rubyTileX !== -1) {
+    const rx = (state.rubyTileX + .5) * TILE_SIZE, ry = (state.rubyTileY + .5) * TILE_SIZE, b = getThornFieldBounds(center.x, center.y, radius);
+    if (rx >= b.left && rx < b.right && ry >= b.top && ry < b.bottom) { damageRuby(state, GAIA_THORN_RUBY_CUT, e); state.gaia.rubyThornTimer = THORN_CONTACT_INTERVAL; }
+  }
   e.shootTicks = 14;
   try { const sound = new Audio('/sounds/place-plant.mp3'); sound.volume = 0.4 * ATTACK_SFX_VOLUME; sound.play().catch(() => {}); } catch { }
 }
 function updateThornWeaver(state: GameState, e: Enemy) {
   if (e.hp <= 0) return;
+  // Gaia: while she withers between phases she does nothing.
+  const gaia = state.gaia, gaiaBoss = !!gaia && e.id === gaia.bossId;
+  if (gaiaBoss && gaia!.wither > 0) return;
   const thorn = e.thorn ??= createThornAbilities();
   thorn.defenseCooldown = Math.max(0, (thorn.defenseCooldown ?? 0) - 1);
   if (thorn.defenseCooldown === 0 && Math.hypot(e.x - state.playerX, e.y - state.playerY) <= THORN_DEFENSE_TRIGGER_RANGE) {
@@ -2011,25 +2072,25 @@ function updateThornWeaver(state: GameState, e: Enemy) {
     thorn.defenseCooldown = THORN_DEFENSE_COOLDOWN;
   }
   if (thorn.windupTicks > 0) {
+    if (thorn.windupTicks === THORN_FALL_SOUND_TICKS) playThornFall();
     if (--thorn.windupTicks === 0) {
       eruptThornField(state, e, thorn.aimX, thorn.aimY);
-      thorn.cooldown = ENEMY_CONFIGS.thorn_weaver.attackCooldown;
+      if (thorn.aim2) { eruptThornField(state, e, thorn.aim2.x, thorn.aim2.y); thorn.aim2 = null; }
+      thorn.cooldown = state.gaia ? GAIA_CAST_COOLDOWN : ENEMY_CONFIGS.thorn_weaver.attackCooldown; // casts faster in the Gaia challenge
     }
   } else if (thorn.cooldown > 0) thorn.cooldown--;
   else {
     // Global ground targeting: cover and distance cannot cancel the attack; leaving the marked area can.
     const aim=getThornFieldBounds(state.playerX,state.playerY);
     thorn.aimX = aim.x; thorn.aimY = aim.y; thorn.windupTicks = THORN_WINDUP;
-    try {
-      const sound = new Audio('/sounds/charging.wav'); sound.volume = 0.55 * ATTACK_SFX_VOLUME;
-      sound.playbackRate = (26028 / 44100) / 0.8; sound.loop = false;
-      sound.play().catch(() => {});
-    } catch { }
+    thorn.aim2 = gaiaBoss && gaia!.phase === 3 ? gaiaTwinFieldAim(state) : null;
   }
   e.pathTimer--;
   if (e.pathTimer <= 0) {
     const threatened = tileEuclidDist(e.targetTileX, e.targetTileY, state.playerTileX, state.playerTileY) <= THORN_FLEE_RANGE;
     if (threatened) e.path = fleePath(state, e);
+    else if (gaiaBoss && gaiaLevel(state, e.targetTileX, e.targetTileY) >= 2) e.path = []; // on overgrowth: stay and heal
+    else if (gaiaBoss) e.path = gaiaSeekPath(state, e) ?? (thorn.fleeing || e.path.length === 0 ? roamPath(state, e) : e.path);
     else if (thorn.fleeing || e.path.length === 0) e.path = roamPath(state, e);
     thorn.fleeing = threatened; e.pathTimer = 30;
   }
@@ -2052,11 +2113,19 @@ function updateThornHazards(state: GameState) {
     if (!state.thornWasInside) { playThornCut(); state.thornContactTimer = THORN_CONTACT_INTERVAL; }
     applyThornPoison(state);
     if (--state.thornContactTimer <= 0) {
-      damagePlayer(state, THORN_CONTACT_DAMAGE); playThornCut();
+      damagePlayer(state, state.gaia ? GAIA_THORN_CONTACT_DAMAGE : THORN_CONTACT_DAMAGE); playThornCut();
       state.thornContactTimer = THORN_CONTACT_INTERVAL;
     }
   } else state.thornContactTimer = 0;
   state.thornWasInside = inside;
+  // Gaia: a placed Ruby inside his field takes a small continuous damage.
+  const gaia = state.gaia;
+  if (gaia && state.rubyTileX !== -1) {
+    const rx = (state.rubyTileX + .5) * TILE_SIZE, ry = (state.rubyTileY + .5) * TILE_SIZE;
+    const rubyInside = state.thornPatches.some(p => { const b = getThornFieldBounds(p.x, p.y, p.radius); return rx >= b.left && rx < b.right && ry >= b.top && ry < b.bottom; });
+    if (!rubyInside) gaia.rubyThornTimer = THORN_CONTACT_INTERVAL;
+    else if (--gaia.rubyThornTimer <= 0) { damageRuby(state, GAIA_THORN_RUBY_DAMAGE); gaia.rubyThornTimer = THORN_CONTACT_INTERVAL; }
+  }
   if (state.thornPoisonTicks > 0) {
     state.thornPoisonTicks--;
     if (--state.thornPoisonTimer <= 0) {
@@ -2065,7 +2134,7 @@ function updateThornHazards(state: GameState) {
   } else state.thornPoisonTimer = 0;
 }
 
-function createSeaChanterAbilities(): SeaChanterAbilities {
+export function createSeaChanterAbilities(): SeaChanterAbilities {
   return { mode: 'hunting', diveElapsedTicks: 0, diveFleeing: false, healingBlockedUntilTick: 0, songCooldown: SEA_SONG_FIRST_DELAY, songWindupTicks: 0,
     songAimX: 0, songAimY: 0, allyHealCooldown: SEA_ALLY_HEAL_INTERVAL, supportPulseTicks: 0, healPulseTicks: 0, healSoundCooldown: 0, resurfaceTicks: 0, resurfaceX: 0, resurfaceY: 0 };
 }
@@ -2085,7 +2154,7 @@ function updateSeaMode(e: Enemy) {
   }
 }
 
-function roamPath(state: GameState, e: Enemy): [number, number][] {
+export function roamPath(state: GameState, e: Enemy): [number, number][] {
   const candidates: [number, number][] = [];
   // Short wandering routes keep her swimming around instead of selecting the farthest map corner.
   for (let y = Math.max(0, e.targetTileY - 10); y <= Math.min(state.map.length - 1, e.targetTileY + 10); y++) {
@@ -2198,7 +2267,7 @@ function updateSeaSongWaves(state: GameState) {
     let remove = !state.enemies.some(e => e.id === wave.ownerId && e.hp > 0);
     // Substeps preserve player collision at the faster speed; water magic passes through walls.
     for (let distance = 0; distance < SEA_SONG_SPEED && !remove; distance += 4) {
-      const step = Math.min(4, SEA_SONG_SPEED - distance, wave.rangeLeft);
+      const step = Math.min(4, SEA_SONG_SPEED - distance, wave.rangeLeft), bonus = state.neptune ? NEPTUNE_SONG_BONUS : 0;
       wave.x += wave.dx * step; wave.y += wave.dy * step; wave.rangeLeft -= step;
       const decoy=state.lunarDecoy;
       if(decoy && !wave.hitDecoy && Math.hypot(wave.aimX-decoy.x,wave.aimY-decoy.y)>SEA_SONG_HIT_RADIUS && Math.hypot(wave.x-decoy.x,wave.y-decoy.y)<=SEA_SONG_HIT_RADIUS){
@@ -2206,7 +2275,7 @@ function updateSeaSongWaves(state: GameState) {
       }
       if (!wave.hitPlayer && Math.hypot(wave.aimX - state.playerX, wave.aimY - state.playerY) > SEA_SONG_HIT_RADIUS &&
           Math.hypot(wave.x - state.playerX, wave.y - state.playerY) <= SEA_SONG_HIT_RADIUS) {
-        damagePlayer(state, ENEMY_CONFIGS.sea_chanter.damageToPlayer, state.enemies.find(e => e.id === wave.ownerId)); wave.hitPlayer = true;
+        damagePlayer(state, ENEMY_CONFIGS.sea_chanter.damageToPlayer + bonus, state.enemies.find(e => e.id === wave.ownerId)); wave.hitPlayer = true;
       }
       if (wave.rangeLeft <= 0) {
         bursts.push({ x: wave.aimX, y: wave.aimY, ticks: SEA_SONG_BLAST_TICKS, ownerId: wave.ownerId });
@@ -2218,8 +2287,14 @@ function updateSeaSongWaves(state: GameState) {
         const blastDistance = Math.hypot(wave.aimX - state.playerX, wave.aimY - state.playerY);
         if (!wave.hitPlayer && blastDistance <= SEA_SONG_BLAST_RADIUS) {
           const damage = Math.round(SEA_SONG_BLAST_DAMAGE_CENTER -
-            (SEA_SONG_BLAST_DAMAGE_CENTER - SEA_SONG_BLAST_DAMAGE_EDGE) * blastDistance / SEA_SONG_BLAST_RADIUS);
+            (SEA_SONG_BLAST_DAMAGE_CENTER - SEA_SONG_BLAST_DAMAGE_EDGE) * blastDistance / SEA_SONG_BLAST_RADIUS) + bonus;
           damagePlayer(state, damage, state.enemies.find(e => e.id === wave.ownerId));
+        }
+        // Neptune challenge: her bursts also hit a placed Ruby, exactly as hard as they hit you.
+        if (state.neptune && state.rubyTileX !== -1) {
+          const rubyDistance = Math.hypot(wave.aimX - (state.rubyTileX + .5) * TILE_SIZE, wave.aimY - (state.rubyTileY + .5) * TILE_SIZE);
+          if (rubyDistance <= SEA_SONG_BLAST_RADIUS) damageRuby(state, Math.round(SEA_SONG_BLAST_DAMAGE_CENTER -
+            (SEA_SONG_BLAST_DAMAGE_CENTER - SEA_SONG_BLAST_DAMAGE_EDGE) * rubyDistance / SEA_SONG_BLAST_RADIUS) + bonus, state.enemies.find(e => e.id === wave.ownerId));
         }
         remove = true;
       }
@@ -2503,8 +2578,9 @@ function updateEnemies(state: GameState) {
     }
 
     if (e.type === 'aegis_construct') { e.pushTiles = 0; continue; }
-    if (e.type === 'water_bomb') { e.pushTiles = 0; continue; } // stationary; the challenge times its fuse
-    if ((e.type === 'fish_blue' || e.type === 'fish_red' || e.type === 'water_clone') && e.pushTiles <= 0) { updateFish(state, e); continue; } // fish and her clones swim around
+    if (e.type === 'water_bomb' || e.type === 'seed_pod' || e.type === 'blossom' || e.type === 'lifebloom') { e.pushTiles = 0; continue; } // stationary; the challenge drives them
+    if (e.type === 'pufferfish' && updatePufferfish(state, e)) continue; // swelling up or bursting; otherwise it chases like any alien
+    if ((e.type === 'fish_blue' || e.type === 'fish_red' || e.type === 'water_clone' || e.type === 'vine_crawler') && e.pushTiles <= 0) { updateFish(state, e); continue; } // fish, clones and crawlers roam
 
     // Push (knockback)
     if (e.pushTiles > 0) {
@@ -2833,7 +2909,7 @@ function updateEnemies(state: GameState) {
     }
 
     // ── Splitter Queen special logic ──────────────────────────────────────
-    if (e.type === 'splitter_queen') {
+    if (e.type === 'splitter_queen' || e.type === 'moon_illusion') {
       e.pushTiles = 0; // immune to knockback, like the boss
 
       const qChamber = chamberOfTile(e.tileX, e.tileY);
@@ -2867,8 +2943,7 @@ function updateEnemies(state: GameState) {
       }
 
       // Phase-jump countdown runs independently of her attack state
-      e.phaseTimer--;
-      if (e.phaseTimer <= 0) phaseQueenJump(state, e);
+      if (e.type === 'splitter_queen') { e.phaseTimer--; if (e.phaseTimer <= 0) phaseQueenJump(state, e); }
       continue;
     }
 
@@ -3268,6 +3343,12 @@ function updateEnemies(state: GameState) {
           playSFX_enemyAttack(e);
           damagePlayer(state, cfg.damageToPlayer, e);
           if (e.type === 'stinger' && state.neptune) { state.neptune.poisonTicks = NEPTUNE_POISON_TICKS; state.neptune.poisonTimer ||= 60; }
+          if (e.type === 'angry_mushroom' && !state.enemyDecoyActive && !state.playerKnockback) { // shoved away along the main axis
+            const dx = state.playerTileX - e.tileX, dy = state.playerTileY - e.tileY;
+            const [kx, ky] = Math.abs(dx) >= Math.abs(dy) ? [Math.sign(dx) || 1, 0] : [0, Math.sign(dy) || 1];
+            if (isFloorTile(state.map, state.playerTargetX + kx, state.playerTargetY + ky)) state.playerKnockback = { dirX: kx, dirY: ky, started: false, tilesLeft: GAIA_MUSHROOM_KNOCKBACK };
+            state.screenShakeTicks = Math.max(state.screenShakeTicks, 8); state.screenShakeAmt = Math.max(state.screenShakeAmt, 4);
+          }
           if (e.aegis) encounterEffect(state, 'sentinel-hit', e, state.playerX, state.playerY, 18, '#78dedf');
           e.attackTimer = cfg.attackCooldown;
           e.shootTicks = 14;
@@ -3392,7 +3473,7 @@ function spawnAbsorbBurst(state: GameState, fromX: number, fromY: number, toX: n
   }
 }
 
-function spawnDeathParticles(state: GameState, e: Enemy) {
+export function spawnDeathParticles(state: GameState, e: Enemy) {
   const color = ENEMY_CONFIGS[e.type].color;
   const count = 10 + Math.floor(Math.random() * 4);
   for (let i = 0; i < count; i++) {
@@ -3415,7 +3496,7 @@ function showRewardEffect(state: GameState, target: RewardEffect['target'], kind
   else state.rewardEffects.push({ target, kind, ticks: 36 });
 }
 
-function healPlayer(state: GameState, amount: number, showEffect = true) {
+export function healPlayer(state: GameState, amount: number, showEffect = true) {
   const before = state.playerHP;
   state.playerHP = Math.min(PLAYER_MAX_HP, Math.round((state.playerHP + amount) * 10) / 10);
   chargeNeptuneHealing(state, state.playerHP - before);
@@ -3429,11 +3510,18 @@ function healCore(state: GameState, amount: number) {
   if (state.rubyHP > before) showRewardEffect(state, 'ruby', 'heal');
 }
 
-function killEnemy(state: GameState, idx: number, fromMeteor = false, suppressEnergy = false) {
+export function killEnemy(state: GameState, idx: number, fromMeteor = false, suppressEnergy = false) {
   const victim = state.enemies[idx];
   if (!victim || (victim.twin?.downedTicks ?? 0) > 0) return;
-  if (isNeptuneObject(victim.type)) {
-    // Fish, water clones and water balls are objectives: no score, energy, healing or progress.
+  if (victim.type === 'sporeling') gaiaSporeCloud(state, victim);
+  if (victim.type === 'jellyfish') neptuneRevealClone(state);
+  if (victim.type === 'pufferfish' && state.neptune) { // it bursts as it dies
+    pufferBurst(state, victim);
+    state.bombBlasts.push({ cx: victim.x, cy: victim.y, radius: 0, maxRadius: NEPTUNE_PUFF_RADIUS * TILE_SIZE, ticks: 28, water: true });
+  }
+  if (victim.type === 'moon_illusion' && !fromMeteor) moonShatter(state, victim);
+  if (isChallengeObject(victim.type)) {
+    // Fish, water clones, water balls, pods and blossoms are objectives: no score, energy, healing or progress.
     spawnDeathParticles(state, victim);
     state.enemies.splice(idx, 1);
     if (victim.type === 'water_clone' || victim.type === 'water_bomb') playSFX_objectBreak('frost'); else playSFX_alienDeath();
@@ -3593,6 +3681,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false, suppressEn
     state.starEnergy = STAR_ENERGY_MAX;
     if(state.bossesKilled>=SPECIAL_UNLOCK_KILLS)playCelestialSound('ready');else playSFX_powerUp();
     if (e.type === 'splitter_queen') {
+      clearMoonIllusions(state);
       // Killing the real Queen instantly dissolves any echoes she left behind
       for (let j = state.enemies.length - 1; j >= 0; j--) {
         if (state.enemies[j].type === 'queen_echo') {
@@ -3626,7 +3715,7 @@ function killEnemy(state: GameState, idx: number, fromMeteor = false, suppressEn
 
 function updatePlayer(state: GameState) {
   // Frozen solid by a Frost Warden ice tile — no movement at all until it wears off
-  if (state.playerFrozenTicks > 0) {
+  if (state.playerFrozenTicks > 0 || (state.gaia?.snaredTicks ?? 0) > 0) { // frozen, or held by a Gaia root snare
     state.playerChamber = chamberOfTile(state.playerTileX, state.playerTileY);
     return;
   }
@@ -3637,7 +3726,7 @@ function updatePlayer(state: GameState) {
     state.playerCarryingRuby ? PLAYER_CARRY_MULT : 1.0) *
     (chilled ? FROST_CHILL_SPEED_MULT : 1) * (isPlayerInThorns(state) ? THORN_SLOW_MULT : 1);
   const knockback = state.playerKnockback;
-  const baseSpeed = knockback?.started ? PRAYER_KNOCKBACK_SPEED : PLAYER_BASE_SPEED * speedMultiplier * (1 + 0.08 * constellationBonus(state, 'speed')) * neptuneTideSpeed(state);
+  const baseSpeed = knockback?.started ? PRAYER_KNOCKBACK_SPEED : PLAYER_BASE_SPEED * speedMultiplier * (1 + 0.08 * constellationBonus(state, 'speed')) * neptuneTideSpeed(state) * gaiaPlayerSpeed(state);
 
   if (state.playerTileX === state.playerTargetX && state.playerTileY === state.playerTargetY) {
 
@@ -3682,7 +3771,10 @@ function updatePlayer(state: GameState) {
       state.playerX = state.playerTileX * TILE_SIZE + TILE_SIZE / 2;
       state.playerY = state.playerTileY * TILE_SIZE + TILE_SIZE / 2;
       state.playerStepProgress = 0;
-      if (knockback?.started) state.playerKnockback = null;
+      if (knockback?.started) {
+        if ((knockback.tilesLeft ?? 1) > 1) { knockback.tilesLeft = (knockback.tilesLeft ?? 1) - 1; knockback.started = false; }
+        else state.playerKnockback = null;
+      }
 
       // Stepped onto an active Frost Warden ice tile — freeze in place
       if (state.frostIceTiles.some(([tx, ty]) => tx === state.playerTileX && ty === state.playerTileY)) {
@@ -3745,7 +3837,12 @@ function updateMeteorite(state: GameState) {
           // draining its absorb pool. Break the shield with attacks first.
           if (e.icyShieldHP > 0) continue;
           if (state.neptune && e.id === state.neptune.bossId) {
-            damageEnemy(state, e, NEPTUNE_PHASE_HP * NEPTUNE_STRIKE_DAMAGE, 'meteor');
+            damageEnemy(state, e, NEPTUNE_PHASE_HPS[state.neptune.phase] * NEPTUNE_STRIKE_DAMAGE, 'meteor');
+          } else if (state.gaia && e.id === state.gaia.bossId) {
+            gaiaStrikeDamage(state, e, GAIA_STRIKE_DAMAGE);
+          } else if (isMoonBoss(state, e)) {
+            damageEnemy(state, e, MOON_PHASE_HP * MOON_STRIKE_DAMAGE, 'meteor');
+            if (e.hp <= 0) killEnemy(state, state.enemies.indexOf(e), true);
           } else if (e.type === 'devourer') {
             // Every body takes the boss meteor share of the ORIGINAL's max HP, so a meteor usually wipes copies.
             const share = (state.bossesKilled >= SPECIAL_UNLOCK_KILLS ? BOSS_LATE_METEOR_DMG : BOSS_METEOR_DMG) / 100;
@@ -3772,6 +3869,7 @@ function updateMeteorite(state: GameState) {
       if (state.rubyTileX !== -1 && chamberOfTile(state.rubyTileX, state.rubyTileY) === ch) {
         damageRuby(state, METEORITE_RUBY_DMG);
       }
+      gaiaScorchRoom(state, ch); // Gaia: a meteor scorches the room clean
       state.meteoriteWarning = -1;
       state.meteoriteTimer = METEORITE_CYCLE + Math.floor(Math.random() * 300 - 150);
     }
@@ -3828,7 +3926,7 @@ export function useLaser(state: GameState) {
   if (state.gamePhase !== 'playing') return;
   if (state.laserCooldown > 0) return;
   const powered = checkAndConsumePower(state);
-  const range = (powered ? LASER_RANGE_PWR : LASER_RANGE) + 2 * constellationBonus(state, 'laserRange');
+  const range = Math.max(1, Math.round(((powered ? LASER_RANGE_PWR : LASER_RANGE) + 2 * constellationBonus(state, 'laserRange')) * gaiaLaserRangeMult(state)));
   const baseDmg = (powered ? LASER_DMG_PWR : LASER_DMG) * (1 + 0.2 * constellationBonus(state, 'laser'));
 
   const DIRS: [number, number][] = [[1,0],[-1,0],[0,1],[0,-1]];
@@ -3843,6 +3941,7 @@ export function useLaser(state: GameState) {
       for (let r = 0; r < range; r++) {
         if (!isFloorTile(state.map, tx, ty)) break;
         endTx = tx; endTy = ty;
+        gaiaClearTile(state, tx, ty, 1);
         hitSupernova(state, (x, y) => Math.floor(x / TILE_SIZE) === tx && Math.floor(y / TILE_SIZE) === ty);
         for (const e of [...state.enemies].reverse()) {
           if (!state.enemies.includes(e) || (e.twin?.downedTicks ?? 0) > 0) continue;
@@ -3902,6 +4001,7 @@ function fireWave(state: GameState) {
       radius: 0, maxRadius: radius * TILE_SIZE, ticks: 30, powered
     });
     hitSupernova(state, (x, y) => Math.hypot(x / TILE_SIZE - .5 - originX, y / TILE_SIZE - .5 - originY) <= radius);
+    gaiaClearArea(state, originX, originY, radius);
     let hit = false;
     for (const e of [...state.enemies].reverse()) {
       if (!state.enemies.includes(e) || (e.twin?.downedTicks ?? 0) > 0) continue;
@@ -3967,6 +4067,7 @@ export function useBomb(state: GameState) {
     const frostProtected = new Set(state.enemies.filter(e => e.icyShieldHP > 0).map(e => e.id));
     const blastAt = (originX: number, originY: number, mult: number) => {
       hitSupernova(state, (x, y) => Math.hypot(x / TILE_SIZE - .5 - originX, y / TILE_SIZE - .5 - originY) <= radius);
+      gaiaClearArea(state, originX, originY, radius);
       state.bombBlasts.push({
         cx: originX * TILE_SIZE + TILE_SIZE / 2,
         cy: originY * TILE_SIZE + TILE_SIZE / 2,
@@ -4091,7 +4192,7 @@ export function canHealRuby(state: GameState): boolean {
     if (dist > RUBY_HEAL_RANGE) return false;
   }
   for (const e of state.enemies) {
-    if (e.type === 'fish_blue' || e.type === 'fish_red') continue; // fish are not enemies
+    if (e.type === 'fish_blue' || e.type === 'fish_red' || e.type === 'lifebloom') continue; // fish and lifeblooms are not enemies
     if (tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= RUBY_HEAL_CLEAR_RANGE) return false;
   }
   return true;
@@ -4209,6 +4310,7 @@ export function tick(state: GameState) {
   if (state.speedFlashTicks > 0) state.speedFlashTicks--;
   if (state.rubyPlacedFlashTicks > 0) state.rubyPlacedFlashTicks--;
   if (state.playerCastTicks > 0 && --state.playerCastTicks === 0) state.playerCastKind = null;
+  if (state.specialLockTicks > 0) state.specialLockTicks--;
   if (state.runnerEnergyFlashTicks > 0) state.runnerEnergyFlashTicks--;
   if (state.playerFrozenTicks > 0) {
     state.playerFrozenTicks--;
@@ -4315,7 +4417,7 @@ export function tick(state: GameState) {
   // Enemy spawning
   if (!state.noMobs) state.spawnTimer++;
   const tier = DIFFICULTY_TIERS[Math.min(state.difficultyLevel, DIFFICULTY_TIERS.length - 1)];
-  if (!state.noMobs && state.spawnTimer >= tier.spawnInterval) {
+  if (!state.noMobs && state.spawnTimer >= tier.spawnInterval * (state.gaia ? GAIA_SPAWN_RATE : 1)) {
     state.spawnTimer = 0;
     spawnEnemy(state);
   }
@@ -4366,6 +4468,7 @@ export function tick(state: GameState) {
       }
     }
     if (hit) {
+      gaiaClearTile(state, Math.floor(b.x), Math.floor(b.y), 1);
       state.laserBullets.splice(i, 1);
       playSFX_alienHit();
     }
@@ -4392,253 +4495,22 @@ export function tick(state: GameState) {
   if (state.tutorial) updateTutorial(state);
   if (state.trial) updateTrialSkill(state);
   if (state.neptune) updateNeptune(state);
+  if (state.gaia) updateGaia(state);
+  if (state.moon) updateMoon(state);
 }
 
-// ─── Neptune challenge ────────────────────────────────────────────────────────
+// Challenge objectives (fish, water clones and balls, pods, blossoms, illusions): no score, energy or kill rewards.
+export function isChallengeObject(type: EnemyType) { return isNeptuneObject(type) || isGaiaObject(type) || isMoonObject(type); }
 
-export function isNeptuneObject(type: EnemyType) {
-  return type === 'fish_blue' || type === 'fish_red' || type === 'water_clone' || type === 'water_bomb';
-}
-
-export function neptunePhaseFloor(neptune: NeptuneState) { return (3 - neptune.phase) * NEPTUNE_PHASE_HP; }
-function neptunePhaseCeil(neptune: NeptuneState) { return (4 - neptune.phase) * NEPTUNE_PHASE_HP; }
-
-// Healing can never lift her past the top of the current phase.
-function healNeptune(state: GameState, boss: Enemy, amount: number) {
-  const neptune = state.neptune!;
-  if (amount <= 0 || boss.hp <= 0) return;
-  boss.hp = Math.min(neptunePhaseCeil(neptune), boss.hp + amount);
-  if (boss.sea) boss.sea.healPulseTicks = 24;
-}
-
-function chargeNeptuneHealing(state: GameState, healed: number) {
-  if (!state.neptune || healed <= 0) return;
-  state.neptune.healCharge = Math.min(NEPTUNE_HEAL_CHARGE_MAX, state.neptune.healCharge + healed);
-}
-
-function blueFishPopped(state: GameState) {
-  const neptune = state.neptune!, boss = state.enemies.find(b => b.id === neptune.bossId && b.hp > 0);
-  if (boss && isSeaChanterDiving(boss)) { healNeptune(state, boss, NEPTUNE_PHASE_HP * NEPTUNE_FISH_BOSS_HEAL); playSeaHealing(boss); }
-  else healPlayer(state, NEPTUNE_FISH_HEAL);
-}
-
-function updateFish(state: GameState, e: Enemy) {
-  if (e.tileX === e.targetTileX && e.tileY === e.targetTileY) {
-    if (e.path.length === 0) e.path = roamPath(state, e);
-    const next = e.path.shift();
-    if (next && isFloorTile(state.map, next[0], next[1])) { [e.targetTileX, e.targetTileY] = next; e.stepProgress = 0; }
-    return;
-  }
-  e.stepProgress = Math.min(TILE_SIZE, e.stepProgress + ENEMY_CONFIGS[e.type].speed);
-  e.x = (e.tileX + .5) * TILE_SIZE + (e.targetTileX - e.tileX) * e.stepProgress;
-  e.y = (e.tileY + .5) * TILE_SIZE + (e.targetTileY - e.tileY) * e.stepProgress;
-  if (e.stepProgress === TILE_SIZE) { e.tileX = e.targetTileX; e.tileY = e.targetTileY; e.stepProgress = 0; }
-}
-
-function spawnNeptuneObject(state: GameState, type: EnemyType, x: number, y: number) {
-  const object = createEncounterEnemy(state, type, x, y, ENEMY_CONFIGS[type].maxHp);
-  object.attackTimer = 100000; object.visualSpawnTicks = 20;
-  state.enemies.push(object);
-  return object;
-}
-
-function randomFloorTileAwayFromPlayer(state: GameState, minDistance: number): [number, number] | null {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    const x = 1 + Math.floor(Math.random() * (MAP_COLS - 2)), y = 1 + Math.floor(Math.random() * (MAP_ROWS - 2));
-    if (state.map[y]?.[x] === T_FLOOR && tileEuclidDist(x, y, state.playerTileX, state.playerTileY) >= minDistance) return [x, y];
-  }
-  return null;
-}
-
-// Speed along a tide: faster with the flow, slower against it.
-export function neptuneTideSpeed(state: GameState) {
-  const tide = state.neptune?.tides.find(t => t.chamber === chamberOfTile(state.playerTileX, state.playerTileY));
-  if (!tide) return 1;
-  const dx = state.playerTargetX - state.playerTileX, dy = state.playerTargetY - state.playerTileY;
-  if (dx === tide.dirX && dy === tide.dirY) return NEPTUNE_TIDE_WITH;
-  if (dx === -tide.dirX && dy === -tide.dirY) return NEPTUNE_TIDE_AGAINST;
-  return 1;
-}
-
-function randomTide(chamber: number, ticks: number): NeptuneTide {
-  const [dirX, dirY] = [[1, 0], [-1, 0], [0, 1], [0, -1]][Math.floor(Math.random() * 4)];
-  return { chamber, dirX, dirY, ticks };
-}
-
-function updateNeptuneTides(state: GameState) {
-  const neptune = state.neptune!;
-  if (neptune.phase === 3) {
-    // Maelstrom: two rooms always flow, and the currents move every 15s.
-    if (neptune.tides.length < 2 || neptune.tides.some(t => t.ticks <= 0)) {
-      const rooms = [0, 1, 2, 3].sort(() => Math.random() - .5).slice(0, 2);
-      neptune.tides = rooms.map(room => randomTide(room, NEPTUNE_TIDE_ROTATE));
-    }
-  } else if (--neptune.tideTimer <= 0) {
-    neptune.tides = [randomTide(Math.floor(Math.random() * 4), NEPTUNE_TIDE_TICKS)];
-    neptune.tideTimer = NEPTUNE_TIDE_GAP[0] + Math.floor(Math.random() * (NEPTUNE_TIDE_GAP[1] - NEPTUNE_TIDE_GAP[0]));
-  }
-  for (const tide of neptune.tides) tide.ticks--;
-  if (neptune.phase !== 3) neptune.tides = neptune.tides.filter(t => t.ticks > 0);
-  // Like the black hole: anyone not swimming with the current is pushed one tile along it.
-  if (--neptune.tidePushTimer > 0) return;
-  neptune.tidePushTimer = NEPTUNE_TIDE_PUSH_GAP;
-  const tide = neptune.tides.find(t => t.chamber === chamberOfTile(state.playerTileX, state.playerTileY));
-  if (!tide || state.playerKnockback || state.playerFrozenTicks > 0 || neptuneTideSpeed(state) === NEPTUNE_TIDE_WITH) return;
-  if (isFloorTile(state.map, state.playerTargetX + tide.dirX, state.playerTargetY + tide.dirY))
-    state.playerKnockback = { dirX: tide.dirX, dirY: tide.dirY, started: false };
-}
-
-// A random floor tile in a room that has no clone yet (any room once all four are used), away from the player.
-function neptuneCloneTile(state: GameState, cloneIds: number[]): [number, number] | null {
-  const used = new Set(state.enemies.filter(c => cloneIds.includes(c.id)).map(c => chamberOfTile(c.tileX, c.tileY)));
-  const rooms = [0, 1, 2, 3].filter(room => !used.has(room));
-  const room = (rooms.length ? rooms : [0, 1, 2, 3])[Math.floor(Math.random() * (rooms.length || 4))];
-  const tiles = freeChamberTiles(state, room).filter(([x, y]) => tileEuclidDist(x, y, state.playerTileX, state.playerTileY) >= 5);
-  return tiles.length ? tiles[Math.floor(Math.random() * tiles.length)] : null;
-}
-
-function startNeptuneDive(state: GameState, boss: Enemy, point: number) {
-  const neptune = state.neptune!, sea = boss.sea ??= createSeaChanterAbilities();
-  neptune.dive = { point, ticks: NEPTUNE_DIVE_TICKS[neptune.phase], dropsLeft: neptune.phase === 3 && point === 0 ? NEPTUNE_FINAL_CLONES : NEPTUNE_CLONES[neptune.phase], dropTimer: 20, cloneIds: [] };
-  sea.mode = 'diving'; sea.diveElapsedTicks = 0; sea.diveFleeing = false; sea.songWindupTicks = 0; sea.resurfaceTicks = 0;
-  boss.pathTimer = 0; boss.path = [];
-  playSeaSound('dive'); playSeaSound('diveSinging');
-}
-
-function endNeptuneDive(state: GameState, boss: Enemy) {
-  const neptune = state.neptune!, sea = boss.sea!;
-  for (const id of neptune.dive?.cloneIds ?? []) { const i = state.enemies.findIndex(c => c.id === id); if (i >= 0) state.enemies.splice(i, 1); }
-  neptune.dive = null;
-  sea.mode = 'hunting'; sea.songCooldown = SEA_SONG_FIRST_DELAY; sea.allyHealCooldown = SEA_ALLY_HEAL_INTERVAL;
-  sea.resurfaceTicks = 36; sea.resurfaceX = boss.x; sea.resurfaceY = boss.y; sea.songWindupTicks = 0;
-  boss.pathTimer = 0; boss.path = [];
-  stopSeaSound('diveSinging');
-}
-
-function advanceNeptunePhase(state: GameState, boss: Enemy) {
-  const neptune = state.neptune!;
-  if (neptune.phase === 3) { neptune.exposed = true; boss.hp = .01; return; } // she resurfaces exposed; the next hit clears the challenge
-  neptune.phase = (neptune.phase + 1) as 2 | 3;
-  neptune.armed = NEPTUNE_DIVE_POINTS[neptune.phase].map(() => true);
-  neptune.bombTimer = NEPTUNE_BOMB_INTERVAL; neptune.tides = []; neptune.phaseBannerTicks = 180;
-  boss.hp = neptunePhaseCeil(neptune) - .01; boss.healFlashTicks = 30;
-  state.bossSpawnName = `PHASE ${neptune.phase}`; state.bossSpawnColor = ENEMY_CONFIGS.sea_chanter.color; state.bossSpawnTicks = 150;
-  playCelestialSound('ready');
-}
-
-// God panel: jump straight to a phase at full phase HP (summoning her first if she has not arrived).
-export function godSetNeptunePhase(state: GameState, phase: 1 | 2 | 3) {
-  const neptune = state.neptune;
-  if (!neptune || state.gamePhase !== 'playing') return;
-  let boss = state.enemies.find(b => b.id === neptune.bossId && b.hp > 0);
-  if (!boss) { godSpawnBoss(state, 'sea_chanter'); boss = state.enemies.find(b => b.id === neptune.bossId && b.hp > 0); }
-  if (!boss) return;
-  if (neptune.dive) endNeptuneDive(state, boss);
-  state.enemies = state.enemies.filter(e => e.type !== 'water_clone' && e.type !== 'water_bomb');
-  neptune.phase = phase; neptune.exposed = false;
-  neptune.armed = NEPTUNE_DIVE_POINTS[phase].map(() => true);
-  neptune.bombTimer = NEPTUNE_BOMB_INTERVAL; neptune.tides = [];
-  boss.hp = neptunePhaseCeil(neptune) - .01; boss.healFlashTicks = 30;
-  state.bossSpawnName = 'PHASE ' + phase; state.bossSpawnColor = ENEMY_CONFIGS.sea_chanter.color; state.bossSpawnTicks = 120;
-}
-
-function updateNeptune(state: GameState) {
-  const neptune = state.neptune!;
-  state.ambientEvents.timer = Math.max(state.ambientEvents.timer, 3600); // no space events on this world
-  // Stinger poison.
-  if (neptune.poisonTicks > 0) {
-    neptune.poisonTicks--;
-    if (--neptune.poisonTimer <= 0) { damagePlayer(state, NEPTUNE_POISON_DAMAGE); neptune.poisonTimer = 60; }
-  }
-  // Fish keep the water busy.
-  const fish = state.enemies.filter(f => f.type === 'fish_blue' || f.type === 'fish_red').length;
-  if (fish < NEPTUNE_FISH_CAP && --neptune.fishTimer <= 0) {
-    const tile = randomFloorTileAwayFromPlayer(state, 6);
-    if (tile) spawnNeptuneObject(state, Math.random() < NEPTUNE_FISH_RED_CHANCE ? 'fish_red' : 'fish_blue', tile[0], tile[1]);
-    neptune.fishTimer = NEPTUNE_FISH_SPAWN_GAP;
-  }
-  updateNeptuneTides(state);
-  // Sky laser countdown and strike.
-  if (neptune.laser && --neptune.laser.ticks <= 0) { neptuneStrike(state, neptune.laser.chamber); neptune.laser = null; }
-  if (neptune.phaseBannerTicks > 0) neptune.phaseBannerTicks--;
-  if (neptune.laserImpact && --neptune.laserImpact.ticks <= 0) neptune.laserImpact = null;
-  // Water balls tick toward their burst.
-  for (const ball of state.enemies.filter(b => b.type === 'water_bomb')) {
-    if (--ball.windupTicks > 0) continue;
-    state.bombBlasts.push({ cx: ball.x, cy: ball.y, radius: 0, maxRadius: NEPTUNE_BOMB_RADIUS * TILE_SIZE, ticks: 28, water: true });
-    if (tileEuclidDist(ball.tileX, ball.tileY, state.playerTileX, state.playerTileY) <= NEPTUNE_BOMB_RADIUS) damagePlayer(state, NEPTUNE_BOMB_DAMAGE);
-    if (state.rubyTileX !== -1 && tileEuclidDist(ball.tileX, ball.tileY, state.rubyTileX, state.rubyTileY) <= NEPTUNE_BOMB_RADIUS) damageRuby(state, NEPTUNE_BOMB_DAMAGE);
-    state.enemies.splice(state.enemies.indexOf(ball), 1);
-    playSFX_bomb();
-  }
-  const boss = state.enemies.find(b => b.id === neptune.bossId && b.hp > 0);
-  if (!boss) return;
-  boss.hp = Math.min(boss.hp, neptunePhaseCeil(neptune));
-  const points = NEPTUNE_DIVE_POINTS[neptune.phase], floor = neptunePhaseFloor(neptune);
-  const level = (point: number) => floor + point * NEPTUNE_PHASE_HP;
-  const dive = neptune.dive;
-  if (neptune.exposed) boss.hp = Math.min(boss.hp, .01); // no healing back once exposed
-  if (!dive && neptune.exposed) return;
-  if (!dive) points.forEach((point, i) => { if (boss.hp > level(point) + .5) neptune.armed[i] = true; }); // re-arm only while surfaced
-  if (!dive) {
-    const i = points.findIndex((point, index) => neptune.armed[index] && boss.hp <= level(point) + .02);
-    if (i >= 0) { neptune.armed[i] = false; startNeptuneDive(state, boss, points[i]); return; }
-    // Phase 2+: water balls while surfaced.
-    if (neptune.phase >= 2 && --neptune.bombTimer <= 0) {
-      neptune.bombTimer = NEPTUNE_BOMB_INTERVAL;
-      const ball = spawnNeptuneObject(state, 'water_bomb', state.playerTileX, state.playerTileY);
-      ball.windupTicks = NEPTUNE_BOMB_FUSE;
-      boss.shootTicks = 24; playSeaSound('attack');
-    }
-    return;
-  }
-  // Diving: release clones one at a time, each somewhere random in a room not yet used, then wait for them to be found.
-  if (dive.dropsLeft > 0 && --dive.dropTimer <= 0) {
-    const tile = neptuneCloneTile(state, dive.cloneIds) ?? [boss.tileX, boss.tileY];
-    dive.cloneIds.push(spawnNeptuneObject(state, 'water_clone', tile[0], tile[1]).id);
-    dive.dropsLeft--; dive.dropTimer = NEPTUNE_CLONE_DROP_GAP;
-  }
-  const alive = dive.cloneIds.filter(id => state.enemies.some(c => c.id === id && c.hp > 0)).length;
-  if (dive.dropsLeft === 0 && alive === 0) {
-    boss.hp = Math.min(boss.hp, Math.max(level(dive.point), .01)); // all ally healing during the dive is cancelled
-    const finished = dive.point === 0;
-    endNeptuneDive(state, boss);
-    if (finished) advanceNeptunePhase(state, boss);
-    return;
-  }
-  if (--dive.ticks <= 0) {
-    healNeptune(state, boss, alive * NEPTUNE_CLONE_HEAL * NEPTUNE_PHASE_HP); // each clone you missed restores her
-    playSeaHealing(boss);
-    endNeptuneDive(state, boss);
-  }
-}
-
-// Meteor-like strike on a whole room: aliens and water objects there are destroyed, she takes a share of
-// phase HP, and the player and Ruby are hit like a meteor if they are inside.
-function neptuneStrike(state: GameState, chamber: number) {
-  const neptune = state.neptune!;
-  neptune.laserImpact = { chamber, ticks: 70 };
-  state.screenShakeTicks = Math.max(state.screenShakeTicks, 22); state.screenShakeAmt = Math.max(state.screenShakeAmt, 12);
-  playSFX_meteorite();
-  for (const target of [...state.enemies].reverse()) {
-    if (!state.enemies.includes(target) || chamberOfTile(target.tileX, target.tileY) !== chamber) continue;
-    if (target.id === neptune.bossId) damageEnemy(state, target, NEPTUNE_PHASE_HP * NEPTUNE_STRIKE_DAMAGE, 'meteor');
-    else if (!isBossType(target.type)) { damageEnemy(state, target, target.hp + 1, 'meteor'); const i = state.enemies.indexOf(target); if (i >= 0) killEnemy(state, i, true); }
-  }
-  if (chamberOfTile(state.playerTileX, state.playerTileY) === chamber) damagePlayer(state, METEORITE_PLAYER_DMG);
-  if (state.rubyTileX !== -1 && chamberOfTile(state.rubyTileX, state.rubyTileY) === chamber) damageRuby(state, METEORITE_RUBY_DMG);
-}
-
-export function canOpenSkyLaser(state: GameState) {
-  return !!state.neptune && state.gamePhase === 'playing' && !state.neptune.laser && state.neptune.healCharge >= NEPTUNE_HEAL_CHARGE_MAX;
-}
-export function openSkyLaser(state: GameState): boolean {
-  if (!canOpenSkyLaser(state)) return false;
-  state.gamePhase = 'laserTarget'; state.playerQueuedDirX = state.playerQueuedDirY = 0;
-  return true;
-}
+// Room picker shared by full-charge room strikes (Neptune's Trident, Gaia's full Sunfire).
 export function chooseSkyLaser(state: GameState, chamber: number): boolean {
-  if (state.gamePhase !== 'laserTarget' || !state.neptune || chamber < 0 || chamber > 3) return false;
+  if (state.gamePhase !== 'laserTarget' || chamber < 0 || chamber > 3) return false;
+  if (state.gaia) { // full Sunfire: the chosen room winds up, then burns
+    state.gaia.sunfire = { chamber, ticks: GAIA_SUN_WARNING }; state.gaia.sunCharge = 0; state.gamePhase = 'playing';
+    playCelestialSound('ready');
+    return true;
+  }
+  if (!state.neptune) return false;
   state.neptune.laser = { chamber, ticks: NEPTUNE_LASER_WARNING };
   state.neptune.healCharge = 0;
   state.gamePhase = 'playing';
@@ -4648,11 +4520,11 @@ export function cancelSkyLaser(state: GameState) {
   if (state.gamePhase === 'laserTarget') state.gamePhase = 'playing';
 }
 
-// Trial skill: once cast (the held skill empties), it comes back after TRIAL_SKILL_COOLDOWN.
+// Trial skill: once cast (the held skill empties), it comes back after its cooldown (20s; Gaia's Roots 40s).
 function updateTrialSkill(state: GameState) {
   const trial = state.trial!;
   if (state.specialSkill) return;
-  if (trial.cooldown === 0) trial.cooldown = TRIAL_SKILL_COOLDOWN;
+  if (trial.cooldown === 0) trial.cooldown = trialSkillCooldown(trial.skill);
   else if (--trial.cooldown === 0) { state.specialSkill = trial.skill; playCelestialSound('ready'); }
 }
 
@@ -4740,7 +4612,7 @@ export function godSetNoBossSpawns(state: GameState, enabled: boolean) {
   state.noBossSpawns=enabled;
   if(enabled){
     state.encounterEffects = [];
-    state.enemies=state.enemies.filter(e=>!isBossType(e.type)&&e.type!=='queen_echo'&&e.type!=='aegis_construct');
+    state.enemies=state.enemies.filter(e=>!isBossType(e.type)&&e.type!=='queen_echo'&&e.type!=='moon_illusion'&&e.type!=='aegis_construct');
     clearThornHazards(state);stopSeaSounds();state.seaSongWaves=[];state.seaSongBursts=[];
     state.prayerWaves=[];state.frostIceTiles=[];state.playerFrozenTicks=0;state.kingArenaPulseTicks=0;state.slashEffects=[];
     const bossColors=new Set(['#cc0022','#cc33ff','#dd88ff','#6b2fa8','#aaeeff','#ffdd22','#89cbff']);
@@ -4754,7 +4626,7 @@ export function godSetNoBossSpawns(state: GameState, enabled: boolean) {
 export function godSetNoMobs(state: GameState, enabled: boolean) {
   state.noMobs = enabled;
   state.spawnTimer = 0;
-  if (enabled) state.enemies = state.enemies.filter(e => isBossType(e.type) || e.type === 'queen_echo' || e.type === 'aegis_construct');
+  if (enabled) state.enemies = state.enemies.filter(e => isBossType(e.type) || e.type === 'queen_echo' || e.type === 'moon_illusion' || e.type === 'aegis_construct');
 }
 
 // God-mode debug tool: force-spawn a specific boss type at a random valid spawn tile,
@@ -4832,6 +4704,7 @@ export function godSpawnBoss(state: GameState, bossType: BossType) {
 export function useSpecialSkill(state: GameState): boolean {
   if(state.gamePhase!=='playing')return false;
   if(!state.specialSkill){playCelestialSound('empty');return false;}
+  if(state.specialLockTicks>0)return false; // a skill just earned from the previous cast's kill is kept, not fired by a repeat press
   const kind = state.specialSkill;
   if(kind !== 'devourer') playCelestialSound(kind);
   if(kind === 'fiery_king') playCelestialSound('solar_swoosh');
@@ -4843,6 +4716,7 @@ export function useSpecialSkill(state: GameState): boolean {
   if(kind === 'astral_twins') playCelestialSound('binary_reach');
   // Consume before resolving kills so a newly earned reward is never erased.
   state.specialSkill = null;
+  if (!state.trial) state.specialLockTicks = SPECIAL_RECAST_LOCK;
   state.playerCastTicks = 24; state.playerCastKind = kind;
   state.specialEffects.push({ kind, x: state.playerX, y: state.playerY, ticks: kind==='splitter_queen'?54:kind==='fiery_king'?48:36 });
   if(kind==='devourer'){
@@ -4850,7 +4724,9 @@ export function useSpecialSkill(state: GameState): boolean {
     state.singularity={x:(Math.floor(state.playerX/TILE_SIZE)+.5)*TILE_SIZE,y:(Math.floor(state.playerY/TILE_SIZE)+.5)*TILE_SIZE,ticks,maxTicks:ticks,pullTimer:15,damageTimer:60};updateSingularitySound(state);return true;
   }
   if(kind==='thorn_weaver'){
-    state.celestialField={x:Math.floor(state.playerX/TILE_SIZE)*TILE_SIZE,y:Math.floor(state.playerY/TILE_SIZE)*TILE_SIZE,ticks:SPECIAL_WEAVER_DURATION,damageTimer:60};return true;
+    state.celestialField={x:Math.floor(state.playerX/TILE_SIZE)*TILE_SIZE,y:Math.floor(state.playerY/TILE_SIZE)*TILE_SIZE,ticks:SPECIAL_WEAVER_DURATION,damageTimer:60};
+    gaiaClearRootsField(state); // Gaia: the cast clears its whole field (and keeps it clean while active)
+    return true;
   }
   if(kind==='splitter_queen'){
     state.lunarDecoy={x:state.playerX,y:state.playerY,tileX:state.playerTileX,tileY:state.playerTileY,hitsLeft:SPECIAL_QUEEN_DECOY_HITS,maxHits:SPECIAL_QUEEN_DECOY_HITS,flashTicks:0,invulnerableTicks:0};
@@ -4923,7 +4799,7 @@ function fireBulletFrom(state: GameState, tileX: number, tileY: number, x: numbe
   let bestDist = maxRange + 3.5; // +3.5 because we added 3.5 to the actual range in the check
   let targetE = null;
   for (const e of state.enemies) {
-    if (isSeaChanterDiving(e) || e.twin?.downedTicks || e.type === 'fish_blue' || e.type === 'fish_red') continue;
+    if (isSeaChanterDiving(e) || e.twin?.downedTicks || e.type === 'fish_blue' || e.type === 'fish_red' || e.type === 'lifebloom') continue;
     const dist = tileEuclidDist(e.tileX, e.tileY, tileX, tileY);
     if (dist < bestDist) {
       bestDist = dist;

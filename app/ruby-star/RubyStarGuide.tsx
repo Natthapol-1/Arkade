@@ -19,61 +19,61 @@ const controls = [
 ];
 
 const aliens: { type: EnemyType; name: string; description: string }[] = [
-  { type: 'normal', name: 'Normal', description: 'Chases you or Ruby. Easy to defeat.' },
-  { type: 'armored', name: 'Armored', description: 'Slow and tough. Defeat it for a player shield.' },
-  { type: 'fast', name: 'Runner', description: 'Very fast but fragile. Gives extra star energy.' },
-  { type: 'bomber', name: 'Bomber', description: 'Explodes up close or when defeated. Keep your distance.' },
-  { type: 'sniper', name: 'Sniper', description: 'Charges a long-range shot. Defeat it for chain lightning.' },
-  { type: 'healer', name: 'Healer', description: 'Heals nearby aliens. Defeat it to recover HP.' },
-  { type: 'charger', name: 'Charger', description: 'Marks a lane, then rushes straight ahead. Dodge sideways or bait it into a wall. Defeat it for a speed burst.' },
-  { type: 'ghost', name: 'Ghost', description: 'Moves through walls. Defeat it to heal a placed Ruby.' },
-  { type: 'splitter', name: 'Splitter', description: 'Splits into two smaller aliens when defeated.' },
-  { type: 'mini_splitter', name: 'Mini Splitter', description: 'A small, quick attacker left by a Splitter.' },
-  { type: 'shielder', name: 'Shielder', description: 'Protects another alien. Defeat it for a Ruby shield.' },
-  { type: 'energy_leech', name: 'Energy Leech', description: 'Hunts you and steals star energy up close. Defeat it to recover the stolen energy. Leaves HP and Ruby unharmed.' },
-  { type: 'queen_echo', name: 'Queen Echo', description: 'A Queen copy that keeps shooting until defeated.' },
+  { type: 'normal', name: 'Normal', description: 'Chases you or Ruby.' },
+  { type: 'armored', name: 'Armored', description: 'Tough. Drops a shield.' },
+  { type: 'fast', name: 'Runner', description: 'Fast and fragile. Extra energy.' },
+  { type: 'bomber', name: 'Bomber', description: 'Explodes up close or on death.' },
+  { type: 'sniper', name: 'Sniper', description: 'Charges a long shot. Drops chain lightning.' },
+  { type: 'healer', name: 'Healer', description: 'Heals aliens. Kill it to heal.' },
+  { type: 'charger', name: 'Charger', description: 'Marks a lane, then rushes. Dodge sideways. Drops a speed burst.' },
+  { type: 'ghost', name: 'Ghost', description: 'Moves through walls. Kill it to heal Ruby.' },
+  { type: 'splitter', name: 'Splitter', description: 'Splits in two on death.' },
+  { type: 'mini_splitter', name: 'Mini Splitter', description: 'Small and quick.' },
+  { type: 'shielder', name: 'Shielder', description: 'Shields another alien. Drops a Ruby shield.' },
+  { type: 'energy_leech', name: 'Energy Leech', description: 'Steals energy up close. Kill it to get it back.' },
+  { type: 'queen_echo', name: 'Queen Echo', description: 'Keeps shooting until killed.' },
 ];
 
 export const bosses: Record<BossType, { description: string; skill: string }> = {
   fiery_king: {
-    description: 'Grows faster and stronger over time. Keep attacking to interrupt his arena blast.',
-    skill: 'Burns all enemies. Regular kills give no energy.',
+    description: 'Grows stronger over time. Keep hitting him to stop his arena blast.',
+    skill: 'Burns all enemies. Kills give no energy.',
   },
   splitter_queen: {
-    description: 'Teleports between chambers and leaves shooting copies. Defeat her to clear them all.',
-    skill: 'Creates a decoy that draws enemy attacks.',
+    description: 'Teleports and leaves shooting copies. Kill her to clear them.',
+    skill: 'A decoy draws attacks.',
   },
   storm_reaper: {
-    description: 'Hunts you and seals hallways. Keep moving to avoid her strikes.',
-    skill: 'Strikes nearby enemies with a powerful storm.',
+    description: 'Hunts you and seals hallways. Keep moving.',
+    skill: 'Storm strike on nearby enemies.',
   },
   devourer: {
-    description: 'Fast. Eats aliens to grow, and splits into a copy per meal when defeated or left alone too long. Kill every copy to win.',
-    skill: 'Pulls enemies in, damages them and blocks their teleporting.',
+    description: 'Eats aliens to grow. Splits into copies when killed or ignored. Kill every copy.',
+    skill: 'Pulls enemies in and damages them.',
   },
   frost_warden: {
-    description: 'Slows you, freezes floor tiles and shields aliens. Her ice shields block meteors.',
-    skill: 'Shields both you and Ruby.',
+    description: 'Slows you, freezes tiles and shields aliens from meteors.',
+    skill: 'Shields you and Ruby.',
   },
   blind_prayer: {
-    description: 'Reverses your movement, moves a placed Ruby and blasts you back when cornered.',
-    skill: 'Grants a longer power boost and refreshes your abilities.',
+    description: 'Reverses your controls, moves Ruby and blasts you back when cornered.',
+    skill: 'Longer power boost. Refreshes abilities.',
   },
   sea_chanter: {
-    description: 'Sends bursting water attacks, heals aliens. When hurt, she dives. Dealing damage to other aliens while she is diving heals her. She takes extra damage underwater; hitting her briefly blocks her recovery.',
-    skill: 'Heals you and Ruby, and pushes enemies away.',
+    description: 'Heals aliens. Dives when hurt; hitting other aliens then heals her. Hit her underwater for extra damage.',
+    skill: 'Heals you and Ruby. Pushes enemies away.',
   },
   thorn_weaver: {
-    description: 'Marks the ground with slowing, poisonous thorns. Instantly grows a larger field around itself when approached.',
-    skill: 'Plants a field that slows and damages enemies.',
+    description: 'Leaves slowing, poisonous thorns. Grows a bigger field when you get close.',
+    skill: 'A field that slows and damages enemies.',
   },
   aegis_sentinel: {
-    description: 'Break both pylons to expose its core. Its shield reflects damage; surviving pylons explode and relocate.',
-    skill: 'Briefly cuts damage to you and Ruby, and reflects attacks back.',
+    description: 'Break both pylons to expose its core. Its shield reflects damage.',
+    skill: 'Cuts damage to you and Ruby. Reflects attacks.',
   },
   astral_twins: {
-    description: 'One fights up close; the other tracks you with ranged shots. Defeat both within 12 seconds, or the fallen twin revives. The survivor goes berserk meanwhile.',
-    skill: 'A twin beside Ruby copies your attacks for a while.',
+    description: 'One fights close, one shoots. Kill both within 12s or the fallen one revives.',
+    skill: 'A twin by Ruby copies your attacks.',
   },
 };
 
@@ -109,41 +109,39 @@ export default function RubyStarGuide() {
 
       <div className="rs-guide-grid">
         <section className="rs-guide-section"><h4>RUBY & HEALING</h4>
-          <p>Carrying Ruby keeps it safe but slows you down. With enemies clear, press Space near Ruby or while carrying it to heal both.</p>
+          <p>Carrying Ruby slows you. With no enemies near, press Space by Ruby to heal both.</p>
         </section>
         <section className="rs-guide-section"><h4>METEORS</h4>
-          <p>Meteors move clockwise and damage all units in the chamber. Leave the flashing chamber with Ruby before impact.</p>
+          <p>Meteors move clockwise and hit everything in the chamber. Get Ruby out of the flashing one.</p>
         </section>
         <section className="rs-guide-section"><h4>TELEPORT</h4>
-          <p>Press X on or next to a pad to choose a chamber. Carried Ruby travels with you and is placed on arrival.</p>
+          <p>Press X at a pad to pick a chamber. Carried Ruby comes along.</p>
         </section>
         <section className="rs-guide-section"><h4>STAR ENERGY</h4>
-          <p>Kills and blue shards fill energy. When full, your next ability starts a power boost. Red shards heal you.</p>
+          <p>Kills and blue shards fill energy. When full, your next ability is boosted. Red shards heal.</p>
         </section>
       </div>
 
       <section className="rs-guide-section"><h4>SPACE EVENTS</h4>
-        <p><strong>Black Hole:</strong> Pulls you and aliens toward the center.</p>
-        <p><strong>Shooting Star:</strong> Collect its shard to heal and recharge.</p>
-        <p><strong>Eclipse:</strong> Briefly stops enemies from moving or attacking.</p>
-        <p><strong>Supernova:</strong> Hit it with lasers or area attacks, then escape the blast.</p>
+        <p><strong>Black Hole:</strong> Pulls everything in.</p>
+        <p><strong>Shooting Star:</strong> Grab its shard to heal and recharge.</p>
+        <p><strong>Eclipse:</strong> Briefly freezes enemies.</p>
+        <p><strong>Supernova:</strong> Hit it, then escape the blast.</p>
       </section>
       <section className="rs-guide-section"><h4>CONSTELLATIONS</h4>
-        <p>Every 3 stages, choose an upgrade that lasts for the run. Each constellation can be chosen once.</p>
+        <p>Every 3 stages, pick an upgrade for the run.</p>
       </section>
       <section className="rs-guide-section"><h4>ASCENSION</h4>
-        <p>From stage 10, killing a boss grants you a single-use celestial skill. Press F to use it. You can hold one at a time.</p>
-        <p className="rs-guide-note">See more details in the Aliens &amp; Bosses page.</p>
+        <p>From stage 10, boss kills give a one-use celestial skill (F). Hold one at a time.</p>
       </section>
       <section className="rs-guide-hints"><h4>HINTS</h4>
         <ul>
-          <li>Teleport and meteors work well together: escape with Ruby and leave aliens in the blast.</li>
-          <li>Move away before detonating your bomb.</li>
-          <li>Clear space to heal.</li>
+          <li>Teleport out with Ruby and leave aliens in the meteor blast.</li>
+          <li>Step away before detonating your bomb.</li>
         </ul>
       </section>
     </> : <>
-      <p className="rs-guide-intro">Learn the threats. Boss skills become yours after Ascension.</p>
+      <p className="rs-guide-intro">Boss skills become yours after Ascension.</p>
       <section aria-labelledby="rs-aliens-title"><h4 id="rs-aliens-title" className="rs-guide-group-title">ALIENS</h4>
         <div className="rs-guide-grid">
           {aliens.map(alien => <article key={alien.type} className="rs-guide-entry" style={{ borderLeftColor: ENEMY_CONFIGS[alien.type].color }}>

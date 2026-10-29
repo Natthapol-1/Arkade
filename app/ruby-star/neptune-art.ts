@@ -1,4 +1,4 @@
-import { TILE_SIZE, CHAMBER_BOUNDS, ENEMY_CONFIGS, NEPTUNE_BOMB_FUSE, NEPTUNE_BOMB_RADIUS, NEPTUNE_LASER_WARNING } from './constants';
+import { TILE_SIZE, CHAMBER_BOUNDS, ENEMY_CONFIGS, NEPTUNE_PUFF_TICKS, NEPTUNE_BOMB_FUSE, NEPTUNE_BOMB_RADIUS, NEPTUNE_LASER_WARNING } from './constants';
 import type { Enemy, GameState } from './engine';
 
 // Blocky neon-vector art for the Neptune challenge: fish, stingers, water clones, water balls,
@@ -89,11 +89,55 @@ function drawWaterBall(ctx: CanvasRenderingContext2D, e: Readonly<Enemy>, tick: 
   ctx.restore();
 }
 
+// Jellyfish: a glowing pink bell that pulses, with blocky tentacles swaying below.
+function drawJellyfish(ctx: CanvasRenderingContext2D, e: Readonly<Enemy>, tick: number) {
+  const pulse = Math.sin(tick * .12 + e.id), squash = Math.round(pulse * 2);
+  ctx.translate(0, Math.round(Math.sin(tick * .05 + e.id) * 3));
+  for (let k = 0; k < 4; k++) {
+    const x = -10 + k * 6, sway = Math.round(Math.sin(tick * .15 + k) * 2);
+    block(ctx, x + sway, 4, 3, 6, '#ff9ce6'); block(ctx, x - sway, 10, 3, 6, '#ffc4ef'); block(ctx, x + sway, 16, 3, 4, '#ff9ce6');
+  }
+  ctx.shadowColor = '#ff9ce6'; ctx.shadowBlur = 6;
+  block(ctx, -14 - squash, -12 + squash, 28 + squash * 2, 16 - squash, '#e25fc0'); ctx.shadowBlur = 0;
+  block(ctx, -10 - squash, -16 + squash, 20 + squash * 2, 4, '#e25fc0');
+  block(ctx, -14 - squash, 0, 28 + squash * 2, 4, '#a83a8c');
+  block(ctx, -8, -12 + squash, 6, 6, '#ffd6f4'); block(ctx, 4, -8 + squash, 4, 4, '#ffd6f4');
+}
+
+// Pufferfish: a round blocky fish that swells and bristles with spikes before it bursts.
+function drawPufferfish(ctx: CanvasRenderingContext2D, e: Readonly<Enemy>, tick: number) {
+  const swell = e.windupTicks > 0 ? 1 - e.windupTicks / NEPTUNE_PUFF_TICKS : 0, burst = e.shootTicks > 0 ? e.shootTicks / 18 : 0;
+  const r = Math.round(10 + swell * 8), flash = swell > .6 && Math.floor(tick / 3) % 2 === 0;
+  ctx.save(); ctx.scale(facing(e), 1); ctx.translate(0, swell ? 0 : Math.round(Math.sin(tick * .2 + e.id) * 1.5));
+  block(ctx, -r - 6, -4, 6, 8, '#e0a83a'); // tail
+  ctx.shadowColor = '#ffc94a'; ctx.shadowBlur = 4 + swell * 4;
+  block(ctx, -r, -r + 2, r * 2, r * 2 - 4, flash ? '#fff0b8' : '#ffc94a'); block(ctx, -r + 2, -r, r * 2 - 4, r * 2, flash ? '#fff0b8' : '#ffc94a');
+  ctx.shadowBlur = 0;
+  block(ctx, -r + 2, r - 6, r * 2 - 4, 4, '#c98a2a'); block(ctx, -r + 4, -r + 2, r, 4, '#fff0b8');
+  block(ctx, r - 8, -5, 4, 4, '#1a1020'); block(ctx, r - 2, 0, 4, 3, '#8a4a2a');
+  if (swell > 0) for (let k = 0; k < 8; k++) { // spikes push out as it swells
+    const a = k * Math.PI / 4, d = r + 2 + swell * 4;
+    block(ctx, Math.cos(a) * d - 2, Math.sin(a) * d - 2, 4, 4, '#fff0b8');
+  }
+  ctx.restore();
+  if (burst > 0) { // spike burst ring
+    ctx.save(); ctx.globalAlpha = burst; ctx.strokeStyle = '#ffe680'; ctx.lineWidth = 4;
+    const half = Math.round((1 - burst) * 1.6 * TILE_SIZE + 12); ctx.strokeRect(-half, -half, half * 2, half * 2);
+    for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; block(ctx, Math.cos(a) * half - 3, Math.sin(a) * half - 3, 6, 6, '#fff0b8'); }
+    ctx.restore();
+  }
+}
+
 export function drawNeptuneUnit(ctx: CanvasRenderingContext2D, e: Readonly<Enemy>, sx: number, sy: number, tick: number): boolean {
-  if (e.type !== 'fish_blue' && e.type !== 'fish_red' && e.type !== 'stinger' && e.type !== 'water_clone' && e.type !== 'water_bomb') return false;
+  if (e.type !== 'fish_blue' && e.type !== 'fish_red' && e.type !== 'stinger' && e.type !== 'water_clone' && e.type !== 'water_bomb' && e.type !== 'jellyfish' && e.type !== 'pufferfish') return false;
   ctx.save(); ctx.translate(Math.round(sx), Math.round(sy));
   if (e.flashTicks > 0) ctx.filter = 'brightness(1.8)';
-  if (e.type === 'water_bomb') drawWaterBall(ctx, e, tick);
+  if (e.type === 'jellyfish') { ctx.scale(1.3, 1.3); drawJellyfish(ctx, e, tick); }
+  else if (e.type === 'pufferfish') {
+    ctx.save(); ctx.scale(1.3, 1.3); drawPufferfish(ctx, e, tick); ctx.restore();
+    const width = 30; block(ctx, -width / 2, -28, width, 4, '#0a101b'); block(ctx, -width / 2, -28, Math.floor(width * Math.max(0, e.hp / e.maxHp)), 4, ENEMY_CONFIGS.pufferfish.color);
+  }
+  else if (e.type === 'water_bomb') drawWaterBall(ctx, e, tick);
   else if (e.type === 'water_clone') drawClone(ctx, e, tick);
   else if (e.type === 'stinger') {
     ctx.save(); ctx.scale(1.15, 1.15); drawStinger(ctx, e, tick); ctx.restore();
@@ -125,6 +169,47 @@ export function drawNeptuneOverlay(ctx: CanvasRenderingContext2D, state: Readonl
     }
     ctx.globalAlpha = .6; ctx.strokeStyle = '#7fc7ff'; ctx.lineWidth = 2; ctx.strokeRect(x + 3, y + 3, w - 6, h - 6);
   }
+  // Shark: a striped warning lane across the chamber, then the shark charges through and out of the wall.
+  const shark = neptune.shark;
+  if (shark) {
+    const [r1, c1, r2, c2] = CHAMBER_BOUNDS[shark.chamber];
+    const lo = shark.vertical ? r1 : c1, hi = shark.vertical ? r2 : c2;
+    for (let k = lo; k <= hi; k++) {
+      const tx = shark.vertical ? shark.line : k, ty = shark.vertical ? k : shark.line;
+      if (state.map[ty]?.[tx] === 0) continue;
+      const x = tx * TILE_SIZE - camX, y = ty * TILE_SIZE - camY;
+      if (shark.warning > 0) {
+        ctx.globalAlpha = .22 + .2 * Math.abs(Math.sin(tick * .25 + k * .5)); ctx.fillStyle = '#ff4d5a'; ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        ctx.globalAlpha = .7; ctx.fillStyle = '#ffd0d0';
+        const along = ((k - lo) * shark.dir + Math.floor(tick / 5)) % 3 === 0; // chevrons running toward the exit wall
+        if (along) { ctx.save(); ctx.translate(x + TILE_SIZE / 2, y + TILE_SIZE / 2); ctx.rotate(Math.atan2(shark.vertical ? shark.dir : 0, shark.vertical ? 0 : shark.dir));
+          ctx.fillRect(-8, -10, 6, 4); ctx.fillRect(-2, -6, 6, 4); ctx.fillRect(-2, 2, 6, 4); ctx.fillRect(-8, 6, 6, 4); ctx.restore(); }
+      } else { ctx.globalAlpha = .12; ctx.fillStyle = '#ff4d5a'; ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4); }
+    }
+    if (shark.warning <= 0) {
+      const px = ((shark.vertical ? shark.line : shark.pos) + .5) * TILE_SIZE - camX, py = ((shark.vertical ? shark.pos : shark.line) + .5) * TILE_SIZE - camY;
+      ctx.save(); ctx.translate(Math.round(px), Math.round(py)); ctx.rotate(Math.atan2(shark.vertical ? shark.dir : 0, shark.vertical ? 0 : shark.dir));
+      ctx.globalAlpha = .35; ctx.fillStyle = '#9fd8ff'; for (let k = 1; k <= 3; k++) ctx.fillRect(-30 - k * 14, -6 + (k % 2) * 4, 10, 4); // wake
+      ctx.globalAlpha = 1; ctx.shadowColor = '#7fa8c8'; ctx.shadowBlur = 4;
+      block(ctx, -34, -12, 56, 24, '#5f7e98'); ctx.shadowBlur = 0;
+      block(ctx, -34, 4, 56, 8, '#3d566c'); block(ctx, -28, -12, 44, 4, '#9fb8cc');
+      block(ctx, 22, -8, 10, 16, '#5f7e98'); block(ctx, 30, -4, 6, 8, '#5f7e98'); // snout
+      block(ctx, -46, -16, 12, 10, '#5f7e98'); block(ctx, -46, 6, 12, 10, '#5f7e98'); // tail
+      block(ctx, -8, -24, 14, 12, '#4a667e'); block(ctx, -4, -28, 8, 4, '#4a667e'); // dorsal fin
+      block(ctx, 18, -6, 4, 4, '#0b1020'); block(ctx, 22, 4, 10, 3, '#e8f4ff'); // eye, teeth
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // A clone revealed by a jellyfish: a pulsing light column above it.
+  const reveal = neptune.reveal, revealed = reveal && state.enemies.find(c => c.id === reveal.cloneId);
+  if (reveal && revealed) {
+    const x = revealed.x - camX, y = revealed.y - camY, fade = Math.min(1, reveal.ticks / 30), pulse = .5 + .5 * Math.sin(tick * .2);
+    ctx.globalAlpha = (.25 + .2 * pulse) * fade; ctx.fillStyle = '#ffd6f4'; ctx.fillRect(x - 10, y - 420, 20, 400);
+    ctx.globalAlpha = (.7 + .3 * pulse) * fade; ctx.strokeStyle = '#ff9ce6'; ctx.lineWidth = 4;
+    const half = 30 + pulse * 6; ctx.strokeRect(x - half, y - half, half * 2, half * 2);
+    ctx.globalAlpha = 1;
+  }
   const laser = neptune.laser;
   if (laser) {
     const [r1, c1, r2, c2] = CHAMBER_BOUNDS[laser.chamber], progress = 1 - laser.ticks / NEPTUNE_LASER_WARNING;
@@ -137,7 +222,7 @@ export function drawNeptuneOverlay(ctx: CanvasRenderingContext2D, state: Readonl
     ctx.globalAlpha = .18 + progress * .35; ctx.fillStyle = '#9fe4ff'; ctx.fillRect(cx - beam / 2, y, beam, h);
     ctx.globalAlpha = .9; ctx.fillStyle = '#ffffff';
     ctx.font = '700 22px var(--font-pixel), monospace'; ctx.textAlign = 'center';
-    ctx.fillText(`SKY LASER ${Math.ceil(laser.ticks / 60)}s`, cx, cy);
+    ctx.fillText(`TRIDENT ${Math.ceil(laser.ticks / 60)}s`, cx, cy);
   }
   ctx.restore();
 }

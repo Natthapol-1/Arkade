@@ -37,7 +37,7 @@ New regular aliens and Splitter children gain +5% HP per third-boss milestone, c
 
 ## Ascension and celestial skills
 
-The **tenth boss defeat** unlocks Ascension and grants that defeated boss's skill. Every subsequent encounter grants its mapped skill. Aegis Sentinel grants Venus Veil; Astral Twins grants Binary Star, awarded once after defeating the pair. Hold one single-use skill; the next reward replaces it. F activates it. Consume the old skill before resolving its kills, so a boss killed by that skill can immediately grant a replacement. A held skill changes the suit; carrying Ruby takes model priority without deleting the skill. Celestial colors and shapes follow the player planet/star theme; see [Visual style](VISUALS.md).
+The **tenth boss defeat** unlocks Ascension and grants that defeated boss's skill. Every subsequent encounter grants its mapped skill. Aegis Sentinel grants Venus Veil; Astral Twins grants Binary Star, awarded once after defeating the pair. Hold one single-use skill; the next reward replaces it. F activates it. After a cast, F is ignored for 1.5s (`SPECIAL_RECAST_LOCK`; not in challenges, whose skill has its own cooldown), so a skill granted by that cast's boss kill is not fired by a repeated press. Consume the old skill before resolving its kills, so a boss killed by that skill can immediately grant a replacement. A held skill changes the suit; carrying Ruby takes model priority without deleting the skill. Celestial colors and shapes follow the player planet/star theme; see [Visual style](VISUALS.md).
 
 | Boss reward | Skill | Effect |
 | --- | --- | --- |

@@ -11,7 +11,7 @@ Singularity sound repeats until field expiry; use its gapless 1.046s loop with s
 
 ## Menu sounds
 
-`ui-sfx.ts` synthesizes every menu cue with Web Audio (no files), boosted ×5 with a .6 peak cap. Lobby: hover/focus tick on cards and arrows, distinct select cues for Endless Space (warp-in sweep) and Ascension (three-note ascent with shimmer), a low denied buzz on the locked card, and page/back slides when rotating. Rule sheet: page slide when the HUD RULES button opens it and to Aliens & Bosses, back slide to Main Rules, power-down chirp on ✕ and a two-tone acknowledge on UNDERSTOOD (other arcade games keep the shared click). EXIT uses the back slide. Teleport: a rising warble when X/TP opens the menu, hover ticks on available chambers and the power-down chirp when cancelled; arrival keeps its existing cue. Tutorial: the acknowledge cue when a step is cleared and the Ascension cue on completion.
+`ui-sfx.ts` synthesizes every menu cue with Web Audio (no files), boosted ×5 with a .6 peak cap. Lobby: hover/focus tick on cards and arrows, distinct select cues for Endless Space (warp-in sweep) and Ascension (three-note ascent with shimmer), a low denied buzz on the locked card, and page/back slides when rotating. Rule sheet: page slide when the HUD RULES button opens it and to Aliens & Bosses, back slide to Main Rules, power-down chirp on ✕ and a two-tone acknowledge on UNDERSTOOD (other arcade games keep the shared click). EXIT uses the back slide. Teleport: a rising warble when X/TP opens the menu, hover ticks on available chambers and the power-down chirp when cancelled; arrival keeps its existing cue. Tutorial: the acknowledge cue when a step is cleared and the Ascension cue on completion. Room strike ready (Neptune's Trident or Gaia's Sunfire reaching full): a bright rising chime with a shimmer (`charged`) layered with `strike-charged.wav` (a 2.7s sci-fi "item acquired" cue, gain .55; played from `engine.ts`). Challenge victory: a fanfare (rising C–E–G arpeggio into a held major chord with a high shimmer).
 
 ## Space events
 
@@ -60,3 +60,15 @@ During the last 3 seconds of exposure, a synthesized two-note triangle chime pla
 Dawn's melee hits use `public/sounds/celestial/jupiter-storm.wav` at gain 1.3 before the .765 mix (.9945 final). The user-supplied `dawn_attack.mp3` remains stored as `public/sounds/dawn-attack.mp3` for future use. Dusk's user-supplied `dusk_attack.mp3` is stored as `public/sounds/dusk-attack.mp3` and plays once when its tracking charge fires at .8 before the mix (.612 final), layered with `celestial/neptune-electric.wav` at a Dusk-only multiplier of 3.5 on the normal .6 gain (1.6065 final after the .765 mix), using Web Audio amplification. Neptune's own skill keeps its normal electric-layer gain. `public/sounds/twin-revive.mp3` plays once when a fallen twin actually returns, at .85 before the mix (.65025 final). Downing a twin, paused ticks and final encounter completion do not play revival audio.
 
 Each actual HP transfer plays `celestial/skill-ready.wav` once at the normal ready-cue gain (.5 before the .765 mix, .3825 final). Failed transfer attempts, full recipients, pauses and downed partners do not trigger it.
+
+## Thorn Weaver field
+
+The aimed field plays `falling-thing.wav` (0.75s, gain .6) starting 45 ticks before it erupts, so it lands with the falling seed; then the thorns erupt with `place-plant.mp3` (.4 gain). It never uses the player's `charging.wav`. Seed pods bursting in the Gaia challenge reuse `place-plant.mp3` at .5.
+
+## Neptune Trident
+
+1.6s before the Trident lands, `meteorFalling.mp3` plays at rate 1.6 with pitch raised (`preservesPitch = false`, gain .5) so its fall ends on the strike; Neptune's electric cue (`celestial/neptune-electric.wav`) adds a crackle 0.5s before impact. The strike itself uses the meteor impact sound.
+
+## Gaia Sunfire
+
+The blast layers the Solar Flare cue (`celestial/solar-flare.wav`, ×1–1.6 with charge) with `sci-fi-explosion-09.mp3` (gain .45–.95 with charge). A full chamber burn plays both at their strongest plus `bombExplode.wav` (.9), with a heavier screen shake.
