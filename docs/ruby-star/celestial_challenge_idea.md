@@ -19,7 +19,28 @@ A short brief for discussing new Celestial Challenge worlds. Ruby Star is a top-
 | **Aegis Sentinel** | Venus | Shielded hunter that reflects your damage back at you. Two pylons in other rooms must be destroyed to expose her core, and they overload if ignored. |
 | **Astral Twins** | Binary Star | Two linked bosses, one melee and one ranged. Killing one starts a revive timer, so both must die close together. They share HP back and forth. |
 
-Each boss grants a celestial skill: Solar Flare, Lunar Echo (decoy), Jupiter Storm, Singularity, Saturn Guard, Sirius Surge, Neptune's Tide, Gaia's Roots, Venus Veil and Binary Star.
+## Celestial skills
+
+Each boss has a celestial skill. In its own world, you hold that skill on F with a recharge (20s by default).
+
+| Skill (boss) | Effect |
+| --- | --- |
+| **Solar Flare** (King) | Hits every enemy on the map: 25 damage to aliens, 10% max HP to bosses. |
+| **Lunar Echo** (Queen) | Places a stationary decoy that draws all enemy targeting until it takes 12 hits. |
+| **Jupiter Storm** (Reaper) | Big blast within 6 tiles: 60 damage to aliens, 30% max HP to bosses. |
+| **Singularity** (Devourer) | An 18s gravity field that pulls enemies in, blocks their teleports and damages them each second. |
+| **Saturn Guard** (Warden) | Gives you and Ruby a 40-HP absorb shield each. |
+| **Sirius Surge** (Prayer) | At least 6s of powered mode, a free speed burst, and all ability cooldowns reset. |
+| **Neptune's Tide** (Chanter) | Heals you and Ruby 35 each and pushes nearby enemies 3 tiles away. |
+| **Gaia's Roots** (Weaver) | A 12×12 floor field for 30s: enemies inside are slowed and take damage each second. |
+| **Venus Veil** (Sentinel) | For 10s, damage to you and Ruby is cut to 30%, and direct attacks reflect back at the attacker. |
+| **Binary Star** (Twins) | For 15s, a mirror twin beside Ruby repeats every laser, bullet, wave and bomb at 60% damage. |
+
+**Design rule: each world's skill should matter to that world's mechanics,** not just be a generic damage or heal button. So far:
+
+- **Neptune: Neptune's Tide** heals you and Ruby, which charges the Trident (it charges from healing), and pushes back crowds during dives.
+- **Gaia: Gaia's Roots** clears overgrowth across its whole field when cast and stops regrowth inside it while it lasts (recharge 40s here).
+- **The Moon: Lunar Echo** is a tool for finding her: illusions take the decoy's bait, but the real Queen ignores it and keeps shooting you (recharge 15s here).
 
 ## Worlds built so far
 
@@ -62,4 +83,4 @@ Every challenge world turns off random space events and gives the boss a big mul
 
 ## Not built yet
 
-The Sun, Venus, Jupiter, Saturn, Sirius, Binary Star and The Singularity are locked on the star map. Each needs its own multi-phase fight, a world mechanic, a C ability and new aliens that fit its guardian. The design rule so far: each world tests a different skill, and each later phase changes how you read the fight rather than just adding damage.
+The Sun, Venus, Jupiter, Saturn, Sirius, Binary Star and The Singularity are locked on the star map. Each needs its own multi-phase fight, a world mechanic, a C ability, new aliens that fit its guardian, and a reason its celestial skill matters there. The design rule so far: each world tests a different skill, and each later phase changes how you read the fight rather than just adding damage.

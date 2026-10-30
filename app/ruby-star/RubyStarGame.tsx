@@ -6,7 +6,7 @@ import { drawEncounterEnemy, drawEncounterTelegraphs, drawEncounterEffects } fro
 import { drawNeptuneUnit, drawNeptuneOverlay, drawSkyLaserImpact, drawWaterBurst } from './neptune-art';
 import { drawGaiaUnit, drawGaiaGround, drawGaiaOverlay, drawForestBackdrop, drawForestAmbience, GAIA_CHAMBER_COLORS } from './gaia-art';
 import { drawMoonBackdrop, drawMoonAmbience, drawMoonCrystalBlock, drawMoonReflection, drawMoonEffects, drawMoonUnit, isMoonMap, MOON_CHAMBER_COLORS } from './moon-art';
-import { godSetMoonPhase, isMoonBoss, moonHiddenInDark, moonWearsGuise, useMoonMark } from './moon';
+import { godSetMoonPhase, isMoonBoss, isMoonRevealed, moonHiddenInDark, moonWearsGuise, useMoonMark } from './moon';
 import BackButton from '@/components/BackButton';
 import { useRouter } from 'next/navigation';
 import PixelArrow from '@/components/PixelArrow';
@@ -734,7 +734,7 @@ function drawMinimap(
 
   // Enemies
   for (const e of state.enemies) {
-    if (!isEnemyVisibleOnMinimap(e) || moonHiddenInDark(state, e.tileX, e.tileY, e.id)) continue;
+    if (!isEnemyVisibleOnMinimap(e) || (moonHiddenInDark(state, e.tileX, e.tileY, e.id) && !isMoonRevealed(state, e))) continue; // she still shows on the map while revealed
     ctx.fillStyle = state.moon && moonWearsGuise(state, e) ? ENEMY_CONFIGS.moon_illusion.color : ENEMY_CONFIGS[e.type].color; // the Moon Queen hides among her illusions
     ctx.fillRect(MX + e.tileX * S, MY + e.tileY * S, S, S);
   }
@@ -791,7 +791,7 @@ function drawMinimap(
 
   // Boss on minimap — huge pulsing dot with glowing core and border
   for (const e of state.enemies) {
-    if (isBossType(e.type) && isEnemyVisibleOnMinimap(e) && !(state.moon && moonWearsGuise(state, e)) && !moonHiddenInDark(state, e.tileX, e.tileY, e.id)) {
+    if (isBossType(e.type) && isEnemyVisibleOnMinimap(e) && !(state.moon && moonWearsGuise(state, e)) && !(moonHiddenInDark(state, e.tileX, e.tileY, e.id) && !isMoonRevealed(state, e))) {
       if (e.type === 'aegis_sentinel' || e.type === 'astral_twins') {
         const x = MX + e.tileX * S, y = MY + e.tileY * S;
         ctx.fillStyle = e.twin?.downedTicks ? '#65657a' : e.twin?.index === 1 ? '#83cfff' : ENEMY_CONFIGS[e.type].color;
