@@ -1386,8 +1386,8 @@ function spawnEnemy(state: GameState) {
     const type: EnemyType = state.neptune && Math.random() < NEPTUNE_STINGER_CHANCE ? 'stinger'
       : state.neptune && Math.random() < NEPTUNE_PUFFER_CHANCE ? 'pufferfish'
       : state.gaia && Math.random() < GAIA_ALIEN_CHANCE ? gaiaAlienType()
-      : state.moon && Math.random() < MOON_MITE_CHANCE ? 'mirror_mite'
-      : state.moon && Math.random() < MOON_SHADE_CHANCE ? 'moon_shade' : tier.spawnTypes[typeIdx];
+      : state.moon && Math.random() < MOON_SHADE_CHANCE ? 'moon_shade'
+      : state.moon && Math.random() < MOON_MITE_CHANCE ? 'mirror_mite' : tier.spawnTypes[typeIdx];
     const cfg = ENEMY_CONFIGS[type];
     const hpScaled = Math.ceil(cfg.maxHp * tier.hpMult) * REGULAR_ENEMY_HP_MULT * constellationAlienHPMult(state);
 
