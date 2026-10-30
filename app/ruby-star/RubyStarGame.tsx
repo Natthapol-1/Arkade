@@ -5228,7 +5228,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
   useEffect(() => {
     stateRef.current = createModeState(mode, trialInfo?.boss);
     if (typeof window !== 'undefined') {
-      setIsGodQuery(true); // God panel is always on for testing (was: only with ?god=1)
+      setIsGodQuery(new URLSearchParams(window.location.search).get('god') === '1'); // God panel only with ?god=1
       // Require all three signals — some desktop setups (touchscreen laptops/monitors)
       // misreport hover/pointer and still have maxTouchPoints > 0, so also require a
       // phone/tablet-sized viewport (a real desktop display is essentially never this narrow,
