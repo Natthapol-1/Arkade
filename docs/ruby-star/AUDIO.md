@@ -72,3 +72,7 @@ The aimed field plays `falling-thing.wav` (0.75s, gain .6) starting 45 ticks bef
 ## Gaia Sunfire
 
 The blast layers the Solar Flare cue (`celestial/solar-flare.wav`, ×1–1.6 with charge) with `sci-fi-explosion-09.mp3` (gain .45–.95 with charge). A full chamber burn plays both at their strongest plus `bombExplode.wav` (.9), with a heavier screen shake.
+
+## Moon reveal
+
+When the Moon Queen's disguise breaks before a jump, the Lunar Echo cue (`celestial/lunar-echo.wav`, gain .99) plays from 0.1s in (skipping its silent start) at rate 1.6 with pitch raised (`preservesPitch = false`), so it lands with the reveal, over `frost-shield-break.mp3` at .4; both before the .765 attack mix.

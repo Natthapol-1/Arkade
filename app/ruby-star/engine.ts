@@ -7,7 +7,7 @@ import {
   NEPTUNE_JELLY_GAP, NEPTUNE_SHARK_GAP, NEPTUNE_PUFFER_CHANCE, NEPTUNE_PUFF_RADIUS,
   GAIA_CAST_COOLDOWN, GAIA_THORN_CONTACT_DAMAGE, GAIA_THORN_RUBY_DAMAGE, GAIA_THORN_RUBY_CUT,
   GAIA_STRIKE_DAMAGE, GAIA_SUN_WARNING, NEPTUNE_LASER_WARNING,
-  MOON_PHASE_HP, MOON_QUEEN_DAMAGE_MULT, MOON_STRIKE_DAMAGE,
+  MOON_PHASE_HP, MOON_QUEEN_DAMAGE_MULT, MOON_STRIKE_DAMAGE, MOON_MITE_CHANCE, MOON_SHADE_CHANCE, MOON_MITE_KILL_HEAL, MOON_HIT_HEAL,
   GAIA_POD_CHARGE,
   GAIA_BLOSSOM_SELF_DAMAGE, GAIA_BLOSSOM_KILL_HEAL, GAIA_LIFEBLOOM_HEAL,
   GAIA_ALIEN_CHANCE, GAIA_MUSHROOM_KNOCKBACK, GAIA_SPAWN_RATE, GAIA_EXTRA_ENEMIES,
@@ -81,7 +81,7 @@ import type { GaiaState } from './gaia';
 export type { NeptuneTide, NeptuneState } from './neptune';
 export type { GaiaStone, GaiaState } from './gaia';
 import {
-  clearMoonIllusions, createMoonState, initializeMoonBoss, isMoonBoss, isMoonObject, moonBossDamageMult, moonQueenJumped, moonShatter, updateMoon,
+  clearMoonIllusions, moonMiteHint, moonSeenWhenHit, createMoonState, updateMoonMimic, isMoonMirror, moonReflect, initializeMoonBoss, isMoonBoss, isMoonObject, moonBossDamageMult, moonQueenJumped, moonShatter, updateMoon,
 } from './moon';
 import type { MoonState } from './moon';
 export type { MoonShard, MoonState } from './moon';
@@ -245,6 +245,7 @@ export interface PrayerWave {
 }
 
 export interface Enemy {
+  mimic?: { disguised: boolean; timer: number; seek?: [number, number]; wander?: [number, number] }; // Moon mimic: posing yet, ticks before it goes to pose, its spot and wander goal
   id: number;
   type: EnemyType;
   x: number;   // pixel center
@@ -882,7 +883,7 @@ export function playSFX_teleport() {
   } catch { }
 }
 
-function playSFX_queenTeleport() {
+export function playSFX_queenTeleport() {
   try {
     const a = new Audio('/sounds/ghostHunt2.mp3'); a.volume = 0.5; a.play().catch(() => {});
   } catch { }
@@ -1302,6 +1303,9 @@ export function damageEnemy(state: GameState, e: Enemy, amount: number, source: 
     }
   }
   const hpLost = Math.min(Math.max(0, previousHP), Math.max(0, actual));
+  if (state.moon && amount > 0) moonSeenWhenHit(state, e); // a hit lights it up in the dark
+  // HP the real Queen loses to you banks a heal, paid out when she jumps, so a hit never gives her away on the spot.
+  if (source === 'player' && hpLost > 0 && state.moon && isMoonBoss(state, e)) state.moon.healBank += hpLost * MOON_HIT_HEAL;
   if (hpLost > 0 && isSeaChanterDiving(e)) {
     e.sea!.healingBlockedUntilTick = state.gameTick + SEA_HEALING_BLOCK_TICKS;
   }
@@ -1353,7 +1357,7 @@ function endGame(state: GameState) {
 
 function spawnEnemy(state: GameState) {
   const tier = DIFFICULTY_TIERS[Math.min(state.difficultyLevel, DIFFICULTY_TIERS.length - 1)];
-  const population = state.enemies.filter(e => !isChallengeObject(e.type)).length; // challenge objects never block aliens
+  const population = state.enemies.filter(e => !isChallengeObject(e.type) && e.type !== 'moon_mimic').length; // challenge objects and mimics never block aliens
   const maxEnemies = tier.maxEnemies + (state.gaia ? GAIA_EXTRA_ENEMIES : 0);
   if (population >= maxEnemies) return;
 
@@ -1381,7 +1385,9 @@ function spawnEnemy(state: GameState) {
     const typeIdx = Math.floor(Math.random() * tier.spawnTypes.length);
     const type: EnemyType = state.neptune && Math.random() < NEPTUNE_STINGER_CHANCE ? 'stinger'
       : state.neptune && Math.random() < NEPTUNE_PUFFER_CHANCE ? 'pufferfish'
-      : state.gaia && Math.random() < GAIA_ALIEN_CHANCE ? gaiaAlienType() : tier.spawnTypes[typeIdx];
+      : state.gaia && Math.random() < GAIA_ALIEN_CHANCE ? gaiaAlienType()
+      : state.moon && Math.random() < MOON_MITE_CHANCE ? 'mirror_mite'
+      : state.moon && Math.random() < MOON_SHADE_CHANCE ? 'moon_shade' : tier.spawnTypes[typeIdx];
     const cfg = ENEMY_CONFIGS[type];
     const hpScaled = Math.ceil(cfg.maxHp * tier.hpMult) * REGULAR_ENEMY_HP_MULT * constellationAlienHPMult(state);
 
@@ -2554,14 +2560,19 @@ function updateEnemyTargets(state: GameState) {
   state.enemyDecoyActive=true;
   Object.assign(state,{playerX:decoy.x,playerY:decoy.y,playerTileX:decoy.tileX,playerTileY:decoy.tileY,
     playerTargetX:decoy.tileX,playerTargetY:decoy.tileY,playerChamber:chamberOfTile(decoy.tileX,decoy.tileY),playerCarryingRuby:true});
-  try{updateEnemies(state);}finally{Object.assign(state,saved);state.enemyDecoyActive=false;}
+  // The Moon Queen ignores the decoy and keeps after the real player; her illusions take the bait, which gives her away.
+  const ignoresDecoy=(e:Enemy)=>isMoonBoss(state,e);
+  try{updateEnemies(state,e=>!ignoresDecoy(e));}finally{Object.assign(state,saved);state.enemyDecoyActive=false;}
+  if(state.moon)updateEnemies(state,ignoresDecoy);
 }
 
-function updateEnemies(state: GameState) {
+function updateEnemies(state: GameState, only?: (e: Enemy) => boolean) {
   const playerCarrying = state.playerCarryingRuby;
 
   for (const e of [...state.enemies].reverse()) {
     if (!state.enemies.includes(e) || e.hp <= 0 || (e.twin?.downedTicks ?? 0) > 0) continue;
+    if (only && !only(e)) continue;
+    if (e.type === 'moon_mimic' && updateMoonMimic(state, e)) continue; // disguised: stands still and never attacks
     if (e.flashTicks > 0) e.flashTicks--;
     if (e.healFlashTicks > 0) e.healFlashTicks--;
     if (e.shootTicks > 0) e.shootTicks--;
@@ -3297,6 +3308,8 @@ function updateEnemies(state: GameState) {
     const hasPlacedRuby = state.rubyTileX !== -1;
     if (e.type === 'energy_leech' || playerCarrying || !hasPlacedRuby) {
       e.targeting = 'player';
+    } else if (e.type === 'moon_shade') {
+      e.targeting = 'ruby'; // Moon shades go for a placed Ruby wherever it is
     } else {
       // Closest to player? target player; else target ruby
       const distToPlayer = tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY);
@@ -3503,7 +3516,7 @@ export function healPlayer(state: GameState, amount: number, showEffect = true) 
   if (showEffect && state.playerHP > before) showRewardEffect(state, 'player', 'heal');
 }
 
-function healCore(state: GameState, amount: number) {
+export function healCore(state: GameState, amount: number) {
   const before = state.rubyHP;
   state.rubyHP = Math.min(RUBY_MAX_HP, state.rubyHP + amount);
   chargeNeptuneHealing(state, state.rubyHP - before);
@@ -3606,6 +3619,9 @@ export function killEnemy(state: GameState, idx: number, fromMeteor = false, sup
         if (ally === e || (ally.twin?.downedTicks ?? 0) > 0) continue;
         if (tileEuclidDist(e.tileX, e.tileY, ally.tileX, ally.tileY) <= RANGE * 0.75) damageEnemy(state, ally, 20, 'enemy');
       }
+    } else if (e.type === 'mirror_mite') {
+      healPlayer(state, MOON_MITE_KILL_HEAL, false); showRewardEffect(state, 'player', 'heal');
+      moonMiteHint(state);
     } else if (e.type === 'fast') {
       if (!suppressEnergy) state.runnerEnergyFlashTicks = 60;
     } else if (e.type === 'armored') {
@@ -3941,6 +3957,7 @@ export function useLaser(state: GameState) {
       for (let r = 0; r < range; r++) {
         if (!isFloorTile(state.map, tx, ty)) break;
         endTx = tx; endTy = ty;
+        if (mult === 1 && isMoonMirror(state, tx, ty)) { moonReflect(state, tx, ty, dmg); break; } // the Moon's mirrors stop it and bounce it back
         gaiaClearTile(state, tx, ty, 1);
         hitSupernova(state, (x, y) => Math.floor(x / TILE_SIZE) === tx && Math.floor(y / TILE_SIZE) === ty);
         for (const e of [...state.enemies].reverse()) {
@@ -4454,6 +4471,10 @@ export function tick(state: GameState) {
       continue;
     }
     const dmg = (b.powered ? BULLET_DMG_PWR : BULLET_DMG) * (1 + 0.25 * constellationBonus(state, 'bullets')) * (b.mirror ? SPECIAL_TWIN_DAMAGE_MULT : 1);
+    const btx = Math.floor(b.x), bty = Math.floor(b.y);
+    if (!b.mirror && isMoonMirror(state, btx, bty) && (btx !== state.playerTileX || bty !== state.playerTileY)) {
+      moonReflect(state, btx, bty, dmg); state.laserBullets.splice(i, 1); continue; // bounced back into you
+    }
     let hit = false;
     for (let j = state.enemies.length - 1; j >= 0; j--) {
       const e = state.enemies[j];

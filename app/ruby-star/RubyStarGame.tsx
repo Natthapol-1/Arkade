@@ -5,8 +5,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { drawEncounterEnemy, drawEncounterTelegraphs, drawEncounterEffects } from './encounter-art';
 import { drawNeptuneUnit, drawNeptuneOverlay, drawSkyLaserImpact, drawWaterBurst } from './neptune-art';
 import { drawGaiaUnit, drawGaiaGround, drawGaiaOverlay, drawForestBackdrop, drawForestAmbience, GAIA_CHAMBER_COLORS } from './gaia-art';
-import { drawMoonBackdrop, drawMoonAmbience, drawMoonCrystalBlock, drawMoonReflection, drawMoonEffects, isMoonMap, MOON_CHAMBER_COLORS } from './moon-art';
-import { isMoonBoss, moonWearsGuise, useMoonMark } from './moon';
+import { drawMoonBackdrop, drawMoonAmbience, drawMoonCrystalBlock, drawMoonReflection, drawMoonEffects, drawMoonUnit, isMoonMap, MOON_CHAMBER_COLORS } from './moon-art';
+import { godSetMoonPhase, isMoonBoss, moonHiddenInDark, moonWearsGuise, useMoonMark } from './moon';
 import BackButton from '@/components/BackButton';
 import { useRouter } from 'next/navigation';
 import PixelArrow from '@/components/PixelArrow';
@@ -30,7 +30,7 @@ import {
   SPECIAL_SKILLS, SPECIAL_UNLOCK_KILLS, SPECIAL_REAPER_RADIUS, SPECIAL_CHANTER_RADIUS, SPECIAL_WEAVER_RADIUS, SPECIAL_SINGULARITY_RADIUS,
   T_WALL, T_TELEPORT,
   CHAMBER_BOUNDS, CHAMBER_LABELS, CHAMBER_COLORS, HALLWAY_BOUNDS, DEVOURER_SELF_SPLIT_TICKS, DEVOURER_SELF_SPLIT_WARNING, TUTORIAL_STEPS, trialSkillCooldown,
-  NEPTUNE_PHASE_HPS, neptunePhaseFloorHP, NEPTUNE_DIVE_POINTS, NEPTUNE_HEAL_CHARGE_MAX, GAIA_PHASE_HP, GAIA_SUN_MAX, GAIA_SUN_MIN, MOON_MARK_COOLDOWN,
+  NEPTUNE_PHASE_HPS, neptunePhaseFloorHP, NEPTUNE_DIVE_POINTS, NEPTUNE_HEAL_CHARGE_MAX, GAIA_PHASE_HP, GAIA_SUN_MAX, GAIA_SUN_MIN, MOON_MARK_COOLDOWN, MOON_PHASE_HP,
   chamberOfTile,
   ENEMY_CONFIGS, isBossType, BOSS_TYPES, BOSS_NAMES, BossType, BOSS_SKILL_REWARDS, SpecialSkill,
   PLAYER_MAX_HP, RUBY_MAX_HP,
@@ -633,6 +633,27 @@ function drawMinimap(
       ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
     }
   }
+  // Moon phase 3: the dark room is a black wash on the map too.
+  if (state.moon && state.moon.dark >= 0) {
+    const [r1, c1, r2, c2] = CHAMBER_BOUNDS[state.moon.dark];
+    ctx.fillStyle = 'rgba(3,1,8,0.85)'; ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
+  }
+  // Moon phase 2+: mirror tiles as faint silver marks, so you can plan where to stand.
+  if (state.moon?.mirrors.length) {
+    ctx.fillStyle = 'rgba(230,220,255,0.55)';
+    for (const i of state.moon.mirrors) if (!moonHiddenInDark(state, i % MAP_COLS, Math.floor(i / MAP_COLS))) ctx.fillRect(MX + (i % MAP_COLS) * S, MY + Math.floor(i / MAP_COLS) * S, S, S);
+  }
+  // Moon: after a mite kill, two rooms glow violet (one of them hers), fading over the last second.
+  const moonHint = state.moon?.hint;
+  if (moonHint) {
+    ctx.save(); ctx.globalAlpha = Math.min(1, moonHint.ticks / 60) * (.75 + .25 * Math.sin(tickN * .15));
+    for (const room of moonHint.rooms) {
+      const [r1, c1, r2, c2] = CHAMBER_BOUNDS[room];
+      ctx.fillStyle = 'rgba(204,51,255,0.28)'; ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
+      ctx.strokeStyle = '#e6b8ff'; ctx.lineWidth = 2; ctx.strokeRect(MX + c1 * S + 1, MY + r1 * S + 1, (c2 - c1 + 1) * S - 2, (r2 - r1 + 1) * S - 2);
+    }
+    ctx.restore();
+  }
   // Neptune sky laser countdown blinks its target room the same way, in pale cyan.
   const skyLaser = state.neptune?.laser;
   if (skyLaser && Math.floor(tickN / 6) % 2 === 0) {
@@ -713,7 +734,7 @@ function drawMinimap(
 
   // Enemies
   for (const e of state.enemies) {
-    if (!isEnemyVisibleOnMinimap(e)) continue;
+    if (!isEnemyVisibleOnMinimap(e) || moonHiddenInDark(state, e.tileX, e.tileY, e.id)) continue;
     ctx.fillStyle = state.moon && moonWearsGuise(state, e) ? ENEMY_CONFIGS.moon_illusion.color : ENEMY_CONFIGS[e.type].color; // the Moon Queen hides among her illusions
     ctx.fillRect(MX + e.tileX * S, MY + e.tileY * S, S, S);
   }
@@ -770,7 +791,7 @@ function drawMinimap(
 
   // Boss on minimap — huge pulsing dot with glowing core and border
   for (const e of state.enemies) {
-    if (isBossType(e.type) && isEnemyVisibleOnMinimap(e) && !(state.moon && moonWearsGuise(state, e))) {
+    if (isBossType(e.type) && isEnemyVisibleOnMinimap(e) && !(state.moon && moonWearsGuise(state, e)) && !moonHiddenInDark(state, e.tileX, e.tileY, e.id)) {
       if (e.type === 'aegis_sentinel' || e.type === 'astral_twins') {
         const x = MX + e.tileX * S, y = MY + e.tileY * S;
         ctx.fillStyle = e.twin?.downedTicks ? '#65657a' : e.twin?.index === 1 ? '#83cfff' : ENEMY_CONFIGS[e.type].color;
@@ -2487,6 +2508,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: GameState['enemies'][0], sx
   }
   if (drawNeptuneUnit(ctx, e, sx, sy, tickN)) return;
   if (drawGaiaUnit(ctx, e, sx, sy, tickN)) return;
+  if (drawMoonUnit(ctx, e, sx, sy, tickN)) return;
   const size = Math.floor(TILE_SIZE * cfg.bodyFraction);
   const half = size / 2;
   const pad = Math.max(2, Math.floor(size * 0.12));
@@ -4115,22 +4137,33 @@ function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: 
     ctx.strokeStyle=ocean?'#9fe4ff0d':forest?'#d8f0a00d':moon?'#e9d8ff10':'#ffffff0f';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,size-1,size-1);
   }
   // Glowing colored borders follow the map's exposed edges, preserving door openings.
-  for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
+  const drawBorders=(onlyRoom?:number)=>{for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
     if(wall(tx,ty))continue;
     const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=battlefieldColor(ch);
+    if(onlyRoom!==undefined&&ch!==onlyRoom)continue;
     ctx.shadowColor=color;ctx.shadowBlur=14;ctx.strokeStyle=color+'99';ctx.lineWidth=4;ctx.beginPath();
     if(wall(tx-1,ty)&&!cover(tx-1,ty)){ctx.moveTo(x+1,y);ctx.lineTo(x+1,y+size);}
     if(wall(tx+1,ty)&&!cover(tx+1,ty)){ctx.moveTo(x+size-1,y);ctx.lineTo(x+size-1,y+size);}
     if(wall(tx,ty-1)&&!cover(tx,ty-1)){ctx.moveTo(x,y+1);ctx.lineTo(x+size,y+1);}
     if(wall(tx,ty+1)&&!cover(tx,ty+1)){ctx.moveTo(x,y+size-1);ctx.lineTo(x+size,y+size-1);}
     ctx.stroke();ctx.shadowBlur=0;
-    if(state.map[ty][tx]===T_TELEPORT)drawBattlefieldPad(ctx,x,y,color,tick,ch);
+    if(state.map[ty][tx]===T_TELEPORT)drawBattlefieldPad(ctx,x,y,color,tick,ch); // pads stay visible in the dark too
+    if(onlyRoom!==undefined)continue; // a redraw over the dark keeps only the outline and pad
     if(ice.has(tx+','+ty))drawBattlefieldIce(ctx,x,y,tick);
-  }
+  }};
+  drawBorders();
   if(ocean)drawOceanAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
   else if(forest)drawForestAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
   else if(moon)drawMoonAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
   else drawFloorStars(ctx,state,camX,camY,x0,y0,x1,y1,tick);
+  // Moon phase 3: the dark room's floor goes black (cover blocks stay), then its outline is drawn again on top.
+  const darkRooms=state.moon?[[state.moon.dark,1-state.moon.darkFade/30],[state.moon.oldDark,state.moon.darkFade/30]]:[];
+  for(const [room,alpha] of darkRooms){
+    if(room<0||alpha<=0)continue;
+    ctx.globalAlpha=alpha;ctx.fillStyle='#030108';ctx.shadowBlur=0;
+    for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++)if(!wall(tx,ty)&&chamberOfTile(tx,ty)===room)ctx.fillRect(tx*size-camX,ty*size-camY,size,size);
+    ctx.globalAlpha=1;drawBorders(room);
+  }
   ctx.restore();
 }
 
@@ -4560,6 +4593,7 @@ function drawGame(
 
   // Resource bodies stay sharp; only isolated glints glow.
   for(const resource of state.resources){
+    if(moonHiddenInDark(state,resource.tileX,resource.tileY))continue;
     drawResourcePickup(ctx,(resource.tileX+.5)*TILE_SIZE-camX,(resource.tileY+.5)*TILE_SIZE-camY,resource.type==='health',tickN+resource.tileX);
   }
 
@@ -4636,6 +4670,7 @@ function drawGame(
     const sy = e.y - camY;
     // Gaia: she fades into the soil while withering between phases.
     if (state.gaia && e.id === state.gaia.bossId && state.gaia.wither > 0) ctx.globalAlpha = .25 + .2 * Math.abs(Math.sin(tickN * .1));
+    if (moonHiddenInDark(state, e.tileX, e.tileY, e.id)) continue; // Moon phase 3: unseen in the dark unless just hit
     // Moon: she and her illusions share the Echo look; only she casts a reflection on the crystal floor.
     if (state.moon && moonWearsGuise(state, e)) {
       if (isMoonBoss(state, e)) drawMoonReflection(ctx, sx, sy, tickN);
@@ -4834,6 +4869,24 @@ function GuardianBar({ state }: { state: GameState }) {
       <span className="rs-guardian-segments">
         {segments.map(seg => <span key={seg.phase} className="rs-guardian-bar" data-active={seg.phase === gaia.phase || undefined}>
           <span className="rs-guardian-fill" style={{ width: `${seg.fill * 100}%`, opacity: seg.phase === gaia.phase ? 1 : .55 }} />
+        </span>)}
+      </span>
+    </div>;
+  }
+  const moon = state.moon;
+  if (moon) {
+    // Three phase segments like Gaia's, showing her HP as of her last reveal or jump (not live while she is disguised).
+    const shown = moon.shownHp;
+    const segments = [3, 2, 1].map(phase => {
+      const floor = (3 - phase) * MOON_PHASE_HP, fill = present ? Math.max(0, Math.min(1, (shown - floor) / MOON_PHASE_HP)) : 0;
+      return { phase, fill: phase < moon.phase ? 0 : phase > moon.phase ? (present ? 1 : 0) : fill };
+    });
+    return <div className="rs-guardian" role="meter" aria-label={`${BOSS_NAMES[boss]} health`} aria-valuemin={0} aria-valuemax={100}
+      aria-valuenow={present && max > 0 ? Math.round(shown / max * 100) : 0} style={{ ['--guardian' as string]: color }}>
+      <span className="rs-guardian-name">{present ? `${BOSS_NAMES[boss]} · PHASE ${moon.phase}` : 'GUARDIAN INCOMING'}</span>
+      <span className="rs-guardian-segments">
+        {segments.map(seg => <span key={seg.phase} className="rs-guardian-bar" data-active={seg.phase === moon.phase || undefined}>
+          <span className="rs-guardian-fill" style={{ width: `${seg.fill * 100}%`, opacity: seg.phase === moon.phase ? 1 : .55 }} />
         </span>)}
       </span>
     </div>;
@@ -5848,8 +5901,6 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
             </div>
           </div>
 
-          {state?.moon && <MoonMarkStatus cooldown={state.moon.markCooldown} totalCooldown={MOON_MARK_COOLDOWN} />}
-
           </div>
         </div>
         {state?.trial ? <GuardianBar state={state} /> : <div className="rs-stage" aria-label={`Stage ${state?.bossesKilled ?? 0}`}>
@@ -5867,6 +5918,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
           {state?.trial && <CelestialStatus name={SPECIAL_SKILLS[state.trial.skill].name}
             color={state.trial.skill === 'devourer' ? '#bcbccd' : SPECIAL_SKILLS[state.trial.skill].color}
             cooldown={state.specialSkill ? 0 : state.trial.cooldown || trialSkillCooldown(state.trial.skill)} totalCooldown={trialSkillCooldown(state.trial.skill)} />}
+          {state?.moon && <MoonMarkStatus cooldown={state.moon.markCooldown} totalCooldown={MOON_MARK_COOLDOWN} />}
           {isGodQuery && (
             <button
               className="btn btn-ghost"
@@ -5943,11 +5995,19 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
           {state?.gaia && <button type="button" title="Fill the Sunfire bar so C picks a room to burn"
             style={{background:'#3a2f12',color:'#fff3b8',border:'2px solid #ffd36a',padding:'7px',fontWeight:700,cursor:'pointer'}}
             onClick={() => {const current=stateRef.current;if(current?.gaia){current.gaia.sunCharge=GAIA_SUN_MAX;playStrikeCharged();}rerender();}}>Full Sunfire</button>}
+          {state?.moon && <button type="button" title="Recharge the Moon Mark so C marks at once"
+            style={{background:'#1c2c40',color:'#e8fbff',border:'2px solid #a9e6ff',padding:'7px',fontWeight:700,cursor:'pointer'}}
+            onClick={() => {const current=stateRef.current;if(current?.moon){current.moon.markCooldown=0;playStrikeCharged();}rerender();}}>Mark Ready</button>}
           </div>}
           {state?.gaia && <div className="rs-god-actions" role="group" aria-label="Guardian phase" style={{gridTemplateColumns:'repeat(3, 1fr)'}}>
             {([1, 2, 3] as const).map(phase => <button key={phase} type="button" aria-pressed={state.gaia?.phase === phase}
               style={{background:state.gaia?.phase===phase?'#88bc45':'#16281a',color:state.gaia?.phase===phase?'#0b1a0c':'#dff3c0',border:'2px solid #8fdc4a',cursor:'pointer'}}
               onClick={() => {if(stateRef.current)godSetGaiaPhase(stateRef.current, phase);rerender();}}>Phase {phase}</button>)}
+          </div>}
+          {state?.moon && <div className="rs-god-actions" role="group" aria-label="Guardian phase" style={{gridTemplateColumns:'repeat(3, 1fr)'}}>
+            {([1, 2, 3] as const).map(phase => <button key={phase} type="button" aria-pressed={state.moon?.phase === phase}
+              style={{background:state.moon?.phase===phase?'#9f6dff':'#1e1438',color:state.moon?.phase===phase?'#120a26':'#e6d8ff',border:'2px solid #c49bff',cursor:'pointer'}}
+              onClick={() => {if(stateRef.current)godSetMoonPhase(stateRef.current, phase);rerender();}}>Phase {phase}</button>)}
           </div>}
           {state?.neptune && <div className="rs-god-actions" role="group" aria-label="Guardian phase" style={{gridTemplateColumns:'repeat(3, 1fr)'}}>
             {([1, 2, 3] as const).map(phase => <button key={phase} type="button" aria-pressed={state.neptune?.phase === phase}

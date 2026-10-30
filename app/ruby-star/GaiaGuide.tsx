@@ -16,8 +16,8 @@ function unit(type: EnemyType, id: number, extra: Partial<Enemy> = {}): Enemy {
 }
 function player(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.save(); ctx.translate(x, y);
-  ctx.shadowColor = '#e5e05a'; ctx.shadowBlur = 4; ctx.fillStyle = '#e5e05a'; ctx.fillRect(-10, -10, 20, 20); ctx.shadowBlur = 0;
-  ctx.fillStyle = '#6d6a2c'; ctx.fillRect(-6, -6, 12, 12); ctx.fillStyle = '#48c8ff'; ctx.fillRect(-5, 0, 10, 4);
+  ctx.shadowColor = '#ffe14a'; ctx.shadowBlur = 4; ctx.fillStyle = '#fff07a'; ctx.fillRect(-10, -10, 20, 20); ctx.shadowBlur = 0;
+  ctx.fillStyle = '#e8c93a'; ctx.fillRect(-6, -6, 12, 12); ctx.fillStyle = '#48c8ff'; ctx.fillRect(-5, 0, 10, 4);
   ctx.restore();
 }
 function ruby(ctx: CanvasRenderingContext2D, x: number, y: number) {
@@ -45,7 +45,7 @@ export default function GaiaGuide({ drawBoss }: { drawBoss: (ctx: CanvasRenderin
       tiles(ctx, 4, 24, [[1, 2, 2, 3, 3, 2, 2, 1].map((l, x) => x < cut + 2 && x > 0 ? 0 : l), [2, 3, 3, 2, 2, 3, 2, 2], [1, 2, 2, 2, 3, 2, 1, 1]], t);
       player(ctx, 16, 36); ctx.fillStyle = '#ffe14a'; ctx.fillRect(26, 34, 30 + cut * 24, 4);
     } },
-    { title: 'SUNFIRE', color: '#ffd36a', text: 'Clearing vines charges it. C: small burst now, or full to burn a room you pick. Get out first.', paint: (ctx, t) => {
+    { title: 'SPECIAL SKILL (PRESS C)', color: '#ffd36a', text: 'Sunfire: clearing vines charges it. Press to damage everything nearby and burn vines, or once fully charged, pick a room for a bigger hit.', paint: (ctx, t) => {
       const fill = Math.min(1, (t % 160) / 120);
       ctx.fillStyle = '#1a140a'; ctx.fillRect(14, 98, 72, 10); ctx.fillStyle = fill >= 1 ? '#fff3b8' : '#e0a83a'; ctx.fillRect(15, 99, 70 * fill, 8);
       player(ctx, 140, 58);
@@ -72,12 +72,12 @@ export default function GaiaGuide({ drawBoss }: { drawBoss: (ctx: CanvasRenderin
       if (cycle < 160) { ctx.save(); ctx.translate(100, 70); ctx.scale(1.6, 1.6); drawGaiaUnit(ctx, unit('seed_pod', 1, { hp: 6, maxHp: 6, windupTicks: GAIA_POD_FUSE * (1 - cycle / 160) }), 0, 0, t); ctx.restore(); }
       else tiles(ctx, 64, 24, [[0, 3, 3, 0], [3, 3, 3, 3], [0, 3, 3, 0]], t);
     } },
-    { title: 'BLOSSOMS · PHASE 2+', color: '#ff8fc8', text: 'They heal the boss. Destroying one hurts the boss and heals you.', paint: (ctx, t) => {
+    { title: 'BLOSSOMS', color: '#ff8fc8', text: 'They heal the boss. Destroying one hurts the boss and heals you.', paint: (ctx, t) => {
       ctx.save(); ctx.translate(70, 70); ctx.scale(1.4, 1.4); drawGaiaUnit(ctx, unit('blossom', 2, { hp: 12, maxHp: 12, shootTicks: t % 60 < 12 ? 12 - t % 60 : 0 }), 0, 0, t); ctx.restore();
       player(ctx, 160, 64);
       const u = (t % 60) / 60; ctx.fillStyle = '#ffb7dc'; ctx.fillRect(80 + u * 74, 56, 8, 8);
     } },
-    { title: 'ROOT SNARE · PHASE 2+', color: '#ff6a7a', text: 'Step off the red crack.', paint: (ctx, t) => {
+    { title: 'ROOT SNARE', color: '#ff6a7a', text: 'Step off the red crack.', paint: (ctx, t) => {
       const cycle = t % 120;
       ctx.globalAlpha = cycle < 60 ? .6 + .4 * Math.sin(t * .4) : .3; ctx.fillStyle = '#ff4d5a';
       for (let k = 0; k < 6; k++) ctx.fillRect(76 + k * 8, 62 + (k % 2 ? 6 : 0), 8, 4);

@@ -1,5 +1,5 @@
-import { TILE_SIZE, CHAMBER_BOUNDS, T_WALL, T_FLOOR, chamberOfTile } from './constants';
-import type { GameState } from './engine';
+import { TILE_SIZE, CHAMBER_BOUNDS, MAP_COLS, T_WALL, T_FLOOR, chamberOfTile } from './constants';
+import type { Enemy, GameState } from './engine';
 
 // The Moon challenge world (Shadow Queen): a shadowy crystal cavern beneath the lunar surface. Purely visual for now.
 
@@ -247,6 +247,31 @@ export function drawMoonAmbience(ctx: CanvasRenderingContext2D, state: Readonly<
       }
     }
   }
+  // Phase 2+ mirror tiles: a framed silver-lilac pane with a bright glint sliding across it. Walkable, but they bounce
+  // your shots back.
+  // When they move, the old panes fade out and the new ones fade in with a pale flash.
+  const fade = state.moon ? state.moon.mirrorFade / 30 : 0;
+  const panes = [...(state.moon?.oldMirrors ?? []).map(i => [i, fade] as const), ...(state.moon?.mirrors ?? []).map(i => [i, 1 - fade] as const)];
+  for (const [index, visible] of panes) {
+    if (visible <= 0) continue;
+    const tx = index % MAP_COLS, ty = Math.floor(index / MAP_COLS);
+    if (tx < x0 || tx > x1 || ty < y0 || ty > y1) continue;
+    const x = tx * s - camX, y = ty * s - camY;
+    ctx.save(); ctx.globalAlpha = visible; const alphaScale = visible;
+    if (visible < 1 && (state.moon?.mirrors ?? []).includes(index)) { ctx.globalAlpha = (1 - visible) * .6; block(ctx, x, y, s, s, PALE); ctx.globalAlpha = visible; }
+    block(ctx, x + 3, y + 3, s - 6, s - 6, '#2c2450');
+    const g = ctx.createLinearGradient(x, y, x + s, y + s);
+    g.addColorStop(0, '#b8aef0'); g.addColorStop(.5, '#6a5cb0'); g.addColorStop(1, '#c9c0ff');
+    ctx.globalAlpha = .55 * alphaScale; ctx.fillStyle = g; ctx.fillRect(x + 6, y + 6, s - 12, s - 12);
+    ctx.save(); ctx.beginPath(); ctx.rect(x + 6, y + 6, s - 12, s - 12); ctx.clip();
+    const d = ((tick * 1.5 + (tx + ty) * 14) % 120) - 30;
+    ctx.globalAlpha = .7 * alphaScale; ctx.fillStyle = PALE; ctx.beginPath(); ctx.moveTo(x + d, y); ctx.lineTo(x + d + 8, y); ctx.lineTo(x + d - 40, y + s); ctx.lineTo(x + d - 48, y + s); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = .9 * alphaScale; ctx.strokeStyle = '#e6dcff'; ctx.lineWidth = 2; ctx.strokeRect(x + 4, y + 4, s - 8, s - 8);
+    const tw = Math.max(0, Math.sin(tick * .06 + tx * 1.3 + ty));
+    if (tw > .7) { ctx.globalAlpha = (tw - .7) * 3 * alphaScale; block(ctx, x + 9, y + 8, 6, 1, PALE); block(ctx, x + 11.5, y + 5.5, 1, 6, PALE); }
+    ctx.restore();
+  }
   // Magic motes rising through the rooms, violet and ice blue, each with a short tail. Each one loops on a fixed
   // world column, so the camera moving never makes them jump.
   const worldH = state.map.length * s, worldW = (state.map[0]?.length ?? 0) * s;
@@ -304,6 +329,12 @@ export function drawMoonEffects(ctx: CanvasRenderingContext2D, state: Readonly<G
     block(ctx, x - 2, y - r - 16, 4, 4, PALE);
     ctx.globalAlpha = .18; block(ctx, x - r, y - r, r * 2, r * 2, ICE);
   }
+  // A shot bounced off a mirror: a pale streak from the mirror back to you and a small cross flash on the pane.
+  for (const r of moon.reflects) {
+    const k = r.ticks / 16, mx = r.x - camX, my = r.y - camY, px = r.toX - camX, py = r.toY - camY;
+    ctx.globalAlpha = k; ctx.strokeStyle = PALE; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(mx + (px - mx) * (1 - k * .6), my + (py - my) * (1 - k * .6)); ctx.stroke();
+    block(ctx, mx - 10, my - 1.5, 20, 3, PALE); block(ctx, mx - 1.5, my - 10, 3, 20, PALE);
+  }
   for (const s of moon.shards) {
     const x = s.x - camX, y = s.y - camY, fade = Math.min(1, s.ticks / 15);
     ctx.save(); ctx.translate(x, y); ctx.rotate(Math.atan2(s.dy, s.dx));
@@ -312,6 +343,86 @@ export function drawMoonEffects(ctx: CanvasRenderingContext2D, state: Readonly<G
     ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(0, -5); ctx.lineTo(-8, 0); ctx.lineTo(0, 5); ctx.closePath(); ctx.fill();
     ctx.fillStyle = PALE; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(0, -2); ctx.lineTo(-4, 0); ctx.lineTo(0, 2); ctx.closePath(); ctx.fill();
     ctx.restore();
+  }
+  ctx.restore();
+}
+
+// Moon aliens. Mirror mite: a small blocky crystal bug with a mirror-bright shell (pale rim, dark inset, a glint
+// sliding across its face), two pale eyes and three pairs of stepped legs that scuttle as it moves.
+export function drawMoonUnit(ctx: CanvasRenderingContext2D, e: Readonly<Enemy>, sx: number, sy: number, tick: number): boolean {
+  if (e.type === 'moon_shade') { drawShade(ctx, e, sx, sy, tick); return true; }
+  if (e.type === 'moon_mimic') { drawMimic(ctx, e, sx, sy, tick); return true; }
+  if (e.type !== 'mirror_mite') return false;
+  const flash = e.flashTicks > 0, step = Math.floor(tick / 6 + e.id) % 2, attack = e.attackTimer > 0 && e.attackTimer <= 12;
+  ctx.save(); ctx.translate(Math.round(sx), Math.round(sy)); ctx.shadowBlur = 0;
+  for (let k = -1; k <= 1; k++) { // bent legs, alternating as it scuttles
+    const lift = (k + 1 + step) % 2 ? 3 : 0, y = k * 6;
+    block(ctx, -15, y - 1, 5, 2, '#8a7ac0'); block(ctx, -17, y + 1 - lift, 2, 4, '#8a7ac0');
+    block(ctx, 10, y - 1, 5, 2, '#8a7ac0'); block(ctx, 15, y + 1 - (3 - lift), 2, 4, '#8a7ac0');
+  }
+  const h = attack ? 12 : 10;
+  ctx.shadowColor = '#c6b8ff'; ctx.shadowBlur = 5;
+  block(ctx, -h, -h, h * 2, h * 2, flash ? '#ffffff' : '#c6b8ff'); ctx.shadowBlur = 0;
+  if (!flash) {
+    block(ctx, -h + 2, -h + 2, h * 2 - 4, h * 2 - 4, '#251a44');
+    ctx.fillStyle = '#6b55b0'; tri(ctx, -h + 2, -h + 2, h - 2, -h + 2, -h + 2, h - 2); // lit mirror facet
+    ctx.globalAlpha = .5; ctx.fillStyle = '#9d86e8'; tri(ctx, -h + 2, -h + 2, 2, -h + 2, -h + 2, 2); ctx.globalAlpha = 1;
+    ctx.save(); ctx.beginPath(); ctx.rect(-h + 2, -h + 2, h * 2 - 4, h * 2 - 4); ctx.clip(); // glint sweeping across the mirror
+    const g = ((tick * 1.4 + e.id * 17) % 44) - 22;
+    ctx.globalAlpha = .7; ctx.fillStyle = PALE; ctx.beginPath(); ctx.moveTo(g - 3, -h); ctx.lineTo(g + 3, -h); ctx.lineTo(g - 13, h); ctx.lineTo(g - 19, h); ctx.closePath(); ctx.fill();
+    ctx.restore(); ctx.globalAlpha = 1;
+    block(ctx, -6, 0, 4, 4, '#f4eaff'); block(ctx, 2, 0, 4, 4, '#f4eaff');
+    block(ctx, -5, 1, 2, 2, '#3a2a6a'); block(ctx, 3, 1, 2, 2, '#3a2a6a');
+  }
+  // a mirror shard on its back
+  ctx.fillStyle = flash ? '#ffffff' : '#e8e0ff'; tri(ctx, -3, -h, 3, -h, 0, -h - 7);
+  ctx.fillStyle = flash ? '#ffffff' : '#a98cff'; tri(ctx, 0, -h, 3, -h, 0, -h - 7);
+  ctx.restore();
+  return true;
+}
+
+// Shade: a translucent shadow wraith that hunts Ruby. A stepped hood and body in deep violet, flickering between
+// see-through and nearly solid, a ragged tail of drifting blocks, and two ice-blue eyes that flare as it strikes.
+function drawShade(ctx: CanvasRenderingContext2D, e: Readonly<Enemy>, sx: number, sy: number, tick: number) {
+  const flash = e.flashTicks > 0, attack = e.attackTimer > 0 && e.attackTimer <= 14, bob = Math.round(Math.sin(tick * .08 + e.id) * 2);
+  ctx.save(); ctx.translate(Math.round(sx), Math.round(sy) + bob); ctx.shadowBlur = 0;
+  const alpha = flash ? 1 : .55 + .2 * Math.sin(tick * .11 + e.id * 2);
+  ctx.globalAlpha = alpha * .6; // ragged tail
+  for (let i = 0; i < 3; i++) block(ctx, -8 + i * 6 + Math.round(Math.sin(tick * .1 + i) * 2), 12 + i * 2, 4, 6 - i, '#3c2a6e');
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = '#7a5cc8'; ctx.shadowBlur = 6;
+  block(ctx, -12, -6, 24, 18, flash ? '#ffffff' : '#2a1d4e'); // body
+  block(ctx, -9, -13, 18, 8, flash ? '#ffffff' : '#2a1d4e');  // hood
+  block(ctx, -5, -17, 10, 4, flash ? '#ffffff' : '#2a1d4e');
+  ctx.shadowBlur = 0;
+  if (!flash) {
+    block(ctx, -12, -6, 3, 18, '#5a4396'); block(ctx, -9, -13, 3, 8, '#5a4396'); // lit edge
+    block(ctx, -6, -6, 12, 7, '#120a26');                                      // face in shadow
+    ctx.shadowColor = '#a9e6ff'; ctx.shadowBlur = attack ? 8 : 4;
+    block(ctx, -5, -4, 3, attack ? 4 : 3, ICE); block(ctx, 2, -4, 3, attack ? 4 : 3, ICE);
+    ctx.shadowBlur = 0;
+    if (attack) { block(ctx, -16, 4, 4, 3, '#c9b6ff'); block(ctx, 12, 4, 4, 3, '#c9b6ff'); } // claws out
+  }
+  ctx.restore();
+}
+
+// Mimic in its own form: a soft lavender-grey shapeshifter cube whose horizontal slices keep sliding out of line, one
+// large eye, and a faint flicker of the Queen's tiara above it, the look it is trying on. Disguised, it is drawn
+// exactly as an illusion instead.
+function drawMimic(ctx: CanvasRenderingContext2D, e: Readonly<Enemy>, sx: number, sy: number, tick: number) {
+  const flash = e.flashTicks > 0, attack = e.attackTimer > 0 && e.attackTimer <= 12, h = attack ? 13 : 11;
+  ctx.save(); ctx.translate(Math.round(sx), Math.round(sy)); ctx.shadowBlur = 0;
+  ctx.shadowColor = '#9a8cd0'; ctx.shadowBlur = 4;
+  for (let k = 0; k < 4; k++) { // four slices drifting out of line
+    const shift = Math.round(Math.sin(tick * .09 + k * 1.7 + e.id) * 3);
+    block(ctx, -h + shift, -h + k * (h / 2), h * 2, h / 2, flash ? '#ffffff' : k % 2 ? '#8a7cc0' : '#a597d8');
+  }
+  ctx.shadowBlur = 0;
+  if (!flash) {
+    block(ctx, -6, -5, 12, 9, '#f2ecff'); block(ctx, -3, -3, 6, 6, '#3a2a6a'); block(ctx, -1, -2, 2, 2, ICE); // the eye
+    const try_ = Math.max(0, Math.sin(tick * .05 + e.id)); // trying on her tiara
+    ctx.globalAlpha = .25 + .35 * try_;
+    block(ctx, -1, -h - 8, 3, 7, '#ddaaff'); block(ctx, -h + 3, -h - 5, 3, 4, '#ddaaff'); block(ctx, h - 6, -h - 5, 3, 4, '#ddaaff');
   }
   ctx.restore();
 }

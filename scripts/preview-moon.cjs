@@ -65,4 +65,34 @@ fs.writeFileSync(path.join(out, 'moon-crystal-cover.png'), close.toBuffer('image
   }
   fs.writeFileSync(path.join(out, 'moon-illusions.png'), sheetF.toBuffer('image/png'));
 }
-console.log('wrote', path.join(out, 'moon-world.png'), path.join(out, 'moon-crystal-cover.png'), path.join(out, 'moon-illusions.png'));
+// Phase 2: mirror strips on the floor, with one shot bouncing back off a mirror.
+{
+  const moonLogic = require('../app/ruby-star/moon.ts');
+  const p2 = engine.createModeState('trial', 'splitter_queen');
+  p2.noMobs = true; p2.meteoriteTimer = 100000;
+  moonLogic.godSetMoonPhase(p2, 2);
+  const first = p2.moon.mirrors[0], mx = first % c.MAP_COLS, my = Math.floor(first / c.MAP_COLS);
+  Object.assign(p2, { playerTileX: mx - 3, playerTileY: my + 2, playerTargetX: mx - 3, playerTargetY: my + 2, playerX: (mx - 2.5) * c.TILE_SIZE, playerY: (my + 2.5) * c.TILE_SIZE });
+  p2.moon.reflects = [{ x: (mx + .5) * c.TILE_SIZE, y: (my + .5) * c.TILE_SIZE, toX: p2.playerX, toY: p2.playerY, ticks: 10 }];
+  const canvas = createCanvas(1100, 700), ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = false;
+  renderer.exports.drawGame(ctx, p2, 1100, 700, 300, 0, false);
+  fs.writeFileSync(path.join(out, 'moon-mirrors.png'), canvas.toBuffer('image/png'));
+}
+// Phase 3: you in the dark room. Walls, outline, you, Ruby and effects show; one illusion just hit shows briefly.
+{
+  const moonLogic = require('../app/ruby-star/moon.ts');
+  const p3 = engine.createModeState('trial', 'splitter_queen');
+  p3.noMobs = true; p3.meteoriteTimer = 100000;
+  moonLogic.godSetMoonPhase(p3, 3);
+  const boss = p3.enemies.find(e => e.type === 'splitter_queen'); boss.phaseTimer = 1; engine.tick(p3); boss.phaseTimer = 300;
+  const room = c.chamberOfTile(p3.playerTileX, p3.playerTileY); p3.moon.dark = room; p3.moon.darkFade = 0; p3.moon.oldDark = -1;
+  const [r1, c1] = c.CHAMBER_BOUNDS[room];
+  const shown = p3.enemies.find(e => e.type === 'moon_illusion');
+  Object.assign(shown, { tileX: c1 + 9, tileY: r1 + 6, targetTileX: c1 + 9, targetTileY: r1 + 6, x: (c1 + 9.5) * c.TILE_SIZE, y: (r1 + 6.5) * c.TILE_SIZE, flashTicks: 6 });
+  p3.moon.seen = [{ id: shown.id, ticks: 30 }];
+  p3.laserBeams.push({ fromX: p3.playerX, fromY: p3.playerY, dirX: 1, dirY: 0, endX: p3.playerX + 6 * c.TILE_SIZE, endY: p3.playerY, ticks: 12 });
+  const canvas = createCanvas(1100, 700), ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = false;
+  renderer.exports.drawGame(ctx, p3, 1100, 700, 420, 0, false);
+  fs.writeFileSync(path.join(out, 'moon-dark.png'), canvas.toBuffer('image/png'));
+}
+console.log('wrote', path.join(out, 'moon-world.png'), path.join(out, 'moon-crystal-cover.png'), path.join(out, 'moon-illusions.png'), path.join(out, 'moon-mirrors.png'), path.join(out, 'moon-dark.png'));

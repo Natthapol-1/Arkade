@@ -17,8 +17,8 @@ function unit(type: EnemyType, id: number, extra: Partial<Enemy> = {}): Enemy {
 
 function player(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.save(); ctx.translate(x, y);
-  ctx.shadowColor = '#e5e05a'; ctx.shadowBlur = 4; ctx.fillStyle = '#e5e05a'; ctx.fillRect(-12, -12, 24, 24); ctx.shadowBlur = 0;
-  ctx.fillStyle = '#6d6a2c'; ctx.fillRect(-8, -8, 16, 16); ctx.fillStyle = '#48c8ff'; ctx.fillRect(-6, 0, 12, 5);
+  ctx.shadowColor = '#ffe14a'; ctx.shadowBlur = 4; ctx.fillStyle = '#fff07a'; ctx.fillRect(-12, -12, 24, 24); ctx.shadowBlur = 0;
+  ctx.fillStyle = '#e8c93a'; ctx.fillRect(-8, -8, 16, 16); ctx.fillStyle = '#48c8ff'; ctx.fillRect(-6, 0, 12, 5);
   ctx.restore();
 }
 
@@ -32,7 +32,7 @@ function cross(ctx: CanvasRenderingContext2D, x: number, y: number, color: strin
 
 export default function NeptuneGuide({ drawBoss }: { drawBoss: (ctx: CanvasRenderingContext2D, x: number, y: number, tick: number, diving: boolean) => void }) {
   const cards: { title: string; color: string; text: string; paint: Paint }[] = [
-    { title: 'TRIDENT', color: '#a0ecff', text: 'Healing charges it. Press C and pick a room.', paint: (ctx, t) => {
+    { title: 'SPECIAL SKILL (PRESS C)', color: '#a0ecff', text: 'Trident: healing you and Ruby charges it. Once fully charged, pick a room to strike: it wipes out aliens there and hurts the boss.', paint: (ctx, t) => {
       ctx.fillStyle = '#0a1422'; ctx.fillRect(14, 96, 70, 10);
       const fill = Math.min(1, (t % 120) / 90); ctx.fillStyle = fill >= 1 ? '#e8fbff' : '#59c8ff'; ctx.fillRect(15, 97, 68 * fill, 8);
       label(ctx, 'C', 50, 84, '#ffffff');

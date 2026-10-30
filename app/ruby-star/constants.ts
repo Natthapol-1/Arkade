@@ -50,7 +50,7 @@ export const CHAMBER_SPAWN_TILES: readonly (readonly [number, number][])[] = [
   // DELTA - interior rows 31-48, cols 2-19
   [[7, 31], [15, 31], [2, 31], [2, 39], [2, 47], [19, 32], [19, 45], [7, 48], [15, 48]],
   // GAMMA - interior rows 31-48, cols 31-48
-  [[35, 31], [46, 31], [31, 35], [31, 45], [47, 39], [47, 46], [35, 48], [46, 48]],
+  [[35, 31], [46, 31], [31, 35], [31, 45], [47, 39], [48, 46], [35, 48], [46, 48]],
 ];
 
 // ─── Map generator ────────────────────────────────────────────────────────────
@@ -203,7 +203,7 @@ export function hallwayOfTile(tileX: number, tileY: number): number {
 export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'energy_leech' | 'fiery_king' | 'splitter_queen' | 'queen_echo' | 'storm_reaper' | 'devourer' | 'frost_warden' | 'blind_prayer' | 'sea_chanter' | 'thorn_weaver' | 'aegis_sentinel' | 'aegis_construct' | 'astral_twins'
   | 'fish_blue' | 'fish_red' | 'stinger' | 'water_clone' | 'water_bomb' | 'jellyfish' | 'pufferfish'
   | 'seed_pod' | 'blossom' | 'sporeling' | 'vine_crawler' | 'angry_mushroom' | 'lifebloom'
-  | 'moon_illusion';
+  | 'moon_illusion' | 'mirror_mite' | 'moon_shade' | 'moon_mimic';
 
 export const ENERGY_LEECH_DRAIN = 20;
 
@@ -274,6 +274,21 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     maxHp: 4, speed: 0, color: '#dd88ff', shieldColor: '#dd88ff',
     bodyFraction: 0.80, scoreValue: 0, damageToPlayer: 3, damageToRuby: 2,
     attackCooldown: 70, attackRange: 8, bombExplodeRange: 0,
+  },
+  mirror_mite: { // Moon alien: fragile and quick; killing one heals you a lot
+    maxHp: 1, speed: 1.1, color: '#c6b8ff', shieldColor: '#efe8ff',
+    bodyFraction: 0.55, scoreValue: 10, damageToPlayer: 4, damageToRuby: 3,
+    attackCooldown: 60, attackRange: 1, bombExplodeRange: 0,
+  },
+  moon_shade: { // Moon alien: a translucent shadow that always hunts a placed Ruby (you only while you carry it)
+    maxHp: 6, speed: 1.0, color: '#7a5cc8', shieldColor: '#c9b6ff',
+    bodyFraction: 0.75, scoreValue: 15, damageToPlayer: 4, damageToRuby: 6,
+    attackCooldown: 70, attackRange: 1, bombExplodeRange: 0,
+  },
+  moon_mimic: { // Moon alien (phase 2+): wanders, then sits still looking exactly like a Queen illusion; never chases or attacks
+    maxHp: 5, speed: 0.9, color: '#9a8cd0', shieldColor: '#d8d0ff',
+    bodyFraction: 0.75, scoreValue: 15, damageToPlayer: 0, damageToRuby: 0,
+    attackCooldown: 0, attackRange: 1, bombExplodeRange: 0,
   },
   lifebloom: { // friendly: a phase 3 flower that heals you and Ruby when broken
     maxHp: 1, speed: 0, color: '#9fffc8', shieldColor: '#e8fff0',
@@ -708,7 +723,7 @@ export const TUTORIAL_STEP_PAUSE = 75; // ticks of "done" feedback before the ne
 export const TRIAL_BOSS_DELAY = 300;        // ticks (5s) before the guardian's arrival warning starts
 export const SPECIAL_RECAST_LOCK = 90; // endless: 1.5s after a cast before F works again, so a skill earned by that cast isn't wasted
 export const TRIAL_SKILL_COOLDOWN = 1200;   // ticks (20s) after casting before the skill returns
-export const TRIAL_SKILL_COOLDOWNS: Partial<Record<SpecialSkill, number>> = { thorn_weaver: 2400 }; // Gaia's Roots: 40s
+export const TRIAL_SKILL_COOLDOWNS: Partial<Record<SpecialSkill, number>> = { thorn_weaver: 2400, splitter_queen: 900 }; // Gaia's Roots: 40s; Lunar Echo: 15s
 export function trialSkillCooldown(skill: SpecialSkill) { return TRIAL_SKILL_COOLDOWNS[skill] ?? TRIAL_SKILL_COOLDOWN; }
 
 // Neptune challenge (Sea Chanter): three phases with their own HP (NEPTUNE_PHASE_HPS). Healing can never lift her into a
@@ -767,14 +782,14 @@ export const NEPTUNE_SHARK_KNOCKBACK = 3;   // tiles you are thrown sideways off
 export const NEPTUNE_SHARK_BOSS_DAMAGE = .05; // share of phase HP when she is caught in its lane
 
 // Moon challenge (Shadow Queen): an illusion fight. She wears her Echo's look and hides among illusions that copy her;
-// just before each jump she shows her true self and is vulnerable. Phase 1 only for now.
-export const MOON_PHASE_HP = 2000;
+// just before each jump she shows her true self and is vulnerable. Three phases, all playing the same for now.
+export const MOON_PHASE_HP = 2000;           // per phase; she has three
 export const MOON_FIRST_CLONES = 4;          // illusions on her first jump...
 export const MOON_CLONES_PER_JUMP = 2;       // ...and on every jump after
-export const MOON_CLONE_CAP = 8;             // the oldest fades when a new one would pass this
+export const MOON_CLONE_CAPS: Record<1 | 2 | 3, number> = { 1: 6, 2: 8, 3: 8 }; // the oldest fades when a new one would pass this
 export const MOON_REVEAL_TICKS = 90;         // she shows her true self for the last 1.5s before a jump
 export const MOON_REVEAL_DAMAGE_MULT = 2.5;  // and takes this much more damage then
-export const MOON_QUEEN_DAMAGE_MULT = .6;    // her own hits are softer here (there are many shooters)
+export const MOON_QUEEN_DAMAGE_MULT = .4;    // her own hits are softer here (there are many shooters)
 export const MOON_SHARD_COUNT = 8;           // a destroyed illusion bursts into a ring of crystal shards
 export const MOON_SHARD_SPEED = 5;           // px per tick
 export const MOON_SHARD_TICKS = 90;          // about 9 tiles of travel
@@ -782,8 +797,23 @@ export const MOON_SHARD_DAMAGE = 6;          // to you
 export const MOON_SHARD_RUBY_DAMAGE = 4;     // to a placed Ruby
 export const MOON_SHARD_HIT_RADIUS = .45;    // tiles
 export const MOON_STRIKE_DAMAGE = .08;       // meteors deal this share of the phase to her
+export const MOON_MITE_CHANCE = .4;          // share of regular alien spawns replaced by mirror mites
+export const MOON_SHADE_CHANCE = .2;         // share of regular alien spawns replaced by shades (Ruby hunters)
+export const MOON_DARK_SHIFT = 600;          // phase 3: one room is dark; every 10s the dark moves to another room
+export const MOON_DARK_FADE = 30;            // visual: the dark fades across over 0.5s
+export const MOON_SEEN_TICKS = 45;           // anything hit inside the dark shows itself for 0.75s
+export const MOON_MIMIC_GAP = 360;           // phase 2+: a mimic arrives every 6s on its own timer (never replacing other spawns)...
+export const MOON_MIMIC_CAP = 4;             // ...with at most this many alive
+export const MOON_MIMIC_TRUE_TICKS: [number, number] = [120, 240];   // 2–4s in its own form, then it poses as an illusion for good
+export const MOON_MITE_KILL_HEAL = 10;       // on top of the usual +5 kill heal
+export const MOON_MITE_HINT_TICKS = 300;     // a mite kill shows two rooms on the minimap for 5s: hers and one other
+export const MOON_HIT_HEAL = .3;             // this share of the HP she loses to your attacks heals you when she next jumps
+export const MOON_MIRROR_STRIPS = 3;         // phase 2+: mirror strips per room; walkable, but they bounce your laser and bullets back into you
+export const MOON_MIRROR_LENGTH = 3;         // tiles per strip
+export const MOON_MIRROR_SHIFT = 1200;       // every 20s the mirrors move to new spots
+export const MOON_MIRROR_FADE = 30;          // visual: old panes fade out, new ones fade in
 export const MOON_MARK_TICKS = 360;          // C marks the nearest Queen or illusion for 6s; the mark follows her jumps
-export const MOON_MARK_COOLDOWN = 720;       // 12s from each cast
+export const MOON_MARK_COOLDOWN = 600;       // 10s from each cast
 
 // Gaia challenge (Thorn Weaver): overgrowth fight. Every floor tile has a growth level 0–3 (clean, moss, vines,
 // thicket). Vines slow you and heal her; you clear them with attacks, meteors, Sunfire and Gaia's Roots.
