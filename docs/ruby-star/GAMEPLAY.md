@@ -8,7 +8,7 @@
 
 | Mode | Route | Start |
 |---|---|---|
-| First Orbit (TUTORIAL tag) | `/ruby-star/tutorial` | Guided sandbox (see below). Sits left of Endless Space; Endless Space is centred when the lobby opens |
+| First Orbit (TUTORIAL tag) | `/ruby-star/tutorial` | Guided sandbox (see below). Centred when the lobby opens, with Endless Space to its right |
 | Endless Space | `/ruby-star/endless` | Standard run from stage 0 |
 | Endless Space: Ascension | `/ruby-star/ascension` | Stage 10 (celestial skills unlocked, Ascension banner) with regular aliens at the hardest tier. Play pauses on a CHOOSE A CELESTIAL SKILL screen first: ten cards (suit preview, skill name, source boss, short effect); the pick becomes the held skill. Then three Constellation picks (two choices each) open one after another, starting 1s after play resumes. Restart keeps the mode |
 | Celestial Challenge | `/ruby-star/challenge` | Opens the star map (below). Each world route is `/ruby-star/challenge/<body>`; locked bodies redirect to the star map and unknown bodies 404 |

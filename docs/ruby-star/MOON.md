@@ -18,7 +18,7 @@
 - **Reveal:** for the last 1.5s (90 ticks) before each jump, she shows her true model with a breaking-mask burst, and takes 2.5× damage.
 - **Shatter:** an illusion destroyed by anything other than a meteor bursts into a ring of 8 crystal shards. They fly about 9 tiles at 5px/tick and stop at walls. A shard deals 6 to you or 4 to a placed Ruby, once.
 - **Tell:** only the real Queen casts a reflection on the crystal floor: a faint violet glow and a mirrored tiara below her.
-- **Moon Mark (C):** marks the nearest Queen or illusion for 6s (blinking in the last second), then recharges 12s from the cast (a HUD gauge beside energy shows it). The mark rides on whoever wears it: an ice-blue sigil on the battlefield and an ice-blue frame on the minimap. If it was her, it follows her to her next chamber; an illusion's mark stays put when she jumps. It reveals nothing by itself.
+- **Moon Mark (C):** marks the nearest Queen or illusion for 6s (blinking in the last second), then recharges 12s from the cast. A HUD icon after the energy bar shows it, in the celestial skill icon style: ice-blue sigil glowing with a C hint when ready, dimmed with a filling perimeter while recharging. The mark rides on whoever wears it: an ice-blue sigil on the battlefield and an ice-blue frame on the minimap. If it was her, it follows her to her next chamber; an illusion's mark stays put when she jumps. It reveals nothing by itself.
 - **Meteors** deal 8% of the phase (160) to her and wipe illusions in that room without shards.
 - **No space events.** Her defeat clears every illusion and shard.
 

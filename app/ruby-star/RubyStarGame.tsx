@@ -6,7 +6,7 @@ import { drawEncounterEnemy, drawEncounterTelegraphs, drawEncounterEffects } fro
 import { drawNeptuneUnit, drawNeptuneOverlay, drawSkyLaserImpact, drawWaterBurst } from './neptune-art';
 import { drawGaiaUnit, drawGaiaGround, drawGaiaOverlay, drawForestBackdrop, drawForestAmbience, GAIA_CHAMBER_COLORS } from './gaia-art';
 import { drawMoonBackdrop, drawMoonAmbience, drawMoonCrystalBlock, drawMoonReflection, drawMoonEffects, isMoonMap, MOON_CHAMBER_COLORS } from './moon-art';
-import { isMoonBoss, moonWearsGuise, useMoonMark, canUseMoonMark } from './moon';
+import { isMoonBoss, moonWearsGuise, useMoonMark } from './moon';
 import BackButton from '@/components/BackButton';
 import { useRouter } from 'next/navigation';
 import PixelArrow from '@/components/PixelArrow';
@@ -22,6 +22,7 @@ import ConstellationChoice from './ConstellationChoice';
 import ConstellationAfterglow from './ConstellationAfterglow';
 import BombStatus from './BombStatus';
 import CelestialStatus from './CelestialStatus';
+import MoonMarkStatus from './MoonMarkStatus';
 import HudIcon from './HudIcon';
 import BGMController, { BGMControllerHandle } from '@/components/BGMController';
 import {
@@ -5828,22 +5829,6 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
             </div>;
           })()}
 
-          {state?.moon && (() => {
-            const ready = canUseMoonMark(state), charge = 1 - state.moon.markCooldown / MOON_MARK_COOLDOWN;
-            return <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="meter" aria-label="Moon Mark recharge"
-              aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(charge * 100)} title={ready ? 'Moon Mark ready: C marks the nearest Queen' : 'Moon Mark recharging'}>
-              <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges">
-                <path d="M0 0H5V2H2V5H0ZM11 0H16V5H14V2H11ZM0 11H2V14H5V16H0ZM14 11H16V16H11V14H14ZM7 4H9V6H10V7H12V9H10V10H9V12H7V10H6V9H4V7H6V6H7Z" fill={ready ? '#e8fbff' : '#a9e6ff'} />
-              </svg>
-              <div style={{ width: 'calc(var(--batt-w) * .8)', height: 'var(--batt-h)', border: `1px solid ${ready ? '#e8fbff' : 'rgba(169,230,255,.45)'}`,
-                borderRadius: '2px', background: 'rgba(0,0,0,0.4)', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${charge * 100}%`, background: ready ? '#e8fbff' : '#6fb6e0',
-                  boxShadow: ready ? '0 0 10px #a9e6ff' : 'none', animation: ready ? 'pulseGlow 0.8s ease-in-out infinite' : undefined }} />
-              </div>
-              {ready && <span style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: '#e8fbff' }}>C</span>}
-            </div>;
-          })()}
-
           {/* Star energy */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <HudIcon kind="energy" powered={powered} />
@@ -5862,6 +5847,8 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
               }} />
             </div>
           </div>
+
+          {state?.moon && <MoonMarkStatus cooldown={state.moon.markCooldown} totalCooldown={MOON_MARK_COOLDOWN} />}
 
           </div>
         </div>

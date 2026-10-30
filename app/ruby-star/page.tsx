@@ -48,7 +48,7 @@ function Emblem({ id }: { id: string }) {
 export default function RubyStarLobby() {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [index, setIndex] = useState(1); // Endless Space starts centred; Tutorial sits to its left
+  const [index, setIndex] = useState(0); // First Orbit (the tutorial) starts centred
   // Debug query flags such as ?god=1 carry through to the chosen mode.
   useEffect(() => { setQuery(window.location.search); }, []);
 

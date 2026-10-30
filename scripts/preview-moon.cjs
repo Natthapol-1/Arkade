@@ -58,7 +58,7 @@ fs.writeFileSync(path.join(out, 'moon-crystal-cover.png'), close.toBuffer('image
   Object.assign(fight, { playerTileX: 9, playerTileY: 11, playerTargetX: 9, playerTargetY: 11, playerX: 9.5 * c.TILE_SIZE, playerY: 11.5 * c.TILE_SIZE });
   const FW = 1100, FH = 700, sheetF = createCanvas(FW * 2, FH), fctx = sheetF.getContext('2d');
   for (const [i, timer] of [[0, 300], [1, c.MOON_REVEAL_TICKS - 10]]) {
-    boss.phaseTimer = timer; fight.moon.unmask = i ? { id: boss.id, ticks: 12 } : null; fight.moon.mark = { id: boss.id, ticks: 200 };
+    boss.phaseTimer = timer; fight.moon.unmask = i ? { id: boss.id, ticks: 12 } : null; fight.moon.mark = i ? { id: boss.id, ticks: 200 } : null;
     const canvas = createCanvas(FW, FH), ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = false;
     renderer.exports.drawGame(ctx, fight, FW, FH, 200, 0, false);
     fctx.drawImage(canvas, i * FW, 0);

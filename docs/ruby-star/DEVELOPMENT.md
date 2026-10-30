@@ -16,7 +16,7 @@ Ruby Star is a real-time top-down survival/defense game in Arkade, a Next.js 15 
 | `app/ruby-star/neptune.ts`, `app/ruby-star/gaia.ts`, `app/ruby-star/moon.ts` | Challenge logic and state types (`NeptuneState`, `GaiaState`, `MoonState`); the core engine calls in through `updateNeptune`/`updateGaia` and exported helpers, and the modules import engine helpers back |
 | `app/ruby-star/neptune-art.ts` | Neptune challenge art: fish, stingers, jellyfish, sharks, water clones, water balls, tides, Trident (sky laser) |
 | `app/ruby-star/BombStatus.tsx` | Icon-only HUD bomb ready/armed/cooldown indicator |
-| `app/ruby-star/CelestialStatus.tsx` | Icon-only HUD celestial skill ready/recharging indicator (Celestial Challenge) |
+| `app/ruby-star/CelestialStatus.tsx`, `app/ruby-star/MoonMarkStatus.tsx` | Icon-only HUD ready/recharging indicators: the celestial skill (Celestial Challenge) and the Moon Mark (Moon challenge) |
 | `app/ruby-star/page.tsx` | Mode lobby: title, carousel of mode cards, routing |
 | `app/ruby-star/RubyStarGame.tsx` | The game for a given mode: canvas renderers, input, animation loop, camera, HUD, God panel, touch controls |
 | `app/ruby-star/tutorial/page.tsx`, `endless/page.tsx`, `ascension/page.tsx` | Mode routes; each renders `RubyStarGame` with its mode, started by `createModeState` in `engine.ts` |
