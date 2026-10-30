@@ -15,15 +15,15 @@ const MODES: ModeCard[] = [
   },
   {
     id: 'endless', title: 'ENDLESS SPACE', color: '#ff4f8b', sound: 'endless', path: '/ruby-star/endless',
-    description: 'Guard the Ruby across four chambers. Aliens, bosses, meteors and space events keep coming.',
+    description: 'Defend the Ruby across four chambers and see how long you can survive the endless onslaught.',
   },
   {
     id: 'ascension', title: 'ENDLESS SPACE', tag: 'ASCENSION', color: '#c99bff', sound: 'ascension', path: '/ruby-star/ascension',
-    description: 'Start at stage 10 with celestial skills unlocked, three Constellations to pick and the toughest alien waves.',
+    description: 'Skip to stage 10 with celestial powers awakened and test your skill against the fiercest waves.',
   },
   {
     id: 'trials', title: 'CELESTIAL CHALLENGE', color: '#9aa8ff', sound: 'ascension', path: '/ruby-star/challenge',
-    description: 'Pick a world on the star map and face its guardian boss. Full challenges are in development.',
+    description: 'Travel to a world and face its guardian in an epic multi-phase boss battle with its own rules.',
   },
 ];
 

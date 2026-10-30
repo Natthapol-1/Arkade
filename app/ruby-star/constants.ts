@@ -897,7 +897,7 @@ export const SPECIAL_SKILLS = {
   thorn_weaver: { name: "GAIA'S ROOTS", color: '#a5de65', bossDamage: 0, normalDamage: 0 },
   splitter_queen: { name: 'LUNAR ECHO', color: '#b278f3', bossDamage: 0, normalDamage: 0 },
   fiery_king: { name: 'SOLAR FLARE', color: '#ff5252', bossDamage: .1, normalDamage: 25 },
-  storm_reaper: { name: 'JUPITER STORM', color: '#ffad4d', bossDamage: .3, normalDamage: 60 },
+  storm_reaper: { name: 'JUPITER STORM', color: '#ffad4d', bossDamage: .25, normalDamage: 60 },
   frost_warden: { name: 'SATURN GUARD', color: '#68e0c9', bossDamage: 0, normalDamage: 0 },
   sea_chanter: { name: "NEPTUNE'S TIDE", color: '#5d9fff', bossDamage: 0, normalDamage: 0 },
   blind_prayer: { name: 'SIRIUS SURGE', color: '#ffe45c', bossDamage: 0, normalDamage: 0 },
@@ -912,10 +912,11 @@ export const BOSS_SKILL_REWARDS: Record<BossType, SpecialSkill> = {
   aegis_sentinel: 'aegis_sentinel', astral_twins: 'astral_twins',
 };
 export const SPECIAL_WARDEN_SHIELD = 40;
+export const SPECIAL_SUSTAIN_PER_STAGE = 1; // Saturn Guard's shield and Neptune's Tide's heal grow by this per stage
 
 // Venus Veil: player/placed Ruby take reduced damage; direct attackers receive the full hit back.
 export const SPECIAL_VENUS_DURATION = 600;
-export const SPECIAL_VENUS_DAMAGE_MULT = .3;
+export const SPECIAL_VENUS_DAMAGE_MULT = .35;
 export const SPECIAL_VENUS_BOSS_REFLECT_CAP = .03;
 
 // Binary Star: a stationary mirror twin beside Ruby repeats the player's attacks at reduced damage.

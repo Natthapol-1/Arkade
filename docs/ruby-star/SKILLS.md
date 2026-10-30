@@ -33,7 +33,7 @@ Click, tap, keys 1/2, or focused-button Enter/Space selects. Keyboard focus stay
 
 Healing safety checks, HP/energy caps and bomb Ruby immunity remain. Upgrades affecting different aspects of the same ability combine. No upgrade changes celestial skill damage. Existing fields and placed bombs retain their rules; Perseus updates the shared bomb radius calculation for both gameplay and the indicator.
 
-New regular aliens and Splitter children gain +5% HP per third-boss milestone, capped at +30% after defeat 18. The factor multiplies existing tier/global HP scaling and does not retroactively rescale existing enemies. Bosses retain their existing +15 HP per prior defeat, without an extra Constellation multiplier; Queen echoes are unchanged. See [Difficulty](GAMEPLAY.md#difficulty-progression).
+New regular aliens and Splitter children gain +5% HP per third-boss milestone, reaching +30% at defeat 18; after that the late-run factor adds +2% per defeat, and +3% per defeat after defeat 20 (see Difficulty). The factor multiplies existing tier/global HP scaling and does not retroactively rescale existing enemies. Bosses retain their existing +15 HP per prior defeat, without an extra Constellation multiplier; Queen echoes are unchanged. See [Difficulty](GAMEPLAY.md#difficulty-progression).
 
 ## Ascension and celestial skills
 
@@ -41,17 +41,17 @@ The **tenth boss defeat** unlocks Ascension and grants that defeated boss's skil
 
 | Boss reward | Skill | Effect |
 | --- | --- | --- |
-| King | Solar Flare | Entire arena: 25 normal damage / 10% boss max HP. Regular Solar kills grant no energy, including Runner bonuses and Leech refunds; ordinary non-energy rewards remain. Boss kills still restore player/Ruby HP and energy fully |
+| King | Solar Flare | Entire arena: 10% boss max HP. Regular aliens take 25 × the alien skill scale (current tier HP multiplier × late-run alien HP factor up to Stage 18, `skillAlienScale`) so it has the same effect from the start to Stage 18 (it always just kills an unshielded Armored): 25 at the start, 57.5 at Stage 10, 65 from Stage 18. Regular Solar kills grant no energy, including Runner bonuses and Leech refunds; ordinary non-energy rewards remain. Boss kills still restore player/Ruby HP and energy fully |
 | Queen | Lunar Echo | Stationary decoy with 12 connected hits; 21-tick invulnerability after each hit; no time limit |
-| Reaper | Jupiter Storm | Within 6 tiles: 60 normal damage / 30% boss max HP |
-| Devourer | Singularity | One fixed version: 5-tile-radius field for 18s. Normal pull one tile/15 ticks; boss pull one tile/30 ticks, walls respected. Enemies inside cannot teleport; overdue Queen/Warden relocation waits until they leave or the field expires, without spawning echoes or granting jump healing while blocked. Damage once per second: 6 to regular aliens, 1.5% max HP to bosses |
-| Warden | Saturn Guard | Player and Ruby absorb shields refilled to at least 40 each, with celestial appearance until depleted; not +40 stacking |
+| Reaper | Jupiter Storm | Within 6 tiles: 25% boss max HP; regular aliens take 60 × the alien skill scale (60 at the start, 156 from Stage 18) |
+| Devourer | Singularity | One fixed version: 5-tile-radius field for 18s. Normal pull one tile/15 ticks; boss pull one tile/30 ticks, walls respected. Enemies inside cannot teleport; overdue Queen/Warden relocation waits until they leave or the field expires, without spawning echoes or granting jump healing while blocked. Damage once per second: 6 × the alien skill scale to regular aliens (grows with the stage like their HP, up to Stage 18), 1.5% max HP to bosses |
+| Warden | Saturn Guard | Player and Ruby absorb shields refilled to at least 40 + 1 per stage each (58 from Stage 18), with celestial appearance until depleted; not stacking |
 | Prayer | Sirius Surge | At least 6s powered mode, clears star gauge, free speed burst, resets laser/bullet/wave/bomb/speed cooldowns. Existing placed bomb remains |
-| Chanter | Neptune's Tide | Heals player/Ruby +35 each; pushes enemies within 8 tiles 3 tiles away |
-| Aegis | Venus Veil | For 10s, damage to player and placed Ruby is cut to 30% (after Delphinus/Cassiopeia, before shields). Direct enemy attacks also return their full pre-reduction damage to the attacker; bosses take at most 3% max HP per reflected hit. Meteors, explosions, poison, Thorn fields, Supernova, pylon overloads and the player's own bomb are reduced but not reflected. Reflection still happens under Invincible, but not when Lunar Echo takes the hit |
+| Chanter | Neptune's Tide | Heals player/Ruby 35 + 1 per stage each (53 from Stage 18); pushes enemies within 8 tiles 3 tiles away |
+| Aegis | Venus Veil | For 10s, damage to player and placed Ruby is cut to 35% (after Delphinus/Cassiopeia, before shields). Direct enemy attacks also return their full pre-reduction damage to the attacker; bosses take at most 3% max HP per reflected hit. Meteors, explosions, poison, Thorn fields, Supernova, pylon overloads and the player's own bomb are reduced but not reflected. Reflection still happens under Invincible, but not when Lunar Echo takes the hit |
 | Twins | Binary Star | For 15s, an untargetable mirror twin stands on the first open tile beside placed Ruby (beside the player while carrying). Every laser, bullet and wave also fires from the twin, and each bomb detonation adds a twin blast there, all at 60% damage. Twin attacks use the same powered state, push, Supernova triggers and kill rewards; the twin blast never hurts the player |
-| Weaver | Gaia's Roots | Stationary tile-aligned 12×12 field for 30s, floor only; enemies move 40% slower, take 4 normal damage/sec or 1% boss max HP/sec |
+| Weaver | Gaia's Roots | Stationary tile-aligned 12×12 field for 30s, floor only; enemies move 40% slower, take 4 × the alien skill scale damage/sec (grows with the stage like alien HP, up to Stage 18) or 1% boss max HP/sec |
 
 Skill damage respects shields and enemy vulnerabilities, but does not feed diving Chanter. Persistent fields pulse once per second and expire before a pulse on the exact expiry tick; listed DPS×duration is not necessarily the exact total. For example, max Singularity lasts 24s but delivers 23 whole pulses: 46% boss max HP before shields/vulnerability if continuously inside. Gaia also excludes the exact-expiry pulse. Recasts replace the existing field/decoy of that type.
 
-Values in the celestial table are before applicable Constellation modifiers.
+Values in the celestial table are before applicable Constellation modifiers. All stage-based skill scaling stops at Stage 18 (`SKILL_SCALE_STAGE_CAP`), even though aliens keep growing after that.

@@ -25,15 +25,15 @@ Each boss has a celestial skill. In its own world, you hold that skill on F with
 
 | Skill (boss) | Effect |
 | --- | --- |
-| **Solar Flare** (King) | Hits every enemy on the map: 25 damage to aliens, 10% max HP to bosses. |
+| **Solar Flare** (King) | Hits every enemy on the map: 10% max HP to bosses, and damage to aliens that grows with the stage exactly like their HP up to Stage 18 (25 at the start). |
 | **Lunar Echo** (Queen) | Places a stationary decoy that draws all enemy targeting until it takes 12 hits. |
-| **Jupiter Storm** (Reaper) | Big blast within 6 tiles: 60 damage to aliens, 30% max HP to bosses. |
+| **Jupiter Storm** (Reaper) | Big blast within 6 tiles: 25% max HP to bosses, and damage to aliens that grows with the stage like their HP up to Stage 18 (60 at the start). |
 | **Singularity** (Devourer) | An 18s gravity field that pulls enemies in, blocks their teleports and damages them each second. |
-| **Saturn Guard** (Warden) | Gives you and Ruby a 40-HP absorb shield each. |
+| **Saturn Guard** (Warden) | Gives you and Ruby an absorb shield each: 40, +1 per stage up to Stage 18. |
 | **Sirius Surge** (Prayer) | At least 6s of powered mode, a free speed burst, and all ability cooldowns reset. |
-| **Neptune's Tide** (Chanter) | Heals you and Ruby 35 each and pushes nearby enemies 3 tiles away. |
+| **Neptune's Tide** (Chanter) | Heals you and Ruby 35 each (+1 per stage up to Stage 18) and pushes nearby enemies 3 tiles away. |
 | **Gaia's Roots** (Weaver) | A 12×12 floor field for 30s: enemies inside are slowed and take damage each second. |
-| **Venus Veil** (Sentinel) | For 10s, damage to you and Ruby is cut to 30%, and direct attacks reflect back at the attacker. |
+| **Venus Veil** (Sentinel) | For 10s, damage to you and Ruby is cut to 35%, and direct attacks reflect back at the attacker. |
 | **Binary Star** (Twins) | For 15s, a mirror twin beside Ruby repeats every laser, bullet, wave and bomb at 60% damage. |
 
 **Design rule: each world's skill should matter to that world's mechanics,** not just be a generic damage or heal button. So far:

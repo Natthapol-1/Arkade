@@ -54,3 +54,42 @@ test('Solar bomber cascades give no energy even when they finish an earlier surv
  const armor={...template,id:100,type:'armored',hp:40,maxHp:40},bomber={...template,id:101,type:'bomber',hp:1,maxHp:10};position(armor,11,10);position(bomber,11,11);
  s.enemies=[armor,bomber];s.starEnergy=0;s.specialSkill='fiery_king';e.useSpecialSkill(s);assert.equal(s.enemies.length,0);assert.equal(s.starEnergy,0);
 });
+
+test('Solar Flare damage to aliens grows exactly like their HP up to stage 18, then stays',()=>{
+ for(const [kills,tier] of [[0,0],[10,7],[18,7],[25,7]]){
+  const s=fresh(),template=boss(s,'frost_warden');s.enemies=[];
+  s.bossesKilled=kills;s.difficultyLevel=tier;
+  const alien={...template,id:500,type:'armored',hp:10000,maxHp:10000};s.enemies.push(alien);
+  s.specialSkill='fiery_king';e.useSpecialSkill(s);
+  const capped=Math.min(kills,18),mult=1+Math.min(6,Math.floor(capped/3))*.05;
+  const expected=c.SPECIAL_SKILLS.fiery_king.normalDamage*c.DIFFICULTY_TIERS[tier].hpMult*mult;
+  assert.ok(Math.abs(10000-alien.hp-expected)<1e-6,'stage '+kills+': '+(10000-alien.hp)+' vs '+expected);
+ }
+});
+
+test("Singularity and Gaia's Roots damage to aliens grows with the stage like their HP",()=>{
+ for(const [kills,tier] of [[0,0],[25,7]]){
+  const s=fresh();s.bossesKilled=kills;s.difficultyLevel=tier;
+  assert.ok(Math.abs(e.skillAlienScale(s)-c.DIFFICULTY_TIERS[tier].hpMult*(1+Math.min(6,Math.floor(Math.min(kills,18)/3))*.05))<1e-9,'capped at stage 18');
+ }
+ assert.equal(e.skillAlienScale(Object.assign(fresh(),{bossesKilled:0,difficultyLevel:0})),1,'unchanged at the start');
+});
+
+test("Neptune's Tide and Saturn Guard grow by 1 per stage, stopping at stage 18",()=>{
+ for(const [kills,bonus] of [[0,0],[10,10],[18,18],[40,18]]){
+  const s=fresh();s.bossesKilled=kills;s.godMode=false;s.playerHP=1;s.rubyHP=1;s.specialSkill='sea_chanter';e.useSpecialSkill(s);
+  assert.equal(s.playerHP,1+c.SPECIAL_CHANTER_HEAL+bonus);assert.equal(s.rubyHP,1+c.SPECIAL_CHANTER_HEAL+bonus);
+  const t=fresh();t.bossesKilled=kills;t.playerShieldHP=t.rubyShieldHP=0;t.specialSkill='frost_warden';e.useSpecialSkill(t);
+  assert.equal(t.playerShieldHP,c.SPECIAL_WARDEN_SHIELD+bonus);assert.equal(t.rubyShieldHP,c.SPECIAL_WARDEN_SHIELD+bonus);
+ }
+});
+
+test('Jupiter Storm damage to aliens grows like their HP up to stage 18; bosses take 25%',()=>{
+ for(const [kills,tier] of [[0,0],[10,7],[25,7]]){
+  const s=fresh(),template=boss(s,'frost_warden');s.enemies=[];s.bossesKilled=kills;s.difficultyLevel=tier;
+  const alien={...template,id:600,type:'armored',hp:10000,maxHp:10000};position(alien,s.playerTileX+1,s.playerTileY);s.enemies.push(alien);
+  s.specialSkill='storm_reaper';e.useSpecialSkill(s);
+  const expected=60*c.DIFFICULTY_TIERS[tier].hpMult*(1+Math.min(6,Math.floor(Math.min(kills,18)/3))*.05);
+  assert.ok(Math.abs(10000-alien.hp-expected)<1e-6,'stage '+kills+': '+(10000-alien.hp)+' vs '+expected);
+ }
+});

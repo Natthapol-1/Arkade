@@ -25,7 +25,7 @@ test('King special hits the entire arena for ten percent boss HP and twenty-five
 });
 test('Reaper special has limited range and scales against bosses',()=>{
  const s=fresh(),e=boss(s,'fiery_king',15,10);e.hp=e.maxHp=400;const near=grunt(s,e,12,10),far=grunt(s,e,17,10);
- s.specialSkill='storm_reaper';engine.useSpecialSkill(s);close(e.hp,280);assert.equal(near.hp,40);assert.equal(far.hp,100);
+ s.specialSkill='storm_reaper';engine.useSpecialSkill(s);close(e.hp,300);assert.equal(near.hp,40);assert.equal(far.hp,100);
 });
 test('Warden shields player and Ruby, cannot stack, and shields absorb damage',()=>{
  const s=fresh();s.godMode=false;s.specialSkill='frost_warden';engine.useSpecialSkill(s);assert.equal(s.playerShieldHP,40);assert.equal(s.rubyShieldHP,40);

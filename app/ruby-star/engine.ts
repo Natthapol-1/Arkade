@@ -19,7 +19,7 @@ export { AMBIENT_EVENTS, STAR_FALL_TICKS, SUPERNOVA_CHARGE_TICKS, SUPERNOVA_BLAS
 export type { AmbientEventKind } from './events';
 import {
   TILE_SIZE, MAP_COLS, MAP_ROWS,
-  SpecialSkill, SPECIAL_UNLOCK_KILLS, SPECIAL_SKILLS, SPECIAL_REAPER_RADIUS, SPECIAL_WARDEN_SHIELD,
+  SpecialSkill, SPECIAL_UNLOCK_KILLS, SPECIAL_SKILLS, SPECIAL_REAPER_RADIUS, SPECIAL_WARDEN_SHIELD, SPECIAL_SUSTAIN_PER_STAGE,
   SPECIAL_VENUS_DURATION, SPECIAL_VENUS_DAMAGE_MULT, SPECIAL_VENUS_BOSS_REFLECT_CAP, SPECIAL_TWIN_DURATION, SPECIAL_TWIN_DAMAGE_MULT,
   SPECIAL_CHANTER_HEAL, SPECIAL_CHANTER_RADIUS, SPECIAL_CHANTER_PUSH, SPECIAL_PRAYER_DURATION, SPECIAL_QUEEN_DECOY_HITS, SPECIAL_QUEEN_DECOY_INVULNERABILITY,
   SPECIAL_WEAVER_DURATION, SPECIAL_WEAVER_RADIUS, SPECIAL_WEAVER_SLOW, SPECIAL_WEAVER_NORMAL_DAMAGE, SPECIAL_WEAVER_BOSS_DAMAGE,
@@ -126,11 +126,24 @@ export function getBombRadius(state: GameState, powered: boolean): number {
 
 // Extra health applies only to new regular aliens, including Splitter children.
 export const LATE_ALIEN_HP_FROM = 18;        // milestone bonus tops out here (+30%)...
-export const LATE_ALIEN_HP_PER_STAGE = 0.02; // ...then every further boss defeat adds 2%, without a cap
+export const LATE_ALIEN_HP_PER_STAGE = 0.02; // ...then every further boss defeat adds 2%, without a cap...
+export const LATER_ALIEN_HP_FROM = 20;       // ...and from here each defeat adds 1% more (3% in all)
+export const LATER_ALIEN_HP_EXTRA = 0.01;
 
-export function constellationAlienHPMult(state: GameState): number {
-  return 1 + Math.min(6, Math.floor(state.bossesKilled / CONSTELLATION_INTERVAL)) * 0.05
-    + Math.max(0, state.bossesKilled - LATE_ALIEN_HP_FROM) * LATE_ALIEN_HP_PER_STAGE;
+// Celestial skill scaling (Solar, Jupiter, Singularity and Gaia's Roots alien damage; Saturn Guard; Neptune's Tide) follows the stage
+// only up to SKILL_SCALE_STAGE_CAP; past that the skills stop growing.
+export const SKILL_SCALE_STAGE_CAP = 18;
+export function skillStage(state: GameState) { return Math.min(state.bossesKilled, SKILL_SCALE_STAGE_CAP); }
+// Skill damage to regular aliens grows by the same factors as their HP, as of the capped stage.
+export function skillAlienScale(state: GameState): number {
+  return DIFFICULTY_TIERS[state.difficultyLevel].hpMult * alienHPMultAt(skillStage(state));
+}
+
+export function constellationAlienHPMult(state: GameState): number { return alienHPMultAt(state.bossesKilled); }
+function alienHPMultAt(kills: number): number {
+  return 1 + Math.min(6, Math.floor(kills / CONSTELLATION_INTERVAL)) * 0.05
+    + Math.max(0, kills - LATE_ALIEN_HP_FROM) * LATE_ALIEN_HP_PER_STAGE
+    + Math.max(0, kills - LATER_ALIEN_HP_FROM) * LATER_ALIEN_HP_EXTRA;
 }
 
 // force skips the every-third-boss check (used for Ascension's starting picks).
@@ -2508,7 +2521,7 @@ function updateSingularity(state: GameState) {
   if(field.damageTimer<=0){
     field.damageTimer=60;
     hitSupernova(state, (x, y) => Math.hypot(x - field.x, y - field.y) <= SPECIAL_SINGULARITY_RADIUS);
-    for(const enemy of targets)damageEnemy(state,enemy,isBossType(enemy.type)?enemy.maxHp*SPECIAL_SINGULARITY_BOSS_DAMAGE:SPECIAL_SINGULARITY_NORMAL_DAMAGE,'special');
+    for(const enemy of targets)damageEnemy(state,enemy,isBossType(enemy.type)?enemy.maxHp*SPECIAL_SINGULARITY_BOSS_DAMAGE:SPECIAL_SINGULARITY_NORMAL_DAMAGE*skillAlienScale(state),'special');
     for(const enemy of targets){const index=state.enemies.indexOf(enemy);if(index>=0&&enemy.hp<=0)killEnemy(state,index);}
   }
 }
@@ -2547,7 +2560,7 @@ function updateCelestialField(state: GameState) {
   field.damageTimer=60;
   hitSupernova(state, (x, y) => x >= field.x - SPECIAL_WEAVER_RADIUS && x < field.x + SPECIAL_WEAVER_RADIUS && y >= field.y - SPECIAL_WEAVER_RADIUS && y < field.y + SPECIAL_WEAVER_RADIUS);
   const targets=state.enemies.filter(e=>e.hp>0&&inCelestialField(state,e));
-  for(const target of targets)damageEnemy(state,target,isBossType(target.type)?target.maxHp*SPECIAL_WEAVER_BOSS_DAMAGE:SPECIAL_WEAVER_NORMAL_DAMAGE,'special');
+  for(const target of targets)damageEnemy(state,target,isBossType(target.type)?target.maxHp*SPECIAL_WEAVER_BOSS_DAMAGE:SPECIAL_WEAVER_NORMAL_DAMAGE*skillAlienScale(state),'special');
   for(const target of targets){const index=state.enemies.indexOf(target);if(index>=0&&target.hp<=0)killEnemy(state,index);}
   updateGaiaFieldSound(state);
 }
@@ -4754,7 +4767,8 @@ export function useSpecialSkill(state: GameState): boolean {
     state.enemies.forEach(e=>e.pathTimer=0);return true;
   }
   if (kind === 'sea_chanter') {
-    healPlayer(state, SPECIAL_CHANTER_HEAL); healCore(state, SPECIAL_CHANTER_HEAL);
+    const heal = SPECIAL_CHANTER_HEAL + SPECIAL_SUSTAIN_PER_STAGE * skillStage(state); // grows with the stage, up to the cap
+    healPlayer(state, heal); healCore(state, heal);
     for (const enemy of state.enemies) {
       if (enemy.hp <= 0 || Math.hypot(enemy.x-state.playerX, enemy.y-state.playerY)>SPECIAL_CHANTER_RADIUS) continue;
       const dx=enemy.x-state.playerX,dy=enemy.y-state.playerY,length=Math.hypot(dx,dy)||1;
@@ -4783,8 +4797,9 @@ export function useSpecialSkill(state: GameState): boolean {
     return true;
   }
   if (kind === 'frost_warden') {
-    state.playerShieldHP = Math.max(state.playerShieldHP, SPECIAL_WARDEN_SHIELD);
-    state.rubyShieldHP = Math.max(state.rubyShieldHP, SPECIAL_WARDEN_SHIELD);
+    const shield = SPECIAL_WARDEN_SHIELD + SPECIAL_SUSTAIN_PER_STAGE * skillStage(state); // grows with the stage, up to the cap
+    state.playerShieldHP = Math.max(state.playerShieldHP, shield);
+    state.rubyShieldHP = Math.max(state.rubyShieldHP, shield);
     state.playerSaturnShield=true;state.rubySaturnShield=true;
     showRewardEffect(state, 'player', 'shield'); showRewardEffect(state, 'ruby', 'shield');
     return true;
@@ -4794,8 +4809,11 @@ export function useSpecialSkill(state: GameState): boolean {
   const targets = state.enemies.filter(e => e.hp > 0 &&
     (kind === 'fiery_king' || Math.hypot(e.x - state.playerX, e.y - state.playerY) <= SPECIAL_REAPER_RADIUS));
   // Snapshot the cast's victims: splits/decoy cleanup cannot make it hit anyone twice.
+  // Solar Flare's and Jupiter Storm's alien damage grows exactly like alien HP up to the skill cap, so each has the same
+  // effect from the start to Stage 18.
+  const normalDamage = cfg.normalDamage * skillAlienScale(state);
   for (const target of targets) {
-    damageEnemy(state, target, isBossType(target.type) ? target.maxHp * cfg.bossDamage : cfg.normalDamage, 'special');
+    damageEnemy(state, target, isBossType(target.type) ? target.maxHp * cfg.bossDamage : normalDamage, 'special');
   }
   if (kind === 'fiery_king') {
     // Resolve Solar's bomber cascades too, including victims processed earlier in the snapshot.

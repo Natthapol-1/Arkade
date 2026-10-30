@@ -18,11 +18,11 @@ test('veil lasts ten seconds, pauses with gameplay and clears on restart',()=>{
  assert.equal(engine.createInitialState().venusVeilTicks,0);
 });
 
-test('King hit is reduced to thirty percent on player and Ruby and reflects a capped boss share',()=>{
+test('King hit is reduced to the Venus share on player and Ruby and reflects a capped boss share',()=>{
  const s=fresh();engine.useSpecialSkill(s);s.enemies=[];
  const king=boss(s,'fiery_king',s.playerTileX+1,s.playerTileY);king.hp=king.maxHp=1000;king.attackTimer=0;king.targeting='player';
  const before=s.playerHP;engine.tick(s);
- close(before-s.playerHP,c.ENEMY_CONFIGS.fiery_king.damageToPlayer*.3);
+ close(before-s.playerHP,c.ENEMY_CONFIGS.fiery_king.damageToPlayer*c.SPECIAL_VENUS_DAMAGE_MULT);
  close(king.hp,1000-Math.min(c.ENEMY_CONFIGS.fiery_king.damageToPlayer,1000*.03));
  assert.ok(s.venusReflects.length>=1);
 });
@@ -32,14 +32,14 @@ test('reflection returns the full hit to regular aliens and kills them through t
  engine.godSpawnBoss(s,'fiery_king');const template=s.enemies[0];s.enemies=[];
  const make=hp=>{const e={...template,id:s.nextEnemyId++,type:'normal',hp,maxHp:hp,icyShieldHP:0,king:undefined,attackTimer:0,targeting:'player'};place(e,s.playerTileX+1,s.playerTileY);s.enemies=[e];return e;};
  const tough=make(100);engine.tick(s);
- close(100-s.playerHP,c.ENEMY_CONFIGS.normal.damageToPlayer*.3);close(tough.hp,100-c.ENEMY_CONFIGS.normal.damageToPlayer);
+ close(100-s.playerHP,c.ENEMY_CONFIGS.normal.damageToPlayer*c.SPECIAL_VENUS_DAMAGE_MULT);close(tough.hp,100-c.ENEMY_CONFIGS.normal.damageToPlayer);
  const fragile=make(8);engine.tick(s);assert.equal(s.enemies.includes(fragile),false);
 });
 
 test('hazards without an attacker are reduced but not reflected; shields absorb the reduced amount',()=>{
  const s=fresh();engine.useSpecialSkill(s);s.playerShieldHP=10;
  engine.useBomb(s);engine.useBomb(s);
- const blast=Math.floor(c.BOMB_DMG*.35)*.3;close(10-s.playerShieldHP,Math.min(10,blast));
+ const blast=Math.floor(c.BOMB_DMG*.35)*c.SPECIAL_VENUS_DAMAGE_MULT;close(10-s.playerShieldHP,Math.min(10,blast));
  assert.equal(s.venusReflects.length,0);
 });
 
