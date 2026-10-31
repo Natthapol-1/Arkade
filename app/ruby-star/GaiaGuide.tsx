@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import CelestialSkillGuideCard, { type CelestialGuidePainter } from './CelestialSkillGuideCard';
 import type { Enemy } from './engine';
 import type { EnemyType } from './constants';
 import { GAIA_POD_FUSE } from './constants';
@@ -38,7 +39,7 @@ function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number
   ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = color; ctx.fillText(text, x, y);
 }
 
-export default function GaiaGuide({ drawBoss }: { drawBoss: (ctx: CanvasRenderingContext2D, x: number, y: number, tick: number) => void }) {
+export default function GaiaGuide({ drawBoss, drawCelestial }: { drawCelestial: CelestialGuidePainter; drawBoss: (ctx: CanvasRenderingContext2D, x: number, y: number, tick: number) => void }) {
   const cards: { title: string; color: string; text: string; paint: Paint }[] = [
     { title: 'OVERGROWTH', color: '#8fdc4a', text: 'Vines slow you and heal the boss. Shoot them away.', paint: (ctx, t) => {
       const cut = Math.floor((t % 120) / 20);
@@ -139,6 +140,8 @@ export default function GaiaGuide({ drawBoss }: { drawBoss: (ctx: CanvasRenderin
     <div className="rs-guide-nav"><h3>GAIA CHALLENGE</h3></div>
     <p className="rs-guide-intro">Defeat the Thorn Weaver to win.</p>
     <div className="rs-nep-grid">
+      <CelestialSkillGuideCard name="Gaia’s Roots" description="Clears vines and prevents regrowth in its field while slowing and damaging enemies." color="#a5de65" draw={drawCelestial} />
+
       {cards.map((card, i) => <article key={card.title} className="rs-nep-card" style={{ borderColor: card.color + '66' }}>
         <canvas ref={el => { refs.current[i] = el; }} width={W} height={H} aria-hidden="true" />
         <h5 style={{ color: card.color }}>{card.title}</h5>

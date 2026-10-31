@@ -259,15 +259,15 @@ export function drawMoonAmbience(ctx: CanvasRenderingContext2D, state: Readonly<
     const x = tx * s - camX, y = ty * s - camY;
     ctx.save(); ctx.globalAlpha = visible; const alphaScale = visible;
     if (visible < 1 && (state.moon?.mirrors ?? []).includes(index)) { ctx.globalAlpha = (1 - visible) * .6; block(ctx, x, y, s, s, PALE); ctx.globalAlpha = visible; }
-    block(ctx, x + 3, y + 3, s - 6, s - 6, '#2c2450');
+    ctx.globalAlpha = .4 * alphaScale; block(ctx, x + 3, y + 3, s - 6, s - 6, '#2c2450'); // see-through: the floor shows beneath
     const g = ctx.createLinearGradient(x, y, x + s, y + s);
     g.addColorStop(0, '#b8aef0'); g.addColorStop(.5, '#6a5cb0'); g.addColorStop(1, '#c9c0ff');
-    ctx.globalAlpha = .55 * alphaScale; ctx.fillStyle = g; ctx.fillRect(x + 6, y + 6, s - 12, s - 12);
+    ctx.globalAlpha = .32 * alphaScale; ctx.fillStyle = g; ctx.fillRect(x + 6, y + 6, s - 12, s - 12);
     ctx.save(); ctx.beginPath(); ctx.rect(x + 6, y + 6, s - 12, s - 12); ctx.clip();
     const d = ((tick * 1.5 + (tx + ty) * 14) % 120) - 30;
-    ctx.globalAlpha = .7 * alphaScale; ctx.fillStyle = PALE; ctx.beginPath(); ctx.moveTo(x + d, y); ctx.lineTo(x + d + 8, y); ctx.lineTo(x + d - 40, y + s); ctx.lineTo(x + d - 48, y + s); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = .5 * alphaScale; ctx.fillStyle = PALE; ctx.beginPath(); ctx.moveTo(x + d, y); ctx.lineTo(x + d + 8, y); ctx.lineTo(x + d - 40, y + s); ctx.lineTo(x + d - 48, y + s); ctx.closePath(); ctx.fill();
     ctx.restore();
-    ctx.globalAlpha = .9 * alphaScale; ctx.strokeStyle = '#e6dcff'; ctx.lineWidth = 2; ctx.strokeRect(x + 4, y + 4, s - 8, s - 8);
+    ctx.globalAlpha = .75 * alphaScale; ctx.strokeStyle = '#e6dcff'; ctx.lineWidth = 2; ctx.strokeRect(x + 4, y + 4, s - 8, s - 8);
     const tw = Math.max(0, Math.sin(tick * .06 + tx * 1.3 + ty));
     if (tw > .7) { ctx.globalAlpha = (tw - .7) * 3 * alphaScale; block(ctx, x + 9, y + 8, 6, 1, PALE); block(ctx, x + 11.5, y + 5.5, 1, 6, PALE); }
     ctx.restore();

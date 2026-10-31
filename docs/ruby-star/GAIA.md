@@ -67,7 +67,7 @@ She has 9000 HP in three 3000-HP phases on a three-segment guardian bar (phase 3
 
 ## Look
 
-- **Theme:** forest. Green and gold room colours, a dark mossy floor and roots and leaves on cover blocks. Fireflies drift over the station. Behind it is a dusky forest backdrop with two parallax tree lines, light shafts, drifting pollen and blinking fireflies.
+- **Theme:** forest. Green and gold room colours and a dark mossy floor with faint detail kept quiet under the vines: thin right-angle root veins etched into some tiles, a few fallen leaves, pebbles and the odd grass tuft, all static (no drifting light, which is Neptune's). Cover blocks are mossy stone (`drawGaiaStone`): two or three grey-green stones of mixed sizes with dark mortar, a light top-left bevel and shaded lower edges, occasional stepped cracks, moss creeping over the top edge and a rim in the room colour only where a block meets open floor; some also carry small leafy sprigs. Fireflies drift over the station. Behind it is a dusky forest backdrop with two parallax tree lines, light shafts, drifting pollen and blinking fireflies.
 - **Overgrowth tiles:**
   - Kept plain: a flat green wash that darkens with each level, plus one simple motif. Moss is a faint tint with two dots.
   - Vines are one straight 6px vine (horizontal or vertical per tile) with a leaf.
@@ -79,4 +79,4 @@ She has 9000 HP in three 3000-HP phases on a three-segment guardian bar (phase 3
 
 ## Rule sheet
 
-The map opens its own rule sheet on entry (also on RULES): animated cards using the game art, one short line each, covering only what is new here. The cards cover overgrowth, Sunfire, Sunstones, the Ruby ward, seed pods, blossoms, root snares, phase 3, lifeblooms, pollen drift, the Ragecap, and sporelings with vine crawlers.
+The map opens its own rule sheet on entry (also on RULES): animated cards using the game art, one short line each, covering only what is new here. The cards include Gaia's Roots under CELESTIAL SKILL (PRESS F), explaining that its field clears vines, prevents regrowth, slows enemies and damages them. Other cards cover overgrowth, Sunfire, Sunstones, the Ruby ward, seed pods, blossoms, root snares, phase 3, lifeblooms, pollen drift, the Ragecap, and sporelings with vine crawlers.

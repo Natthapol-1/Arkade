@@ -1,3 +1,5 @@
+import { SUN } from './constants';
+import { clearSunEncounter, createSunState, defuseSunFlare, updateScorchSapper, initializeSunBoss, spawnSunWisps, sunStationNearPlayer, updateSun, type SunState } from './sun';
 import {
   NEPTUNE_PHASE_HPS, NEPTUNE_TOTAL_HP, NEPTUNE_DIVE_POINTS, NEPTUNE_DIVE_SPEED,
   NEPTUNE_BOMB_INTERVAL, NEPTUNE_SONG_BONUS, NEPTUNE_BOMB_SELF_DAMAGE, NEPTUNE_ATTACK_MULT, NEPTUNE_LIFESTEAL,
@@ -261,6 +263,8 @@ export interface Enemy {
   mimic?: { disguised: boolean; timer: number; seek?: [number, number]; wander?: [number, number] }; // Moon mimic: posing yet, ticks before it goes to pose, its spot and wander goal
   id: number;
   type: EnemyType;
+  extinguished?: boolean; // Sun Emberling: quenched permanently, harmless and stationary
+  sapStation?: number;    // Sun Scorch Sapper: id of the station it is draining right now
   x: number;   // pixel center
   y: number;
   tileX: number;
@@ -397,6 +401,7 @@ export interface GameState {
   neptune: NeptuneState | null;
   gaia: GaiaState | null;
   moon: MoonState | null;
+  sun: SunState | null;
   ambientEvents: AmbientEventState;
   map: number[][];
   gameTick: number;
@@ -546,6 +551,7 @@ export interface GameState {
   constellationReveal: { kind: Constellation; ticks: number } | null;
   bossesKilled: number;     // tracks how many bosses have been killed (each +15 HP)
   bossPool: BossType[];     // natural spawns draw every boss once before reshuffling
+  bossPoolBlock: number;    // which block of ten bosses (stages 1–10, 11–20, ...) the pool belongs to
   lastNaturalBoss: BossType | null;
 
   healJiggleTicks: number;  // >0 while player jiggle animation plays after heal
@@ -1035,6 +1041,7 @@ export function createModeState(mode: RubyStarMode, trialBoss?: BossType): GameS
     }
     if (trialBoss === 'thorn_weaver') createGaiaState(state);
     if (trialBoss === 'splitter_queen') createMoonState(state);
+    if (trialBoss === 'fiery_king') createSunState(state);
   }
   if (mode === 'tutorial') {
     // A safe sandbox: no natural aliens, bosses, meteors or events; you and Ruby never drop below 1 HP.
@@ -1053,7 +1060,7 @@ export function createInitialState(): GameState {
   const map = generateMap();
   const [px, py] = PLAYER_START;
   return {
-    mode: 'endless', tutorial: null, trial: null, neptune: null, gaia: null, moon: null,
+    mode: 'endless', tutorial: null, trial: null, neptune: null, gaia: null, moon: null, sun: null,
     map,
     gameTick: 0,
     gamePhase: 'playing',
@@ -1169,7 +1176,7 @@ export function createInitialState(): GameState {
     godConstellationMode: false,
     constellationReveal: null,
     bossesKilled: 0,
-    bossPool: [],
+    bossPool: [], bossPoolBlock: 0,
     lastNaturalBoss: null,
     healJiggleTicks: 0,
   };
@@ -1259,6 +1266,7 @@ export function damageEnemy(state: GameState, e: Enemy, amount: number, source: 
   const previousHP = e.hp;
   const shielded = state.enemies.some(s => s.type === 'shielder' && s.shieldTargetId === e.id);
   let actual = shielded ? amount / 2 : amount;
+  if (e.type === 'emberling' && !e.extinguished) actual *= SUN.emberlingArmor;
   if (e.twin?.partnerDownTicks) actual *= TWIN_BERSERK_DAMAGE_TAKEN; // berserk survivor
   if (e.aegis) {
     refreshAegisShield(state, e);
@@ -1316,6 +1324,7 @@ export function damageEnemy(state: GameState, e: Enemy, amount: number, source: 
     }
   }
   const hpLost = Math.min(Math.max(0, previousHP), Math.max(0, actual));
+  if (state.sun && hpLost > 0 && e.id === state.sun.bossId) state.sun.rage = Math.max(0, state.sun.rage - hpLost * SUN.rageOnHit); // hurting the King cools his rage a little
   if (state.moon && amount > 0) moonSeenWhenHit(state, e); // a hit lights it up in the dark
   // HP the real Queen loses to you banks a heal, paid out when she jumps, so a hit never gives her away on the spot.
   if (source === 'player' && hpLost > 0 && state.moon && isMoonBoss(state, e)) state.moon.healBank += hpLost * MOON_HIT_HEAL;
@@ -1370,7 +1379,7 @@ function endGame(state: GameState) {
 
 function spawnEnemy(state: GameState) {
   const tier = DIFFICULTY_TIERS[Math.min(state.difficultyLevel, DIFFICULTY_TIERS.length - 1)];
-  const population = state.enemies.filter(e => !isChallengeObject(e.type) && e.type !== 'moon_mimic').length; // challenge objects and mimics never block aliens
+  const population = state.enemies.filter(e => !isChallengeObject(e.type) && e.type !== 'moon_mimic' && e.type !== 'scorch_sapper').length; // challenge objects, mimics and sappers never block aliens
   const maxEnemies = tier.maxEnemies + (state.gaia ? GAIA_EXTRA_ENEMIES : 0);
   if (population >= maxEnemies) return;
 
@@ -1396,7 +1405,8 @@ function spawnEnemy(state: GameState) {
     const [tx, ty] = eligibleSpawns[idx];
 
     const typeIdx = Math.floor(Math.random() * tier.spawnTypes.length);
-    const type: EnemyType = state.neptune && Math.random() < NEPTUNE_STINGER_CHANCE ? 'stinger'
+    const type: EnemyType = state.sun && Math.random() < SUN.emberlingSpawnChance ? 'emberling'
+      : state.neptune && Math.random() < NEPTUNE_STINGER_CHANCE ? 'stinger'
       : state.neptune && Math.random() < NEPTUNE_PUFFER_CHANCE ? 'pufferfish'
       : state.gaia && Math.random() < GAIA_ALIEN_CHANCE ? gaiaAlienType()
       : state.moon && Math.random() < MOON_SHADE_CHANCE ? 'moon_shade'
@@ -1818,6 +1828,7 @@ function initializeNewEncounter(state: GameState, boss: Enemy) {
   }
   if (boss.type === 'thorn_weaver' && state.gaia) initializeGaiaBoss(state, boss);
   if (boss.type === 'splitter_queen' && state.moon) initializeMoonBoss(state, boss);
+  if (boss.type === 'fiery_king' && state.sun) initializeSunBoss(state, boss);
   if (boss.type === 'devourer') {
     boss.chargeDirX = DEVOURER_START_STACKS; // the original is born with one stack, so it always splits
     // Its swarm multiplies effective HP, so it scales slower than the usual +15 per defeat.
@@ -2356,6 +2367,7 @@ function updateKingArenaAttack(state: GameState, e: Enemy) {
       state.screenShakeAmt = Math.max(state.screenShakeAmt, 3);
       playSFX_kingArenaFire(false);
       ability.untouchedTicks = 0;
+      if (state.sun) spawnSunWisps(state, SUN.arenaWisps);
     }
   } else {
     ability.untouchedTicks++;
@@ -2589,6 +2601,12 @@ function updateEnemies(state: GameState, only?: (e: Enemy) => boolean) {
     if (e.flashTicks > 0) e.flashTicks--;
     if (e.healFlashTicks > 0) e.healFlashTicks--;
     if (e.shootTicks > 0) e.shootTicks--;
+    if (e.type === 'cinder_wisp' || (e.type === 'emberling' && e.extinguished) || (state.sun?.bossId === e.id && state.sun.quenchedTicks > 0)) { e.pushTiles = 0; continue; }
+    // Slow all enemy AI together so movement, melee/ranged cooldowns, windups and
+    // special attacks keep the same half-speed cadence throughout the cold window.
+    // Player actions and visual flash lifetimes still update every gameplay tick.
+    if (state.sun && state.sun.quenchedTicks > 0 && state.gameTick % SUN.quenchEnemyTickInterval !== 0) continue;
+    if (e.type === 'scorch_sapper') { updateScorchSapper(state, e); continue; } // goes for stations, never attacks
 
     // Bomber explode mechanic
     if (e.type === 'bomber' && e.exploding) {
@@ -2718,7 +2736,7 @@ function updateEnemies(state: GameState, only?: (e: Enemy) => boolean) {
         // Gradually speeds up the longer THIS king has been alive — resets to base speed
         // on every fresh spawn — capped at an absolute top speed.
         const kingAliveSec = e.phaseTimer / 60;
-        const kingSpeed = Math.min(KING_SPEED_CAP, bCfg.speed * (1 + kingAliveSec * KING_SPEED_RAMP_PER_SEC));
+        const kingSpeed = state.sun ? .8 + state.sun.rage * .035 : Math.min(KING_SPEED_CAP, bCfg.speed * (1 + kingAliveSec * KING_SPEED_RAMP_PER_SEC));
         e.stepProgress += kingSpeed * celestialMoveMultiplier(state, e);
         const bdx = e.targetTileX - e.tileX, bdy = e.targetTileY - e.tileY;
         e.x = e.tileX * TILE_SIZE + TILE_SIZE / 2 + bdx * Math.min(e.stepProgress, TILE_SIZE);
@@ -3375,6 +3393,12 @@ function updateEnemies(state: GameState, only?: (e: Enemy) => boolean) {
             if (isFloorTile(state.map, state.playerTargetX + kx, state.playerTargetY + ky)) state.playerKnockback = { dirX: kx, dirY: ky, started: false, tilesLeft: GAIA_MUSHROOM_KNOCKBACK };
             state.screenShakeTicks = Math.max(state.screenShakeTicks, 8); state.screenShakeAmt = Math.max(state.screenShakeAmt, 4);
           }
+          if (e.type === 'emberling' && !e.extinguished && !state.enemyDecoyActive && !state.playerKnockback) {
+            const dx = state.playerTileX - e.tileX, dy = state.playerTileY - e.tileY;
+            const [kx, ky] = Math.abs(dx) >= Math.abs(dy) ? [Math.sign(dx) || 1, 0] : [0, Math.sign(dy) || 1];
+            if (isFloorTile(state.map, state.playerTargetX + kx, state.playerTargetY + ky)) state.playerKnockback = { dirX: kx, dirY: ky, started: false, tilesLeft: SUN.emberlingKnockback };
+            state.screenShakeTicks = Math.max(state.screenShakeTicks, 8); state.screenShakeAmt = Math.max(state.screenShakeAmt, 4);
+          }
           if (e.aegis) encounterEffect(state, 'sentinel-hit', e, state.playerX, state.playerY, 18, '#78dedf');
           e.attackTimer = cfg.attackCooldown;
           e.shootTicks = 14;
@@ -3695,7 +3719,7 @@ export function killEnemy(state: GameState, idx: number, fromMeteor = false, sup
   // meteor strike finishing it off), unlike the score/energy rewards above which meteor kills skip.
   if (isBossType(e.type)) {
     state.bossesKilled++;
-    if (state.trial) state.gamePhase = 'won'; // defeating the guardian clears the trial
+    if (state.trial) { state.gamePhase = 'won'; clearSunEncounter(state); } // defeating the guardian clears the trial
     offerConstellation(state);
     if (state.bossesKilled === SPECIAL_UNLOCK_KILLS) announceAscension(state);
     if (state.bossesKilled >= SPECIAL_UNLOCK_KILLS) {
@@ -3869,6 +3893,9 @@ function updateMeteorite(state: GameState) {
             damageEnemy(state, e, NEPTUNE_PHASE_HPS[state.neptune.phase] * NEPTUNE_STRIKE_DAMAGE, 'meteor');
           } else if (state.gaia && e.id === state.gaia.bossId) {
             gaiaStrikeDamage(state, e, GAIA_STRIKE_DAMAGE);
+          } else if (state.sun && e.id === state.sun.bossId) {
+            damageEnemy(state, e, SUN.phaseHP * SUN.meteorShare, 'meteor');
+            if (e.hp <= 0) killEnemy(state, state.enemies.indexOf(e), true);
           } else if (isMoonBoss(state, e)) {
             damageEnemy(state, e, MOON_PHASE_HP * MOON_STRIKE_DAMAGE, 'meteor');
             if (e.hp <= 0) killEnemy(state, state.enemies.indexOf(e), true);
@@ -3917,7 +3944,7 @@ function updateMeteorite(state: GameState) {
 
 // Grants a free speed burst that ignores/doesn't touch the SPEED ability's own cooldown —
 // used as a passive bonus (energy pickups, entering the powered-up state), not a manual cast.
-function grantInstantSpeedBoost(state: GameState, withSound = true) {
+export function grantInstantSpeedBoost(state: GameState, withSound = true) {
   state.speedActiveTicks = Math.max(state.speedActiveTicks, SPEED_DURATION * (state.constellations.includes('burstDuration') ? 1.25 : 1));
   state.speedFlashTicks = 30;
   if (withSound) playSFX_speed();
@@ -4222,13 +4249,14 @@ export function canHealRuby(state: GameState): boolean {
     if (dist > RUBY_HEAL_RANGE) return false;
   }
   for (const e of state.enemies) {
-    if (e.type === 'fish_blue' || e.type === 'fish_red' || e.type === 'lifebloom') continue; // fish and lifeblooms are not enemies
+    if (e.type === 'fish_blue' || e.type === 'fish_red' || e.type === 'lifebloom' || e.type === 'cinder_wisp' || e.type === 'scorch_sapper' || (e.type === 'emberling' && e.extinguished)) continue; // fish, lifeblooms and sappers never stop healing
     if (tileEuclidDist(e.tileX, e.tileY, state.playerTileX, state.playerTileY) <= RUBY_HEAL_CLEAR_RANGE) return false;
   }
   return true;
 }
 
 export function healRuby(state: GameState): boolean {
+  if (state.sun && sunStationNearPlayer(state)) return false; // Space charges a nearby cooling station instead
   if (!canHealRuby(state)) return false;
   if (state.rubyHealCooldown > 0) return false;
   healCore(state, RUBY_HEAL_AMOUNT + 2 * constellationBonus(state, 'manualHealing'));
@@ -4248,7 +4276,10 @@ export function cancelTeleport(state: GameState) {
 
 function takeNextNaturalBoss(state: GameState): BossType {
   if (state.trial) return state.trial.boss;
-  if(state.bossPool.length===0)state.bossPool=[...BOSS_TYPES];
+  // Each block of ten bosses (1–10, 11–20, ...) uses every boss once: the pool restarts whenever a new block begins,
+  // so debug stage skips can never make a boss repeat inside a block.
+  const block=Math.floor(state.bossesKilled/BOSS_TYPES.length);
+  if(block!==state.bossPoolBlock||state.bossPool.length===0){state.bossPool=[...BOSS_TYPES];state.bossPoolBlock=block;}
   const choices=state.bossPool.length>1?state.bossPool.filter(type=>type!==state.lastNaturalBoss):state.bossPool;
   const next=choices[Math.floor(Math.random()*choices.length)];
   state.bossPool=state.bossPool.filter(type=>type!==next);
@@ -4287,7 +4318,7 @@ function detonateSupernova(state: GameState) {
 // ─── Main tick ───────────────────────────────────────────────────────────────
 
 export function tick(state: GameState) {
-  if (state.gamePhase !== 'playing') { pauseAmbientEventSounds(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
+  if (state.gamePhase !== 'playing') { if (state.sun) state.sun.charging = false; pauseAmbientEventSounds(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); return; }
 
   resumeAmbientEventSounds();
   if (state.constellationDelayTicks > 0 && --state.constellationDelayTicks === 0 && state.constellationChoices.length) {
@@ -4335,7 +4366,7 @@ export function tick(state: GameState) {
   if (state.bulletCooldown > 0) state.bulletCooldown -= chillRate;
   if (state.waveCooldown > 0) state.waveCooldown -= chillRate;
   if (state.speedCooldown > 0) state.speedCooldown--;
-  if (state.bombCooldown > 0) state.bombCooldown--;
+  if (state.bombCooldown > 0 && --state.bombCooldown === 0) playUiSfx('bombReady'); // the bomb is ready again
   if (state.speedActiveTicks > 0) state.speedActiveTicks--;
   if (state.speedFlashTicks > 0) state.speedFlashTicks--;
   if (state.rubyPlacedFlashTicks > 0) state.rubyPlacedFlashTicks--;
@@ -4531,10 +4562,11 @@ export function tick(state: GameState) {
   if (state.neptune) updateNeptune(state);
   if (state.gaia) updateGaia(state);
   if (state.moon) updateMoon(state);
+  if (state.sun) updateSun(state);
 }
 
 // Challenge objectives (fish, water clones and balls, pods, blossoms, illusions): no score, energy or kill rewards.
-export function isChallengeObject(type: EnemyType) { return isNeptuneObject(type) || isGaiaObject(type) || isMoonObject(type); }
+export function isChallengeObject(type: EnemyType) { return type === 'cinder_wisp' || isNeptuneObject(type) || isGaiaObject(type) || isMoonObject(type); }
 
 // Room picker shared by full-charge room strikes (Neptune's Trident, Gaia's full Sunfire).
 export function chooseSkyLaser(state: GameState, chamber: number): boolean {
@@ -4645,6 +4677,7 @@ function updateTutorial(state: GameState) {
 export function godSetNoBossSpawns(state: GameState, enabled: boolean) {
   state.noBossSpawns=enabled;
   if(enabled){
+    clearSunEncounter(state);
     state.encounterEffects = [];
     state.enemies=state.enemies.filter(e=>!isBossType(e.type)&&e.type!=='queen_echo'&&e.type!=='moon_illusion'&&e.type!=='aegis_construct');
     clearThornHazards(state);stopSeaSounds();state.seaSongWaves=[];state.seaSongBursts=[];
@@ -4660,7 +4693,7 @@ export function godSetNoBossSpawns(state: GameState, enabled: boolean) {
 export function godSetNoMobs(state: GameState, enabled: boolean) {
   state.noMobs = enabled;
   state.spawnTimer = 0;
-  if (enabled) state.enemies = state.enemies.filter(e => isBossType(e.type) || e.type === 'queen_echo' || e.type === 'moon_illusion' || e.type === 'aegis_construct');
+  if (enabled) state.enemies = state.enemies.filter(e => isBossType(e.type) || e.type === 'queen_echo' || e.type === 'moon_illusion' || e.type === 'aegis_construct' || e.type === 'cinder_wisp');
 }
 
 // God-mode debug tool: force-spawn a specific boss type at a random valid spawn tile,
@@ -4813,8 +4846,11 @@ export function useSpecialSkill(state: GameState): boolean {
   // effect from the start to Stage 18.
   const normalDamage = cfg.normalDamage * skillAlienScale(state);
   for (const target of targets) {
-    damageEnemy(state, target, isBossType(target.type) ? target.maxHp * cfg.bossDamage : normalDamage, 'special');
+    const damage = state.sun && kind === 'fiery_king' && target.id === state.sun.bossId ? SUN.phaseHP * SUN.solarShare : isBossType(target.type) ? target.maxHp * cfg.bossDamage : normalDamage;
+    if (state.sun && kind === 'fiery_king' && target.type === 'cinder_wisp') target.hp = 0;
+    else damageEnemy(state, target, damage, 'special');
   }
+  if (state.sun && kind === 'fiery_king') defuseSunFlare(state); // on the Sun, Solar Flare also stops a pending room flare
   if (kind === 'fiery_king') {
     // Resolve Solar's bomber cascades too, including victims processed earlier in the snapshot.
     let index: number;

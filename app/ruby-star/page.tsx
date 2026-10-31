@@ -18,12 +18,12 @@ const MODES: ModeCard[] = [
     description: 'Defend the Ruby across four chambers and see how long you can survive the endless onslaught.',
   },
   {
-    id: 'ascension', title: 'ENDLESS SPACE', tag: 'ASCENSION', color: '#c99bff', sound: 'ascension', path: '/ruby-star/ascension',
-    description: 'Skip to stage 10 with celestial powers awakened and test your skill against the fiercest waves.',
-  },
-  {
     id: 'trials', title: 'CELESTIAL CHALLENGE', color: '#9aa8ff', sound: 'ascension', path: '/ruby-star/challenge',
     description: 'Travel to a world and face its guardian in an epic multi-phase boss battle with its own rules.',
+  },
+  {
+    id: 'ascension', title: 'ENDLESS SPACE', tag: 'ASCENSION', color: '#c99bff', sound: 'ascension', path: '/ruby-star/ascension',
+    description: 'Skip to stage 10 with celestial powers awakened and test your skill against the fiercest waves.',
   },
 ];
 

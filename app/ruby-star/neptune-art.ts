@@ -1,4 +1,4 @@
-import { TILE_SIZE, CHAMBER_BOUNDS, ENEMY_CONFIGS, NEPTUNE_PUFF_TICKS, NEPTUNE_BOMB_FUSE, NEPTUNE_BOMB_RADIUS, NEPTUNE_LASER_WARNING } from './constants';
+import { TILE_SIZE, CHAMBER_BOUNDS, T_WALL, chamberOfTile, ENEMY_CONFIGS, NEPTUNE_PUFF_TICKS, NEPTUNE_BOMB_FUSE, NEPTUNE_BOMB_RADIUS, NEPTUNE_LASER_WARNING } from './constants';
 import type { Enemy, GameState } from './engine';
 
 // Blocky neon-vector art for the Neptune challenge: fish, stingers, water clones, water balls,
@@ -6,6 +6,44 @@ import type { Enemy, GameState } from './engine';
 
 function block(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string) {
   ctx.fillStyle = color; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+}
+
+const rockHash = (x: number, y: number, k: number) => { const n = Math.sin(x * 127.1 + y * 311.7 + k * 74.7) * 43758.5453; return n - Math.floor(n); };
+const isCover = (state: Readonly<GameState>, tx: number, ty: number) => {
+  if ((state.map[ty]?.[tx] ?? T_WALL) !== T_WALL) return false;
+  const ch = chamberOfTile(tx, ty); if (ch < 0) return false;
+  const [t, l, b, r] = CHAMBER_BOUNDS[ch]; return tx > l && tx < r && ty > t && ty < b;
+};
+
+// A cover block as reef rock, kept simple: two blue-teal slabs with wide crevices, a light top bevel and shaded lower
+// edge, a pale barnacle cluster on some blocks, and on fewer a small stepped branching coral (pink, orange or violet). The rim in the room colour shows only
+// where the block meets open floor; the swaying kelp is drawn over it separately.
+export function drawNeptuneRock(ctx: CanvasRenderingContext2D, state: Readonly<GameState>, tx: number, ty: number, x: number, y: number, color: string) {
+  const s = TILE_SIZE, h = (k: number) => rockHash(tx, ty, k);
+  ctx.save(); ctx.shadowBlur = 0;
+  block(ctx, x, y, s, s, '#07202c'); // crevices
+  const split = 18 + Math.floor(h(1) * 14), across = h(2) > .5;
+  const slabs = across ? [[2, 2, s - 4, split - 4], [2, split + 2, s - 4, s - split - 4]] : [[2, 2, split - 4, s - 4], [split + 2, 2, s - split - 4, s - 4]]; // wider crevices
+  slabs.forEach(([sx, sy, w, ht], i) => {
+    block(ctx, x + sx, y + sy, w, ht, h(3 + i) > .5 ? '#1b4a5c' : '#163f50');
+    block(ctx, x + sx, y + sy, w, 3, '#2f6f82'); block(ctx, x + sx, y + sy + ht - 3, w, 3, '#0c2a38'); // bevel and shade
+  });
+  for (let k = 0; k < 1; k++) if (h(10 + k) > .5) { // one barnacle cluster on about half the blocks
+    const bx = x + 7 + Math.floor(h(13 + k) * (s - 18)), by = y + 7 + Math.floor(h(16 + k) * (s - 18));
+    block(ctx, bx, by, 4, 4, '#bfe3e8'); block(ctx, bx + 1, by + 1, 2, 2, '#3a6676');
+    block(ctx, bx + 5, by + 2, 3, 3, '#a8d4dc'); block(ctx, bx + 6, by + 3, 1, 1, '#3a6676');
+  }
+  if (h(20) > .72) { // a small branching coral growing from the lower edge
+    const c = ['#ff7aa8', '#ff9a5a', '#b88cff'][Math.floor(h(21) * 3)], cx = x + 10 + Math.floor(h(22) * (s - 22)), base = y + s - 4;
+    block(ctx, cx, base - 14, 4, 14, c); block(ctx, cx - 6, base - 10, 6, 3, c); block(ctx, cx - 6, base - 16, 3, 7, c);
+    block(ctx, cx + 4, base - 8, 6, 3, c); block(ctx, cx + 7, base - 14, 3, 7, c);
+    block(ctx, cx + 1, base - 16, 2, 2, '#ffe6f0'); block(ctx, cx - 6, base - 18, 2, 2, '#ffe6f0'); block(ctx, cx + 7, base - 16, 2, 2, '#ffe6f0');
+  }
+  const open = (dx: number, dy: number) => !isCover(state, tx + dx, ty + dy);
+  ctx.globalAlpha = .65;
+  if (open(0, -1)) block(ctx, x, y, s, 3, color); if (open(-1, 0)) block(ctx, x, y, 3, s, color);
+  if (open(1, 0)) block(ctx, x + s - 3, y, 3, s, color); if (open(0, 1)) block(ctx, x, y + s - 3, s, 3, color);
+  ctx.restore();
 }
 
 function facing(e: Readonly<Enemy>) {

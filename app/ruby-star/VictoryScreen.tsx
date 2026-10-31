@@ -5,8 +5,8 @@ import { playUiSfx } from './ui-sfx';
 
 // Challenge victory: a blocky celebration in the world's colour. Expanding stepped rings, a pulsing pixel star
 // behind the title and rising sparks, with a short fanfare. The buttons slide in once the title has landed.
-export default function VictoryScreen({ title, world, color, onPlayAgain, onLobby }: {
-  title: string; world: string; color: string; onPlayAgain: () => void; onLobby: () => void;
+export default function VictoryScreen({ title, world, color, onPlayAgain, onStarMap }: {
+  title: string; world: string; color: string; onPlayAgain: () => void; onStarMap: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -79,7 +79,7 @@ export default function VictoryScreen({ title, world, color, onPlayAgain, onLobb
       <h2 id="rs-win-title">{title}</h2>
       <div className="rs-victory-actions">
         <button type="button" autoFocus onClick={onPlayAgain}>PLAY AGAIN</button>
-        <button type="button" onClick={onLobby}>BACK TO LOBBY</button>
+        <button type="button" onClick={onStarMap}>BACK TO STAR MAP</button>
       </div>
     </div>
   </div>;

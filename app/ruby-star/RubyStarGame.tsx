@@ -3,9 +3,14 @@
 import { stopAmbientEventSounds, pauseAmbientEventSounds } from './event-audio';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { drawEncounterEnemy, drawEncounterTelegraphs, drawEncounterEffects } from './encounter-art';
-import { drawNeptuneUnit, drawNeptuneOverlay, drawSkyLaserImpact, drawWaterBurst } from './neptune-art';
-import { drawGaiaUnit, drawGaiaGround, drawGaiaOverlay, drawForestBackdrop, drawForestAmbience, GAIA_CHAMBER_COLORS } from './gaia-art';
+import { drawNeptuneUnit, drawNeptuneOverlay, drawNeptuneRock, drawSkyLaserImpact, drawWaterBurst } from './neptune-art';
+import { drawGaiaUnit, drawGaiaGround, drawGaiaOverlay, drawForestBackdrop, drawForestAmbience, drawGaiaStone, GAIA_CHAMBER_COLORS } from './gaia-art';
 import { drawMoonBackdrop, drawMoonAmbience, drawMoonCrystalBlock, drawMoonReflection, drawMoonEffects, drawMoonUnit, isMoonMap, MOON_CHAMBER_COLORS } from './moon-art';
+import { SUN } from './constants';
+import { godAdjustSunHeat, godSetNoWisps, godSetSunHeat, godSetSunPhase, sunStationNearPlayer, useCoolingWave } from './sun';
+import { drawSunburstEmblem, drawQuenchedKing, drawSunUnit, drawSunBackdrop, drawSunFloorTile, drawSunCover, drawSunPad, drawSunGround, drawSunEffects, drawSunAtmosphere, SUN_CHAMBER_COLORS } from './sun-art';
+import SunGuide from './SunGuide';
+import CoolingWaveStatus from './CoolingWaveStatus';
 import { godSetMoonPhase, isMoonBoss, isMoonRevealed, moonHiddenInDark, moonWearsGuise, useMoonMark } from './moon';
 import BackButton from '@/components/BackButton';
 import { useRouter } from 'next/navigation';
@@ -568,7 +573,7 @@ function drawMinimap(
   isMobileTouch = false,
 ) {
   const S = isMobileTouch ? 3 : 4; // px per tile — smaller on mobile, unchanged on desktop
-  const ROOM_COLORS: readonly string[] = state.neptune ? OCEAN_CHAMBER_COLORS : state.gaia ? GAIA_CHAMBER_COLORS : isMoonMap(state) ? MOON_CHAMBER_COLORS : CHAMBER_COLORS; // challenge worlds use their own palette
+  const ROOM_COLORS: readonly string[] = state.sun ? SUN_CHAMBER_COLORS : state.neptune ? OCEAN_CHAMBER_COLORS : state.gaia ? GAIA_CHAMBER_COLORS : isMoonMap(state) ? MOON_CHAMBER_COLORS : CHAMBER_COLORS; // challenge worlds use their own palette
   const MW = MAP_COLS * S;
   const MH = MAP_ROWS * S;
   const PAD = 8;
@@ -651,6 +656,15 @@ function drawMinimap(
       const [r1, c1, r2, c2] = CHAMBER_BOUNDS[room];
       ctx.fillStyle = 'rgba(204,51,255,0.28)'; ctx.fillRect(MX + c1 * S, MY + r1 * S, (c2 - c1 + 1) * S, (r2 - r1 + 1) * S);
       ctx.strokeStyle = '#e6b8ff'; ctx.lineWidth = 2; ctx.strokeRect(MX + c1 * S + 1, MY + r1 * S + 1, (c2 - c1 + 1) * S - 2, (r2 - r1 + 1) * S - 2);
+    }
+    ctx.restore();
+  }
+  if (state.sun && state.sun.quenchedTicks > SUN.quenchTicks - 75) {
+    const glow = (state.sun.quenchedTicks - (SUN.quenchTicks - 75)) / 75;
+    ctx.save();ctx.globalAlpha=glow*.45;
+    for(const [r1,c1,r2,c2] of CHAMBER_BOUNDS){
+      ctx.fillStyle='#b5f3ff';ctx.fillRect(MX+c1*S,MY+r1*S,(c2-c1+1)*S,(r2-r1+1)*S);
+      ctx.strokeStyle='#e8ffff';ctx.lineWidth=2;ctx.strokeRect(MX+c1*S,MY+r1*S,(c2-c1+1)*S,(r2-r1+1)*S);
     }
     ctx.restore();
   }
@@ -740,6 +754,33 @@ function drawMinimap(
   }
 
   // Moon Mark: an ice-blue frame around the marked dot, so you can follow her across the map.
+  if (state.sun) {
+    ctx.save();
+    if (state.sun.flare) {
+      const [r1, c1, r2, c2] = CHAMBER_BOUNDS[state.sun.flare.room];
+      const x = MX + c1 * S, y = MY + r1 * S, w = (c2 - c1 + 1) * S, h = (r2 - r1 + 1) * S;
+      ctx.strokeStyle = '#ffe778'; ctx.lineWidth = 2;
+      for (const sx of [0, 1]) for (const sy of [0, 1]) {
+        const cx = x + (sx ? w - 2 : 2), cy = y + (sy ? h - 2 : 2);
+        ctx.beginPath(); ctx.moveTo(cx + (sx ? -12 : 12), cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + (sy ? -12 : 12)); ctx.stroke();
+      }
+      // Opaque badge remains readable even when a meteor marks the same chamber.
+      const bx = Math.round(x + w / 2), by = Math.round(y + h * .24);
+      ctx.fillStyle = '#191521'; ctx.fillRect(bx - 24, by - 10, 48, 20);
+      drawSunburstEmblem(ctx, bx - 12, by, 15);
+      ctx.fillStyle = '#fff9d5'; ctx.font = '8px "Press Start 2P", monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.ceil(state.sun.flare.ticks / 60) + 's', bx, by);
+    }
+    ctx.fillStyle = '#ff7a3a'; // phase 2+ burning trail
+    for (const b of state.sun.burning) ctx.fillRect(MX + b.x * S, MY + b.y * S, S, S);
+    for (const station of state.sun.stations) {
+      const x = MX + (station.x + .5) * S, y = MY + (station.y + .5) * S;
+      const sapped = state.enemies.some(e => e.type === 'scorch_sapper' && e.sapStation === station.id);
+      ctx.fillStyle = sapped && Math.floor(tickN / 8) % 2 === 0 ? '#ffa23a' : station.blocked ? '#ff7956' : '#9af1ff'; // a drained station blinks orange
+      ctx.fillRect(x - 3, y - 1, 6, 2); ctx.fillRect(x - 1, y - 3, 2, 6);
+    }
+    ctx.restore();
+  }
   const markedOnMap = state.moon?.mark && state.enemies.find(e => e.id === state.moon!.mark!.id);
   if (state.moon?.mark && markedOnMap && (state.moon.mark.ticks > 60 || Math.floor(tickN / 6) % 2 === 0)) {
     const x = Math.round(MX + (markedOnMap.tileX + .5) * S), y = Math.round(MY + (markedOnMap.tileY + .5) * S), r = 6 + Math.floor(Math.abs(Math.sin(tickN * .1)) * 2);
@@ -2471,6 +2512,14 @@ function drawBossHealthBar(ctx: CanvasRenderingContext2D, x: number, y: number, 
 
 // Neptune rule sheet pictures: a stand-in Sea Chanter drawn with the real boss renderer.
 let guideBoss: GameState['enemies'][0] | null = null;
+function drawGuideCelestial(ctx: CanvasRenderingContext2D, kind: SpecialSkill, age: number, tick: number) {
+  ctx.save(); ctx.translate(100, 60);
+  const scale = kind === 'sea_chanter' ? .14 : .32;
+  ctx.scale(scale, scale);
+  drawCelestialCast(ctx, kind, 0, 0, age, tick);
+  ctx.restore();
+}
+
 function drawGuideBoss(ctx: CanvasRenderingContext2D, x: number, y: number, tick: number, diving: boolean) {
   if (!guideBoss) { const s = createInitialState(); godSpawnBoss(s, 'sea_chanter'); guideBoss = s.enemies.find(e => e.type === 'sea_chanter') ?? null; }
   if (!guideBoss?.sea) return;
@@ -2488,6 +2537,17 @@ function drawGuideQueen(ctx: CanvasRenderingContext2D, x: number, y: number, tic
   guideQueen.hp = guideQueen.maxHp; guideQueen.phaseTimer = 999;
   const hide = hideBossHeadBars; hideBossHeadBars = true;
   ctx.save(); ctx.translate(x, y); ctx.scale(.6, .6); drawEnemy(ctx, disguised ? { ...guideQueen, type: 'queen_echo' } : guideQueen, 0, 0, tick); ctx.restore();
+  hideBossHeadBars = hide;
+}
+
+// Sun rule sheet: the Fiery King with his real model.
+let guideKing: GameState['enemies'][0] | null = null;
+function drawGuideKing(ctx: CanvasRenderingContext2D, x: number, y: number, tick: number) {
+  if (!guideKing) { const s = createInitialState(); godSpawnBoss(s, 'fiery_king'); guideKing = s.enemies.find(e => e.type === 'fiery_king') ?? null; }
+  if (!guideKing) return;
+  guideKing.hp = guideKing.maxHp; guideKing.targetTileX = guideKing.tileX + 1; guideKing.targetTileY = guideKing.tileY;
+  const hide = hideBossHeadBars; hideBossHeadBars = true;
+  ctx.save(); ctx.translate(x, y); ctx.scale(.6, .6); drawEnemy(ctx, guideKing, 0, 0, tick); ctx.restore();
   hideBossHeadBars = hide;
 }
 
@@ -2509,6 +2569,7 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: GameState['enemies'][0], sx
   if (drawNeptuneUnit(ctx, e, sx, sy, tickN)) return;
   if (drawGaiaUnit(ctx, e, sx, sy, tickN)) return;
   if (drawMoonUnit(ctx, e, sx, sy, tickN)) return;
+  if (drawSunUnit(ctx, e, sx, sy, tickN)) return;
   const size = Math.floor(TILE_SIZE * cfg.bodyFraction);
   const half = size / 2;
   const pad = Math.max(2, Math.floor(size * 0.12));
@@ -4113,9 +4174,9 @@ function drawBattlefieldIce(ctx: CanvasRenderingContext2D, x: number, y: number,
 function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: number, camY: number, viewW: number, viewH: number, tick: number) {
   ctx.save();const size=TILE_SIZE,ice=new Set(state.frostIceTiles.map(([x,y])=>x+','+y)),eclipse=eclipseVisualStrength(state);
   const x0=Math.max(0,Math.floor(camX/size)-1),y0=Math.max(0,Math.floor(camY/size)-1),x1=Math.min(MAP_COLS-1,Math.ceil((camX+viewW)/size)+1),y1=Math.min(MAP_ROWS-1,Math.ceil((camY+viewH)/size)+1);
-  const ocean=!!state.neptune,forest=!!state.gaia,moon=isMoonMap(state);
+  const ocean=!!state.neptune,solar=!!state.sun,forest=!!state.gaia,moon=isMoonMap(state);
   const battlefieldColor=(ch:number)=>{
-    const base=ocean?(ch>=0?OCEAN_CHAMBER_COLORS[ch]:'#5fb8ff'):forest?(ch>=0?GAIA_CHAMBER_COLORS[ch]:'#b8d86a'):moon?(ch>=0?MOON_CHAMBER_COLORS[ch]:'#d8c2ff'):ch>=0?CHAMBER_COLORS[ch]:'#8899ff';
+    const base=solar?(ch>=0?SUN_CHAMBER_COLORS[ch]:'#ffb86b'):ocean?(ch>=0?OCEAN_CHAMBER_COLORS[ch]:'#5fb8ff'):forest?(ch>=0?GAIA_CHAMBER_COLORS[ch]:'#b8d86a'):moon?(ch>=0?MOON_CHAMBER_COLORS[ch]:'#d8c2ff'):ch>=0?CHAMBER_COLORS[ch]:'#8899ff';
     if(eclipse<=0)return base;
     const night=ch>=0?['#7986d7','#a185c8','#748dba','#aa95cc'][ch]:'#8b8fcf';
     const channel=(offset:number)=>Math.round(parseInt(base.slice(offset,offset+2),16)*(1-eclipse)+parseInt(night.slice(offset,offset+2),16)*eclipse).toString(16).padStart(2,'0');
@@ -4128,11 +4189,15 @@ function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: 
     const x=tx*size-camX,y=ty*size-camY,ch=chamberOfTile(tx,ty),color=battlefieldColor(ch);ctx.shadowBlur=0;
     if(wall(tx,ty)){
       if(!cover(tx,ty))continue;
+      if(solar){drawSunCover(ctx,state,tx,ty,x,y,state.gameTick);continue;}
       if(moon){drawMoonCrystalBlock(ctx,state,tx,ty,x,y,color,tick);continue;} // the Moon: every cover block is crystal
+      if(forest){drawGaiaStone(ctx,state,tx,ty,x,y,color);continue;} // Gaia: mossy stone
+      if(ocean){drawNeptuneRock(ctx,state,tx,ty,x,y,color);continue;} // Neptune: reef rock with barnacles and coral
       ctx.fillStyle=ocean?'#06263a':forest?'#102a14':moon?'#1c1236':'#0f0f28';ctx.fillRect(x,y,size,size);ctx.fillStyle=color+'22';ctx.fillRect(x,y,size,size);
       ctx.shadowColor=color;ctx.shadowBlur=3;ctx.strokeStyle=color+'55';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,size-2,size-2);continue;
     }
-    ctx.fillStyle=ocean?(ch>=0?'#04192c':'#031424'):forest?(ch>=0?'#0c1a0e':'#0a160c'):moon?(ch>=0?'#0b0717':'#090614'):ch>=0?'#0d0d22':'#0a0a1a';ctx.fillRect(x,y,size,size);
+    if(solar){drawSunFloorTile(ctx,state,tx,ty,x,y,state.gameTick);continue;}
+    ctx.fillStyle=solar?(ch>=0?'#201313':'#160d0f'):ocean?(ch>=0?'#04192c':'#031424'):forest?(ch>=0?'#0c1a0e':'#0a160c'):moon?(ch>=0?'#0b0717':'#090614'):ch>=0?'#0d0d22':'#0a0a1a';ctx.fillRect(x,y,size,size);
     if(ch>=0){ctx.fillStyle=color+(ocean||forest||moon?'14':'10');ctx.fillRect(x,y,size,size);}
     ctx.strokeStyle=ocean?'#9fe4ff0d':forest?'#d8f0a00d':moon?'#e9d8ff10':'#ffffff0f';ctx.lineWidth=1;ctx.strokeRect(x+.5,y+.5,size-1,size-1);
   }
@@ -4147,7 +4212,7 @@ function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: 
     if(wall(tx,ty-1)&&!cover(tx,ty-1)){ctx.moveTo(x,y+1);ctx.lineTo(x+size,y+1);}
     if(wall(tx,ty+1)&&!cover(tx,ty+1)){ctx.moveTo(x,y+size-1);ctx.lineTo(x+size,y+size-1);}
     ctx.stroke();ctx.shadowBlur=0;
-    if(state.map[ty][tx]===T_TELEPORT)drawBattlefieldPad(ctx,x,y,color,tick,ch); // pads stay visible in the dark too
+    if(state.map[ty][tx]===T_TELEPORT){if(solar)drawSunPad(ctx,x,y,state.gameTick,ch);else drawBattlefieldPad(ctx,x,y,color,tick,ch);} // pads stay visible in the dark too
     if(onlyRoom!==undefined)continue; // a redraw over the dark keeps only the outline and pad
     if(ice.has(tx+','+ty))drawBattlefieldIce(ctx,x,y,tick);
   }};
@@ -4155,7 +4220,7 @@ function drawBattlefield(ctx: CanvasRenderingContext2D, state: GameState, camX: 
   if(ocean)drawOceanAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
   else if(forest)drawForestAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
   else if(moon)drawMoonAmbience(ctx,state,camX,camY,x0,y0,x1,y1,tick);
-  else drawFloorStars(ctx,state,camX,camY,x0,y0,x1,y1,tick);
+  else if(!solar)drawFloorStars(ctx,state,camX,camY,x0,y0,x1,y1,tick);
   // Moon phase 3: the dark room's floor goes black (cover blocks stay), then its outline is drawn again on top.
   const darkRooms=state.moon?[[state.moon.dark,1-state.moon.darkFade/30],[state.moon.oldDark,state.moon.darkFade/30]]:[];
   for(const [room,alpha] of darkRooms){
@@ -4320,6 +4385,7 @@ function drawOceanAmbience(ctx: CanvasRenderingContext2D, state: GameState, camX
       // Kelp: two stepped stalks swaying on interior cover blocks.
       const ch=chamberOfTile(tx,ty);if(ch<0||hash(tx,ty,9)>.45)continue;
       const [t,l,b,r]=CHAMBER_BOUNDS[ch];if(!(tx>l&&tx<r&&ty>t&&ty<b))continue; // interior cover only, never the outer walls
+      ctx.globalAlpha=1; // the floor caustics/specks/bubbles leave a faint alpha behind; kelp is always fully drawn
       for(let k=0;k<2;k++){
         const base=x+10+k*22,sway=Math.round(Math.sin(tick*.04+tx+k*1.7)*3);
         ctx.fillStyle=k?'#2fbf8a':'#1f9a74';
@@ -4452,7 +4518,8 @@ function drawGame(
   ctx.save();
   ctx.scale(worldZoom, worldZoom);
 
-  if (state.neptune) drawOceanBackdrop(ctx, viewW, viewH, camX, camY, tickN); // Neptune: the void becomes open ocean
+  if (state.sun) drawSunBackdrop(ctx, state, viewW, viewH, camX, camY, state.gameTick);
+  else if (state.neptune) drawOceanBackdrop(ctx, viewW, viewH, camX, camY, tickN); // Neptune: the void becomes open ocean
   else if (state.gaia) drawForestBackdrop(ctx, viewW, viewH, camX, camY, tickN); // Gaia: a dusky forest
   else if (isMoonMap(state)) drawMoonBackdrop(ctx, viewW, viewH, camX, camY, tickN); // the Moon: a shadowy crystal cavern
   else drawSpaceBackdrop(ctx, viewW, viewH, camX, camY, tickN); // endless: a quiet starfield behind the station
@@ -4480,6 +4547,7 @@ function drawGame(
     }
   }
 
+  drawSunGround(ctx, state, camX, camY, state.gameTick);
   drawGaiaGround(ctx, state, camX, camY, viewW, viewH, tickN);
   drawThornGround(ctx, state, camX, camY, tickN);
   drawNeptuneOverlay(ctx, state, camX, camY, tickN);
@@ -4668,6 +4736,9 @@ function drawGame(
   for (const e of state.enemies) {
     const sx = e.x - camX;
     const sy = e.y - camY;
+    if (state.sun?.bossId === e.id && state.sun.quenchedTicks > 0) {
+      drawQuenchedKing(ctx, e, sx, sy); continue;
+    }
     // Gaia: she fades into the soil while withering between phases.
     if (state.gaia && e.id === state.gaia.bossId && state.gaia.wither > 0) ctx.globalAlpha = .25 + .2 * Math.abs(Math.sin(tickN * .1));
     if (moonHiddenInDark(state, e.tileX, e.tileY, e.id)) continue; // Moon phase 3: unseen in the dark unless just hit
@@ -4796,6 +4867,7 @@ function drawGame(
     if((fx.kind==='frost_warden'||fx.kind==='aegis_sentinel') && state.rubyTileX!==-1)drawCelestialCast(ctx,fx.kind,(state.rubyTileX+.5)*TILE_SIZE-camX,(state.rubyTileY+.5)*TILE_SIZE-camY,age,tickN);
   }
 
+  drawSunEffects(ctx, state, camX, camY);
   drawGaiaOverlay(ctx, state, camX, camY, tickN);
   drawMeteorImpact(ctx, state, camX, camY);
   drawSkyLaserImpact(ctx, state, camX, camY);
@@ -4816,6 +4888,7 @@ function drawGame(
     ctx.restore();
   }
 
+  drawSunAtmosphere(ctx, state, canvasW, canvasH, state.gameTick);
   drawEclipseShadow(ctx, state, canvasW, canvasH);
   drawSupernovaSky(ctx, state, canvasW, canvasH);
   if(state.ambientEvents.active?.kind==='blackhole'){
@@ -4836,6 +4909,21 @@ function GuardianBar({ state }: { state: GameState }) {
   const hp = bodies.reduce((sum, e) => sum + ((e.twin?.downedTicks ?? 0) > 0 ? 0 : e.hp), 0);
   const max = bodies.reduce((sum, e) => sum + e.maxHp, 0);
   const present = bodies.length > 0, pct = present && max > 0 ? Math.max(0, Math.min(1, hp / max)) : 0;
+  const sun = state.sun;
+  if (sun) return <div className="rs-guardian rs-sun-guardian" style={{ ['--guardian' as string]: '#ff9560' }}>
+    <div className="rs-sun-health" role="meter" aria-label="Fiery King health" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct * 100)}>
+      <span className="rs-guardian-name">{present ? `FIERY KING · PHASE ${sun.phase}` : 'GUARDIAN INCOMING'}</span>
+      <span className="rs-guardian-segments">{[3, 2, 1].map(phase => <span key={phase} className="rs-guardian-bar" data-active={phase === sun.phase || undefined}>
+        <span className="rs-guardian-fill" style={{ width: `${present ? Math.max(0, Math.min(1, (hp - (3 - phase) * SUN.phaseHP) / SUN.phaseHP)) * 100 : 0}%`, opacity: phase === sun.phase ? 1 : .55 }} />
+      </span>)}</span>
+      {sun.quenchedTicks > 0 && <span className="rs-sun-extinguished">EXTINGUISHED · C ×{sun.empoweredCasts}</span>}
+    </div>
+    <div className="rs-rage" role="meter" aria-label="Fiery King rage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(sun.rage)} title={`Rage: ${Math.round(sun.rage)}%`}
+      style={{color:sun.rage>=75?'#ff6a5d':'#ffb263'}}>
+      <span className="rs-rage-track"><span className="rs-rage-fill" style={{height:`${Math.max(0,Math.min(100,sun.rage))}%`}} /></span>
+      <span className="rs-rage-value">{Math.round(sun.rage)}%</span>
+    </div>
+  </div>;
   const neptune = state.neptune;
   if (neptune) {
     // Three phase segments, phase 3 on the left and phase 1 on the right; dive points marked inside the active one.
@@ -4965,7 +5053,7 @@ function TeleportMinimap({ state, onPick, available: availableRooms }: { state: 
       <canvas ref={ref} width={w} height={h} aria-label="Map" style={{ width: w*scale, height: h*scale, imageRendering: 'pixelated', display: 'block' }} />
       {[0, 1, 2, 3].map(ch => {
         const [r1, c1, r2, c2] = CHAMBER_BOUNDS[ch];
-        const available = (availableRooms ?? state.teleportDestOptions).includes(ch), color = (state.neptune ? OCEAN_CHAMBER_COLORS : state.gaia ? GAIA_CHAMBER_COLORS : isMoonMap(state) ? MOON_CHAMBER_COLORS : CHAMBER_COLORS)[ch];
+        const available = (availableRooms ?? state.teleportDestOptions).includes(ch), color = (state.sun ? SUN_CHAMBER_COLORS : state.neptune ? OCEAN_CHAMBER_COLORS : state.gaia ? GAIA_CHAMBER_COLORS : isMoonMap(state) ? MOON_CHAMBER_COLORS : CHAMBER_COLORS)[ch];
         return (
           <button key={ch} className="rs-teleport-room" disabled={!available} aria-label={`[${ch + 1}] ${CHAMBER_LABELS[ch]}`}
             title={available ? `Teleport to ${CHAMBER_LABELS[ch]} (${ch + 1})` : undefined}
@@ -5105,16 +5193,27 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
   const tickRef = useRef(0);
   const rafRef = useRef(0);
   const bgmRef = useRef<BGMControllerHandle>(null);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+  const musicEnabledRef = useRef(true);
+  const startMusic = () => { if (musicEnabledRef.current) bgmRef.current?.playMusic(); };
+  const toggleMusic = () => {
+    const enabled = !musicEnabledRef.current; musicEnabledRef.current = enabled; setMusicEnabled(enabled);
+    try { localStorage.setItem('rubyStar.music', enabled ? 'on' : 'off'); } catch {}
+    if (enabled) bgmRef.current?.playMusic(); else bgmRef.current?.pauseMusic();
+  };
   // Music starts on entry; if the browser blocks autoplay, the first key or click starts it.
   useEffect(() => {
-    const start = () => bgmRef.current?.playMusic();
+    try { musicEnabledRef.current = localStorage.getItem('rubyStar.music') !== 'off'; } catch {}
+    setMusicEnabled(musicEnabledRef.current);
+    const start = () => { if (musicEnabledRef.current) bgmRef.current?.playMusic(); };
     const timer = setTimeout(start, 0);
     window.addEventListener('pointerdown', start, { once: true });
     window.addEventListener('keydown', start, { once: true });
     return () => { clearTimeout(timer); window.removeEventListener('pointerdown', start); window.removeEventListener('keydown', start); };
   }, []);
+  const sunMap = trialInfo?.boss === 'fiery_king';
   const neptuneMap = trialInfo?.boss === 'sea_chanter', gaiaMap = trialInfo?.boss === 'thorn_weaver', moonMap = trialInfo?.boss === 'splitter_queen';
-  const [showRules, setShowRules] = useState(neptuneMap || gaiaMap || moonMap); // play starts at once (Neptune opens its own sheet first); RULES opens the sheet
+  const [showRules, setShowRules] = useState(sunMap || neptuneMap || gaiaMap || moonMap); // play starts at once (Neptune opens its own sheet first); RULES opens the sheet
   const [, forceRender] = useState(0);
   const [isGodQuery, setIsGodQuery] = useState(false);
   // Ref (not state) — read imperatively inside the rAF draw loop, whose effect doesn't
@@ -5228,7 +5327,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
   useEffect(() => {
     stateRef.current = createModeState(mode, trialInfo?.boss);
     if (typeof window !== 'undefined') {
-      setIsGodQuery(new URLSearchParams(window.location.search).get('god') === '1'); // God panel only with ?god=1
+      setIsGodQuery(new URLSearchParams(window.location.search).get('god') === '1');
       // Require all three signals — some desktop setups (touchscreen laptops/monitors)
       // misreport hover/pointer and still have maxTouchPoints > 0, so also require a
       // phone/tablet-sized viewport (a real desktop display is essentially never this narrow,
@@ -5245,7 +5344,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
   }, []);
 
   useEffect(() => {
-    const cancelCharge = () => { mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); };
+    const cancelCharge = () => { if (stateRef.current?.sun) stateRef.current.sun.charging = false; mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); };
     const onVisibility = () => { if (document.hidden) { cancelCharge(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); pauseAmbientEventSounds(); } };
     window.addEventListener('blur', cancelCharge);
     document.addEventListener('visibilitychange', onVisibility);
@@ -5259,7 +5358,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
 
   // ── Game loop ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (showRules) { mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); pauseAmbientEventSounds(); return; }
+    if (showRules) { if (stateRef.current?.sun) stateRef.current.sun.charging = false; mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false; stopChargeSound(); stopPoisonSound(); stopSingularitySound(); stopGaiaFieldSound(); pauseAmbientEventSounds(); return; }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const TARGET_MS = 1000 / 60;
@@ -5272,6 +5371,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
     function runOneTick(state: GameState) {
       tickRef.current++;
       if (state.gamePhase !== 'playing') {
+        if (state.sun) state.sun.charging = false;
         mouseDownTimeRef.current = 0; rightMouseHeldRef.current = pointerLaserHeldRef.current = keyboardLaserHeldRef.current = keyboardBulletHeldRef.current = false;
       }
       // A held click must charge afresh after cooldown; waiting out cooldown is not charging.
@@ -5422,7 +5522,8 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
 
       if (e.key === ' ') {
         e.preventDefault();
-        healRuby(state);
+        if (state.sun) state.sun.charging = true;
+        if (!sunStationNearPlayer(state)) healRuby(state);
         rerender();
         return;
       }
@@ -5430,6 +5531,9 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
         e.preventDefault();
         if(!e.repeat){if(tryActivateTeleport(state))playUiSfx('teleport');rerender();}
         return;
+      }
+      if ((e.key === 'c' || e.key === 'C') && state.sun) {
+        e.preventDefault(); if (!e.repeat) { if (!useCoolingWave(state)) playUiSfx('locked'); rerender(); } return;
       }
       if ((e.key === 'c' || e.key === 'C') && state.gaia) { // Gaia: Sunfire fires at once with whatever is charged
         e.preventDefault();
@@ -5455,6 +5559,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ' && stateRef.current?.sun) stateRef.current.sun.charging = false;
       if (e.key.toLowerCase() === 'k') {
         keyboardLaserHeldRef.current = false;
         if (!pointerLaserHeldRef.current) { mouseDownTimeRef.current = 0; stopChargeSound(); }
@@ -5551,6 +5656,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
     s.godMode = stateRef.current?.godMode ?? false;
     s.immortal = stateRef.current?.immortal ?? false;
     s.noMobs = stateRef.current?.noMobs ?? false;
+    if (s.sun) godSetNoWisps(s, stateRef.current?.sun?.noWisps ?? false);
     s.noBossSpawns = stateRef.current?.noBossSpawns ?? false;
     stateRef.current = s;
     tickRef.current = 0;
@@ -5712,6 +5818,13 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
         .rs-guardian-bar[data-active] { border-color: #ffffff; }
         .rs-guardian-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #e8fbff; box-shadow: 0 0 4px #9fe4ff; }
         .rs-guardian-fill { display: block; height: 100%; background: var(--guardian); box-shadow: 0 0 10px var(--guardian), inset 0 -4px 0 rgba(0,0,0,.25), inset 0 3px 0 rgba(255,255,255,.3); transition: width 160ms linear; }
+        .rs-sun-guardian { display: flex; align-items: center; gap: 10px; }
+        .rs-sun-health { flex: 1; min-width: 0; }
+        .rs-rage { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 28px; flex-shrink: 0; }
+        .rs-rage-track { display: flex; align-items: flex-end; width: 14px; height: 34px; padding: 2px; box-sizing: border-box; border: 2px solid currentColor; background: #0b1020; }
+        .rs-rage-fill { display: block; width: 100%; background: currentColor; box-shadow: 0 0 5px currentColor; transition: height 160ms linear; }
+        .rs-rage-value { font-family: var(--font-mono); font-size: 9px; line-height: 1; }
+        .rs-sun-extinguished { display: block; margin-top: 3px; font-family: var(--font-mono); font-size: 10px; color: #d5eff5; }
         .rs-stage > span { display: block; color: #dfc4ff; font-size: 12px; font-weight: 700; letter-spacing: .22em; margin-bottom: 5px; }
         .rs-stage > strong { display: block; font-family: var(--font-pixel); font-size: 30px; line-height: 1.15; color: #f4e7ff; text-shadow: 0 0 14px #bb75ff99; }
         .rs-time { display: flex; gap: 6px; align-items: center; font-size: var(--font-stat); color: #b8cce0; font-weight: 700; }
@@ -5797,11 +5910,11 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
 
       <RulesModal
         isOpen={showRules}
-        onClose={() => { setShowRules(false); bgmRef.current?.playMusic(); }}
-        title={neptuneMap ? ':: NEPTUNE' : gaiaMap ? ':: GAIA' : moonMap ? ':: THE MOON' : ':: RUBY STAR'}
+        onClose={() => { setShowRules(false); startMusic(); }}
+        title={sunMap ? ':: THE SUN' : neptuneMap ? ':: NEPTUNE' : gaiaMap ? ':: GAIA' : moonMap ? ':: THE MOON' : ':: RUBY STAR'}
         playSound={button => playUiSfx(button)}
       >
-        {neptuneMap ? <NeptuneGuide drawBoss={drawGuideBoss} /> : gaiaMap ? <GaiaGuide drawBoss={drawGuideWeaver} /> : moonMap ? <MoonGuide drawQueen={drawGuideQueen} /> : <RubyStarGuide />}
+        {sunMap ? <SunGuide drawKing={drawGuideKing} drawCelestial={(ctx, age, tick) => drawGuideCelestial(ctx, 'fiery_king', age, tick)} /> : neptuneMap ? <NeptuneGuide drawBoss={drawGuideBoss} drawCelestial={(ctx, age, tick) => drawGuideCelestial(ctx, 'sea_chanter', age, tick)} /> : gaiaMap ? <GaiaGuide drawBoss={drawGuideWeaver} drawCelestial={(ctx, age, tick) => drawGuideCelestial(ctx, 'thorn_weaver', age, tick)} /> : moonMap ? <MoonGuide drawQueen={drawGuideQueen} drawCelestial={(ctx, age, tick) => drawGuideCelestial(ctx, 'splitter_queen', age, tick)} /> : <RubyStarGuide />}
       </RulesModal>
 
       {state?.gamePhase === 'skillChoice' && !showRules && <StartingSkillChoice state={state}
@@ -5850,6 +5963,10 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
             </div>
           </div>
 
+          {state?.sun && <div role="meter" aria-label="Temperature" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(state.sun.heat)} title="Temperature — cool it with stations and Cooling Wave" style={{display:'flex',alignItems:'center',gap:6}}>
+            <HudIcon kind="temperature" />
+            <div className="battery" style={{width:'var(--batt-w)',height:'var(--batt-h)',borderColor:'#ff985b'}}><div className="battery-fill" style={{width:`${state.sun.heat}%`,background:state.sun.heat>80?'#ff4538':'#ffab55'}} /><div className="battery-nub" /></div>
+          </div>}
           {state?.neptune && (() => {
             const charge = state.neptune.healCharge / NEPTUNE_HEAL_CHARGE_MAX, ready = charge >= 1;
             return <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} role="meter" aria-label="Trident charge"
@@ -5918,6 +6035,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
           {state?.trial && <CelestialStatus name={SPECIAL_SKILLS[state.trial.skill].name}
             color={state.trial.skill === 'devourer' ? '#bcbccd' : SPECIAL_SKILLS[state.trial.skill].color}
             cooldown={state.specialSkill ? 0 : state.trial.cooldown || trialSkillCooldown(state.trial.skill)} totalCooldown={trialSkillCooldown(state.trial.skill)} />}
+          {state?.sun && <CoolingWaveStatus cooldown={state.sun.waveCooldown} empowered={state.sun.quenchedTicks > 0} casts={state.sun.empoweredCasts} />}
           {state?.moon && <MoonMarkStatus cooldown={state.moon.markCooldown} totalCooldown={MOON_MARK_COOLDOWN} />}
           {isGodQuery && (
             <button
@@ -5931,6 +6049,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
               onClick={() => { if (stateRef.current) { stateRef.current.godMode = !stateRef.current.godMode; if(stateRef.current.godMode)stateRef.current.immortal=false; rerender(); } }}
             >GOD</button>
           )}
+          <button className="btn btn-ghost" aria-pressed={musicEnabled} title={musicEnabled ? 'Mute background music' : 'Play background music'} style={{ fontSize: '0.7rem', padding: '4px 10px' }} onClick={toggleMusic}>MUSIC</button>
           <button className="btn btn-ghost" style={{ fontSize: '0.7rem', padding: '4px 10px' }}
             onClick={() => { playUiSfx('page'); setShowRules(true); }}>RULES</button>
         </div>
@@ -5995,9 +6114,33 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
           {state?.gaia && <button type="button" title="Fill the Sunfire bar so C picks a room to burn"
             style={{background:'#3a2f12',color:'#fff3b8',border:'2px solid #ffd36a',padding:'7px',fontWeight:700,cursor:'pointer'}}
             onClick={() => {const current=stateRef.current;if(current?.gaia){current.gaia.sunCharge=GAIA_SUN_MAX;playStrikeCharged();}rerender();}}>Full Sunfire</button>}
+          {state?.sun && <>
+            <button type="button" title="Recharge Cooling Wave now" disabled={phase !== 'playing'}
+              style={{background:'#123a52',color:'#c9f2ff',border:'2px solid #59c8ff',padding:'7px',fontWeight:700,cursor:phase==='playing'?'pointer':'default',opacity:phase==='playing'?1:.5}}
+              onClick={() => {const current=stateRef.current;if(current?.sun&&current.gamePhase==='playing')current.sun.waveCooldown=0;rerender();}}>Wave Ready</button>
+            <button type="button" title="Fill temperature and trigger a thermal eruption" disabled={phase !== 'playing'}
+              style={{background:'#4a261d',color:'#ffe0b8',border:'2px solid #f6a568',padding:'7px',fontWeight:700,cursor:phase==='playing'?'pointer':'default',opacity:phase==='playing'?1:.5}}
+              onClick={() => {const current=stateRef.current;if(current)godSetSunHeat(current,100);rerender();}}>Full Heat</button>
+            <button type="button" title="Extinguish the King and grant five empowered Cooling Waves" disabled={phase !== 'playing'}
+              style={{background:'#153b46',color:'#d8fbff',border:'2px solid #83dce9',padding:'7px',fontWeight:700,cursor:phase==='playing'?'pointer':'default',opacity:phase==='playing'?1:.5}}
+              onClick={() => {const current=stateRef.current;if(current)godSetSunHeat(current,0);rerender();}}>Zero Heat</button>
+          </>}
           {state?.moon && <button type="button" title="Recharge the Moon Mark so C marks at once"
             style={{background:'#1c2c40',color:'#e8fbff',border:'2px solid #a9e6ff',padding:'7px',fontWeight:700,cursor:'pointer'}}
             onClick={() => {const current=stateRef.current;if(current?.moon){current.moon.markCooldown=0;playStrikeCharged();}rerender();}}>Mark Ready</button>}
+          </div>}
+          {state?.sun && <div className="rs-god-actions" role="group" aria-label="Adjust temperature">
+            <button type="button" title="Increase temperature by 10 points" disabled={phase !== 'playing'}
+              style={{background:'#4a261d',color:'#ffe0b8',border:'2px solid #f6a568',cursor:phase==='playing'?'pointer':'default',opacity:phase==='playing'?1:.5}}
+              onClick={() => {const current=stateRef.current;if(current)godAdjustSunHeat(current,10);rerender();}}>Heat Up</button>
+            <button type="button" title="Decrease temperature by 10 points" disabled={phase !== 'playing'}
+              style={{background:'#153b46',color:'#d8fbff',border:'2px solid #83dce9',cursor:phase==='playing'?'pointer':'default',opacity:phase==='playing'?1:.5}}
+              onClick={() => {const current=stateRef.current;if(current)godAdjustSunHeat(current,-10);rerender();}}>Cool Down</button>
+          </div>}
+          {state?.sun && <div className="rs-god-actions" role="group" aria-label="Guardian phase" style={{gridTemplateColumns:'repeat(3, 1fr)'}}>
+            {([1, 2, 3] as const).map(phase => <button key={phase} type="button" aria-pressed={state.sun?.phase === phase}
+              style={{background:state.sun?.phase===phase?'#e6ad62':'#36251f',color:state.sun?.phase===phase?'#251609':'#ffe1b6',border:'2px solid #e8b878',cursor:'pointer'}}
+              onClick={() => {const current=stateRef.current;if(current)godSetSunPhase(current,phase);rerender();}}>Phase {phase}</button>)}
           </div>}
           {state?.gaia && <div className="rs-god-actions" role="group" aria-label="Guardian phase" style={{gridTemplateColumns:'repeat(3, 1fr)'}}>
             {([1, 2, 3] as const).map(phase => <button key={phase} type="button" aria-pressed={state.gaia?.phase === phase}
@@ -6023,6 +6166,9 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
               onClick={()=>{if(stateRef.current)godSetNoBossSpawns(stateRef.current,!stateRef.current.noBossSpawns);rerender();}}>
               No Boss
             </button>
+            {state?.sun && <button type="button" aria-pressed={state.sun.noWisps} title="Clear Cinder Wisps and stop every wisp spawn without affecting aliens"
+              style={{flex:1,minWidth:0,padding:'6px 2px',fontSize:'.65rem',cursor:'pointer',background:state.sun.noWisps?'#b86a32':'#333',color:'#fff',border:'1px solid #f5ad69',borderRadius:3}}
+              onClick={() => {const current=stateRef.current;if(current?.sun)godSetNoWisps(current,!current.sun.noWisps);rerender();}}>No Wisps</button>}
           </div>
 
 
@@ -6242,7 +6388,7 @@ export default function RubyStarGame({ mode, trialId }: { mode: RubyStarMode; tr
         {phase === 'won' && trialInfo && (
           <VictoryScreen title={`${BOSS_NAMES[trialInfo.boss]} DEFEATED`} world={trialInfo.name}
             color={SPECIAL_SKILLS[BOSS_SKILL_REWARDS[trialInfo.boss]].color === '#303036' ? '#bcbccd' : SPECIAL_SKILLS[BOSS_SKILL_REWARDS[trialInfo.boss]].color}
-            onPlayAgain={handleRestart} onLobby={() => { playUiSfx('back'); router.push('/ruby-star'); }} />
+            onPlayAgain={handleRestart} onStarMap={() => { playUiSfx('back'); router.push('/ruby-star/challenge'); }} />
         )}
 
         {phase === 'lost' && (

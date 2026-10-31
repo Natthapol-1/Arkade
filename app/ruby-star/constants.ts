@@ -203,7 +203,7 @@ export function hallwayOfTile(tileX: number, tileY: number): number {
 export type EnemyType = 'normal' | 'armored' | 'fast' | 'bomber' | 'sniper' | 'healer' | 'charger' | 'ghost' | 'splitter' | 'mini_splitter' | 'shielder' | 'energy_leech' | 'fiery_king' | 'splitter_queen' | 'queen_echo' | 'storm_reaper' | 'devourer' | 'frost_warden' | 'blind_prayer' | 'sea_chanter' | 'thorn_weaver' | 'aegis_sentinel' | 'aegis_construct' | 'astral_twins'
   | 'fish_blue' | 'fish_red' | 'stinger' | 'water_clone' | 'water_bomb' | 'jellyfish' | 'pufferfish'
   | 'seed_pod' | 'blossom' | 'sporeling' | 'vine_crawler' | 'angry_mushroom' | 'lifebloom'
-  | 'moon_illusion' | 'mirror_mite' | 'moon_shade' | 'moon_mimic';
+  | 'moon_illusion' | 'mirror_mite' | 'moon_shade' | 'moon_mimic' | 'cinder_wisp' | 'emberling' | 'scorch_sapper';
 
 export const ENERGY_LEECH_DRAIN = 20;
 
@@ -221,7 +221,41 @@ export interface EnemyConfig {
   bombExplodeRange: number;
 }
 
+export const SUN = {
+  phaseHP: 3000, meteorShare: .1, solarShare: .02, stations: 6, stationReach: 1.6, stationBossReach: 2.5, // solarShare: Solar Flare (F) hits the King for this share of a phase
+  stationChargeTicks: 300, stationTrickle: .6, stationCooling: 13, stationHealing: 25,
+  waveRadius: 8, waveCooldown: 420, waveDamage: 1, waveCooling: 2, waveStationCharge: 45,
+  rapidCooldown: 12, afterQuenchCooldown: 120, // afterQuenchCooldown: C returns as an ordinary wave 2s after the extinguished window ends
+  empoweredDamage: .03, empoweredNormalDamage: 10, quenchTicks: 600, quenchDelayTicks: 120,
+  quenchEnemyTickInterval: 2, // zero temperature: enemy movement, windups and attacks run at half speed
+  wispHP: 3, initialWisps: 12, wispCap: 80, wispBatch: 4, wispGap: 240,
+  bossWispGap: 360, arenaWisps: 18, heatPerWisp: .06,
+  ragePerSecond: 1.4, lateRagePerSecond: 1.6, rageCooling: 15, rageOnHit: .1, eruptionDamage: 75, // rageOnHit: rage removed per HP the King loses
+  // Phase 2+: above trailRage the King sets the tiles he walks on burning for trailTicks. Standing on one costs trailDamage
+  // (Ruby trailRubyDamage) and adds trailHeat every trailGap ticks. Water puts them out.
+  trailRage: 20, trailRadius: 1, trailTicks: 600, trailCap: 80, trailGap: 30, trailDamage: 3, trailRubyDamage: 2, trailHeat: .5,
+  // Phase 3: every flareGap ticks a room is marked for flareWarning ticks, then flares (+flareHeat). Water landing in that
+  // room, a station burst there, or Solar Flare defuses it (-flareDefuseCool heat instead).
+  flareGap: [720, 1020] as const, flareWarning: 480, flareHeat: 25, flareDefuseCool: 10, flareDamage: 25, // flareWarning: 8s; flareDamage: to you and placed Ruby inside the room
+  // Phase 2+: Scorch Sappers arrive every sapperGap ticks (at most sapperCap), walk to the nearest cooling station and drain
+  // sapperDrain % of its charge and sapperHeat heat per second while beside it. Water destroys them.
+  sapperGap: 480, sapperCap: 2, sapperHP: 3, sapperDrain: 12, sapperHeat: .5,
+  emberlingSpawnChance: .35, emberlingArmor: .1, emberlingKnockback: 2,
+} as const;
+
 export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
+  cinder_wisp: {
+    maxHp: 3, speed: 0, color: '#ff9c42', shieldColor: '#ffe3a0', bodyFraction: .5, scoreValue: 0,
+    damageToPlayer: 0, damageToRuby: 0, attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  scorch_sapper: { // Sun phase 2+: ignores you and Ruby and drains cooling stations
+    maxHp: 3, speed: 1.6, color: '#ffb347', shieldColor: '#ffe0a0', bodyFraction: .55, scoreValue: 15,
+    damageToPlayer: 0, damageToRuby: 0, attackCooldown: 0, attackRange: 0, bombExplodeRange: 0,
+  },
+  emberling: {
+    maxHp: 4, speed: 2.5, color: '#ff6540', shieldColor: '#ffd88a', bodyFraction: 0.72, scoreValue: 15,
+    damageToPlayer: 9, damageToRuby: 7, attackCooldown: 70, attackRange: 1, bombExplodeRange: 0,
+  },
   // Neptune challenge units. Fish and water objects never attack; stingers poison on hit.
   fish_blue: {
     maxHp: 1, speed: 1.3, color: '#59c8ff', shieldColor: '#bfe9ff',
@@ -723,7 +757,7 @@ export const TUTORIAL_STEP_PAUSE = 75; // ticks of "done" feedback before the ne
 export const TRIAL_BOSS_DELAY = 300;        // ticks (5s) before the guardian's arrival warning starts
 export const SPECIAL_RECAST_LOCK = 90; // endless: 1.5s after a cast before F works again, so a skill earned by that cast isn't wasted
 export const TRIAL_SKILL_COOLDOWN = 1200;   // ticks (20s) after casting before the skill returns
-export const TRIAL_SKILL_COOLDOWNS: Partial<Record<SpecialSkill, number>> = { thorn_weaver: 2400, splitter_queen: 900 }; // Gaia's Roots: 40s; Lunar Echo: 15s
+export const TRIAL_SKILL_COOLDOWNS: Partial<Record<SpecialSkill, number>> = { thorn_weaver: 2400, splitter_queen: 900, fiery_king: 1620 }; // Gaia's Roots: 40s; Lunar Echo: 15s; Solar Flare: 27s
 export function trialSkillCooldown(skill: SpecialSkill) { return TRIAL_SKILL_COOLDOWNS[skill] ?? TRIAL_SKILL_COOLDOWN; }
 
 // Neptune challenge (Sea Chanter): three phases with their own HP (NEPTUNE_PHASE_HPS). Healing can never lift her into a

@@ -6,6 +6,7 @@ import {
 import {
   ATTACK_SFX_VOLUME, bfs, createEncounterEnemy, damagePlayer, playAudioOneShot, godSpawnBoss, healCore, healPlayer, playCelestialSound, playSFX_queenTeleport, damageRuby, playSFX_objectBreak, spawnDeathParticles, tileEuclidDist, type Enemy, type GameState,
 } from './engine';
+import { playUiSfx } from './ui-sfx';
 
 // Moon challenge (Shadow Queen), phase 1: illusions. She wears her Echo's look and, from her first jump on, hides among
 // illusions that look and attack exactly like her. For the last moments before each jump she shows her true self and
@@ -303,7 +304,7 @@ export function useMoonMark(state: GameState): boolean {
   }
   if (!best) return false;
   moon.mark = { id: best.id, ticks: MOON_MARK_TICKS }; moon.markCooldown = MOON_MARK_COOLDOWN;
-  playCelestialSound('ready');
+  playUiSfx('markCast');
   return true;
 }
 
@@ -318,7 +319,7 @@ export function updateMoon(state: GameState) {
     playAudioOneShot('/sounds/frost-shield-break.mp3', .4 * ATTACK_SFX_VOLUME);
   }
   if (moon.unmask && --moon.unmask.ticks <= 0) moon.unmask = null;
-  if (moon.markCooldown > 0) moon.markCooldown--;
+  if (moon.markCooldown > 0 && --moon.markCooldown === 0) playUiSfx('markReady'); // the Mark is ready again
   if (moon.hint && --moon.hint.ticks <= 0) moon.hint = null;
   if (moon.mirrors.length && --moon.mirrorTimer <= 0) placeMoonMirrors(state); // they move every so often
   if (boss && moon.phase >= 2 && !state.noMobs && --moon.mimicTimer <= 0) { moon.mimicTimer = MOON_MIMIC_GAP; spawnMimic(state); }

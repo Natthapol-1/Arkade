@@ -32,7 +32,7 @@
 
 ## Rule sheet
 
-The map opens its own rule sheet on entry (also on RULES): ten animated cards with one short line each. They cover the hidden Queen, the decoy tell, the reveal, the special skill (Moon Mark), mirror mites, shades, mimics, mirrors, darkness and shattering illusions.
+The map opens its own rule sheet on entry (also on RULES): eleven animated cards with one short line each. They cover Lunar Echo under CELESTIAL SKILL (PRESS F), the hidden Queen, the decoy tell, the reveal, the special skill (Moon Mark), mirror mites, shades, mimics, mirrors, darkness and shattering illusions.
 
 ## Look
 
@@ -43,7 +43,7 @@ A shadowy crystal cavern under the lunar surface: crystalline, magical and myste
 - **Floor:** near-black polished crystal. Two soft diagonal sheens sweep across it (a broad violet one and a thin ice-blue one), faint grain lines brighten as the sheen passes, and each crystal block reflects a fading glow into the floor tile below it. Large dark mist patches drift slowly over the floor. A few tiles hold a small set gem that twinkles, and rare runes (a square frame, a turning diamond, four corner marks) fade in and out. Pads stay clean.
 - **Mirror mite:** a small blocky crystal bug: a pale lilac rim, a dark mirror face with a lit facet and a glint sweeping across it, two pale eyes, a mirror shard on its back and three pairs of bent legs that scuttle.
 - **Mimic:** in its own form, a soft lavender-grey shapeshifter cube whose four horizontal slices keep sliding out of line, one large eye with an ice-blue glint, and a faint flicker of the Queen's tiara above it. Disguised, it is drawn exactly as an illusion.
-- **Mirror tile:** a framed silver-lilac pane with a bright glint sliding across it. A bounced shot shows a pale streak from the mirror back to you and a small cross flash on the pane.
+- **Mirror tile:** a see-through framed silver-lilac pane (the floor shows beneath, so it reads as walkable) with a bright glint sliding across it. A bounced shot shows a pale streak from the mirror back to you and a small cross flash on the pane.
 - **Shade:** a translucent hooded wraith in deep violet that flickers between see-through and nearly solid, with a lit left edge, a dark face, two ice-blue eyes that flare (and claws that come out) as it strikes, and a ragged tail of drifting blocks.
 - **Motes:** violet and ice-blue motes with short tails rise through the rooms on fixed world columns.
 - **Backdrop:** the dark of a vast geode. Stepped crystal spires rise from below and hang from above in two parallax layers; the near ones have glowing tips and pulsing veins. Faint prism shafts sway, deep violet mist drifts, lone crystal shards turn slowly, crystal dust twinkles, and a shadow vignette closes in at the top and bottom.

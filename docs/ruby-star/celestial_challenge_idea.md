@@ -41,10 +41,20 @@ Each boss has a celestial skill. In its own world, you hold that skill on F with
 - **Neptune: Neptune's Tide** heals you and Ruby, which charges the Trident (it charges from healing), and pushes back crowds during dives.
 - **Gaia: Gaia's Roots** clears overgrowth across its whole field when cast and stops regrowth inside it while it lasts (recharge 40s here).
 - **The Moon: Lunar Echo** is a tool for finding her: illusions take the decoy's bait, but the real Queen ignores it and keeps shooting you (recharge 15s here).
+- **The Sun: Solar Flare** clears Cinder Wisps across the map and disrupts Sunbursts, helping control temperature.
 
 ## Worlds built so far
 
 Every challenge world turns off random space events and gives the boss a big multi-phase HP pool on a segmented guardian bar.
+
+### The Sun (Fiery King): managing heat
+
+- **Temperature:** starts halfway. Cinder Wisps raise it; full heat triggers a devastating arena-wide eruption that spares the King.
+- **Cooling stations:** hold Space to charge them, cool the arena and heal you and Ruby on completion. At least one stays in each room; the King resets nearby stations.
+- **Cooling Wave (C):** clears wisps, cools the arena, reduces rage and extinguishes armored Emberlings.
+- **Zero heat:** stuns the King, slows other enemies and grants five rapid empowered waves that each deal 3% of his phase HP.
+- **Later phases:** burning trails, station-draining Scorch Sappers, then room-wide Sunbursts that water or Solar Flare can disrupt.
+- **Look:** a solar forge with dark metal floors, molten seams and cyan coolant reservoirs.
 
 ### Neptune (Sea Chanter): finding things
 
@@ -83,4 +93,4 @@ Every challenge world turns off random space events and gives the boss a big mul
 
 ## Not built yet
 
-The Sun, Venus, Jupiter, Saturn, Sirius, Binary Star and The Singularity are locked on the star map. Each needs its own multi-phase fight, a world mechanic, a C ability, new aliens that fit its guardian, and a reason its celestial skill matters there. The design rule so far: each world tests a different skill, and each later phase changes how you read the fight rather than just adding damage.
+Venus, Jupiter, Saturn, Sirius, Binary Star and The Singularity are locked on the star map. Each needs its own multi-phase fight, a world mechanic, a C ability, new aliens that fit its guardian, and a reason its celestial skill matters there. The design rule so far: each world tests a different skill, and each later phase changes how you read the fight rather than just adding damage.

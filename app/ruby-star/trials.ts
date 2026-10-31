@@ -14,7 +14,7 @@ export interface Trial {
 }
 
 export const TRIALS: Trial[] = [
-  { id: 'sun', name: 'THE SUN', boss: 'fiery_king', x: 12, y: 52, size: 86 },
+  { id: 'sun', name: 'THE SUN', boss: 'fiery_king', x: 12, y: 52, size: 86, ready: true },
   { id: 'venus', name: 'VENUS', boss: 'aegis_sentinel', x: 27, y: 26, size: 46 },
   { id: 'gaia', name: 'GAIA', boss: 'thorn_weaver', x: 33, y: 70, size: 50, ready: true },
   { id: 'moon', name: 'THE MOON', boss: 'splitter_queen', x: 43, y: 86, size: 28, ready: true }, // map only for now

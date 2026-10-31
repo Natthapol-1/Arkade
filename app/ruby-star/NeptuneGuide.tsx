@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import CelestialSkillGuideCard, { type CelestialGuidePainter } from './CelestialSkillGuideCard';
 import type { Enemy } from './engine';
 import type { EnemyType } from './constants';
 import { NEPTUNE_BOMB_FUSE } from './constants';
@@ -30,7 +31,7 @@ function cross(ctx: CanvasRenderingContext2D, x: number, y: number, color: strin
   ctx.fillStyle = color; ctx.fillRect(x - 2, y - 6, 4, 12); ctx.fillRect(x - 6, y - 2, 12, 4);
 }
 
-export default function NeptuneGuide({ drawBoss }: { drawBoss: (ctx: CanvasRenderingContext2D, x: number, y: number, tick: number, diving: boolean) => void }) {
+export default function NeptuneGuide({ drawBoss, drawCelestial }: { drawCelestial: CelestialGuidePainter; drawBoss: (ctx: CanvasRenderingContext2D, x: number, y: number, tick: number, diving: boolean) => void }) {
   const cards: { title: string; color: string; text: string; paint: Paint }[] = [
     { title: 'SPECIAL SKILL (PRESS C)', color: '#a0ecff', text: 'Trident: healing you and Ruby charges it. Once fully charged, pick a room to strike: it wipes out aliens there and hurts the boss.', paint: (ctx, t) => {
       ctx.fillStyle = '#0a1422'; ctx.fillRect(14, 96, 70, 10);
@@ -134,6 +135,8 @@ export default function NeptuneGuide({ drawBoss }: { drawBoss: (ctx: CanvasRende
     <div className="rs-guide-nav"><h3>NEPTUNE CHALLENGE</h3></div>
     <p className="rs-guide-intro">Defeat Neptune to win.</p>
     <div className="rs-nep-grid">
+      <CelestialSkillGuideCard name="Neptune’s Tide" description="Heals you and Ruby and pushes nearby enemies away." color="#91baff" draw={drawCelestial} />
+
       {cards.map((card, i) => <article key={card.title} className="rs-nep-card" style={{ borderColor: card.color + '66' }}>
         <canvas ref={el => { refs.current[i] = el; }} width={W} height={H} aria-hidden="true" />
         <h5 style={{ color: card.color }}>{card.title}</h5>

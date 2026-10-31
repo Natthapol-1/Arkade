@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import CelestialSkillGuideCard, { type CelestialGuidePainter } from './CelestialSkillGuideCard';
 import type { Enemy } from './engine';
 import { drawMoonUnit } from './moon-art';
 
@@ -22,9 +23,9 @@ function shard(ctx: CanvasRenderingContext2D, x: number, y: number, angle: numbe
   ctx.fillStyle = '#f4eaff'; ctx.fillRect(-2, -1, 8, 2); ctx.restore();
 }
 
-export default function MoonGuide({ drawQueen }: { drawQueen: DrawQueen }) {
+export default function MoonGuide({ drawQueen, drawCelestial }: { drawQueen: DrawQueen; drawCelestial: CelestialGuidePainter }) {
   const cards: { title: string; color: string; text: string; paint: Paint }[] = [
-    { title: 'HIDDEN QUEEN', color: '#dd88ff', text: 'She hides among illusions that look just like her. Hitting the real one heals you after she jumps, and Ruby too if it is in the same chamber as you.', paint: (ctx, t) => {
+    { title: 'HIDDEN QUEEN', color: '#dd88ff', text: 'She hides among illusions that look just like her. Hitting the real one heals you based on the damage you deal, once she jumps, and Ruby too if it is in the same chamber as you.', paint: (ctx, t) => {
       const shown = 1 + Math.min(3, Math.floor((t % 200) / 50));
       [[40, 60], [100, 44], [160, 64], [100, 92]].slice(0, shown).forEach(([x, y]) => drawQueen(ctx, x, y, t, true));
     } },
@@ -64,8 +65,8 @@ export default function MoonGuide({ drawQueen }: { drawQueen: DrawQueen }) {
       ctx.save(); ctx.translate(160, 62); ctx.shadowColor = '#ff4d7a'; ctx.shadowBlur = 5; ctx.fillStyle = '#e8326a'; ctx.fillRect(-11, -11, 22, 22); ctx.shadowBlur = 0;
       ctx.fillStyle = '#a8183f'; ctx.fillRect(-7, -7, 14, 14); ctx.fillStyle = '#ffd0dc'; ctx.fillRect(-9, -9, 5, 5); ctx.restore();
     } },
-    { title: 'MIRRORS', color: '#e6dcff', text: 'Walk over them, but they bounce your laser and bullets back into you.', paint: (ctx, t) => {
-      for (let k = 0; k < 3; k++) { const y = 26 + k * 24; ctx.fillStyle = '#2c2450'; ctx.fillRect(118, y, 22, 22); ctx.fillStyle = '#8f86c8'; ctx.fillRect(121, y + 3, 16, 16); ctx.strokeStyle = '#e6dcff'; ctx.lineWidth = 2; ctx.strokeRect(119, y + 1, 20, 20); }
+    { title: 'MIRRORS', color: '#e6dcff', text: 'You can walk through them, but they bounce your laser and bullets back into you.', paint: (ctx, t) => {
+      for (let k = 0; k < 3; k++) { const y = 26 + k * 24; ctx.globalAlpha = .45; ctx.fillStyle = '#2c2450'; ctx.fillRect(118, y, 22, 22); ctx.globalAlpha = .4; ctx.fillStyle = '#8f86c8'; ctx.fillRect(121, y + 3, 16, 16); ctx.globalAlpha = .8; ctx.strokeStyle = '#e6dcff'; ctx.lineWidth = 2; ctx.strokeRect(119, y + 1, 20, 20); ctx.globalAlpha = 1; }
       player(ctx, 40, 62);
       const k = (t % 60) / 60;
       if (k < .5) { ctx.fillStyle = '#ffe14a'; ctx.fillRect(50, 60, 68 * k * 2, 4); }
@@ -113,6 +114,8 @@ export default function MoonGuide({ drawQueen }: { drawQueen: DrawQueen }) {
     <div className="rs-guide-nav"><h3>MOON CHALLENGE</h3></div>
     <p className="rs-guide-intro">Find and defeat the Shadow Queen to win.</p>
     <div className="rs-nep-grid">
+      <CelestialSkillGuideCard name="Lunar Echo" description="Creates a decoy that draws enemy attacks. The real Queen ignores it, but her illusions take the bait." color="#c6a2f2" draw={drawCelestial} />
+
       {cards.map((card, i) => <article key={card.title} className="rs-nep-card" style={{ borderColor: card.color + '66' }}>
         <canvas ref={el => { refs.current[i] = el; }} width={W} height={H} aria-hidden="true" />
         <h5 style={{ color: card.color }}>{card.title}</h5>

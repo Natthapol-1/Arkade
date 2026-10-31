@@ -1,4 +1,4 @@
-// Synthesized sci-fi UI cues for Ruby Star menus (lobby and rule sheet). No audio files needed.
+// Synthesized sci-fi UI cues for Ruby Star menus (lobby and rule sheet) and a few in-game ready cues. No audio files needed.
 let ctx: AudioContext | null = null;
 const UI_VOLUME = 5; // master boost for every menu cue
 
@@ -25,7 +25,7 @@ function blip(type: OscillatorType, from: number, to: number, start: number, dur
   osc.start(t); osc.stop(t + dur + 0.02);
 }
 
-export type UiSfx = 'hover' | 'endless' | 'ascension' | 'locked' | 'page' | 'back' | 'close' | 'confirm' | 'teleport' | 'victory' | 'charged';
+export type UiSfx = 'hover' | 'endless' | 'ascension' | 'locked' | 'page' | 'back' | 'close' | 'confirm' | 'teleport' | 'victory' | 'charged' | 'bombReady' | 'markReady' | 'markCast' | 'stationCharge' | 'coolingUltimate' | 'sunExtinguish' | 'sunburstWarning' | 'waveReady';
 
 export function playUiSfx(kind: UiSfx) {
   switch (kind) {
@@ -54,6 +54,28 @@ export function playUiSfx(kind: UiSfx) {
     case 'charged': // a room strike is ready: bright rising chime with a sustained shimmer
       blip('square', 784, 784, 0, .08, .05); blip('square', 1175, 1175, .08, .08, .05); blip('square', 1568, 1568, .16, .18, .055);
       blip('triangle', 3136, 2637, .2, .35, .035); break;
+    case 'bombReady': // the bomb is ready again: a warm two-note click
+      blip('square', 392, 392, 0, .05, .03); blip('triangle', 784, 784, .05, .1, .04); break;
+    case 'stationCharge': // a short coolant-pump pulse, repeated only while Space adds charge
+      blip('triangle', 420, 620, 0, .09, .075); blip('sine', 1240, 980, .015, .12, .054); break;
+    case 'coolingUltimate': // heavy pressure impact under the empowered water crash
+      blip('triangle', 140, 42, 0, .28, .085); blip('sine', 64, 38, 0, .34, .06);
+      blip('triangle', 1100, 150, 0, .18, .035); blip('sine', 1760, 660, .035, .14, .025); break;
+    case 'sunExtinguish': // pressure collapse, followed by a clear icy two-note opening cue
+      blip('triangle', 140, 36, 0, .34, .12); blip('sine', 56, 28, 0, .4, .08);
+      blip('triangle', 1568, 196, 0, .28, .045);
+      blip('sine', 784, 1175, .18, .14, .04); blip('triangle', 1175, 1568, .32, .18, .045); break;
+    case 'sunburstWarning': // map-wide solar alarm: three firm rising pulses, distinct from an impact or ready chime
+      for (let i = 0; i < 3; i++) {
+        blip('square', 440, 660, i * .26, .18, .085);
+        blip('triangle', 220, 330, i * .26, .21, .055);
+      }
+      break;
+    case 'waveReady': // Cooling Wave has recharged: prominent icy chime (matches Moon Mark)
+    case 'markReady': // the Moon Mark has recharged: a prominent icy chime
+      blip('triangle', 1760, 1760, 0, .06, .09); blip('triangle', 2637, 2637, .06, .14, .105); blip('sine', 3520, 3136, .12, .2, .06); break;
+    case 'markCast': // the Moon Mark locks on: a falling ping and two quick beeps
+      blip('sine', 2400, 1200, 0, .12, .135); blip('square', 1200, 1200, .1, .04, .075); blip('square', 1200, 1200, .16, .04, .075); break;
     case 'confirm': // two-tone acknowledge
       blip('square', 988, 988, 0, .06, .04); blip('square', 1480, 1480, .06, .1, .045); break;
   }

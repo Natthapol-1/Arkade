@@ -30,7 +30,7 @@ Absorb shields take damage before HP; ordinary reward shields refill a minimum p
 
 ## Boss encounters
 
-Ten mutually exclusive boss encounters. Astral Twins uses two linked bodies; the pair counts as one encounter. First natural boss appears around 60 seconds. After defeat, next boss arrives after about 42 seconds (38.5s countdown + 3.5s warning). Timer freezes while a boss is alive. The natural random pool covers all ten encounters before refilling and avoids immediately repeating the previous boss at a pool boundary. Explicit God spawns do not consume that pool.
+Ten mutually exclusive boss encounters. Astral Twins uses two linked bodies; the pair counts as one encounter. First natural boss appears around 60 seconds. After defeat, next boss arrives after about 42 seconds (38.5s countdown + 3.5s warning). Timer freezes while a boss is alive. Each block of ten bosses (Stages 1–10, 11–20, 21–30, ...) uses all ten encounters exactly once in random order, so no boss repeats within a block: the pool restarts whenever a new block begins (`bossPoolBlock`, following defeats, so debug stage skips cannot break it), and the first boss of a block is never the same as the last boss of the previous one. Explicit God spawns do not consume that pool.
 
 Spawn HP = `base HP + 15 * prior bosses defeated`; Twins split that stage bonus equally between their two bodies. Boss defeat restores player and Ruby HP fully, fills star energy and grants the appropriate celestial skill starting at the tenth defeat. Boss defeat rewards also apply to meteor kills. Removal must clean up that boss's curse/hazards; Queen death clears her echoes.
 

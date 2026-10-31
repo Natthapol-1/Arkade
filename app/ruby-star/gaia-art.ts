@@ -327,9 +327,64 @@ export function drawForestBackdrop(ctx: CanvasRenderingContext2D, viewW: number,
 }
 
 // Floor dressing: fireflies drifting over the station and roots creeping over cover blocks.
+const isCoverTile = (state: Readonly<GameState>, tx: number, ty: number) => state.map[ty]?.[tx] === 0 && CHAMBER_BOUNDS.some(([t, l, b, r]) => tx > l && tx < r && ty > t && ty < b);
+
+// A cover block as mossy stone: two or three grey-green stones of different sizes with dark mortar between them, a light
+// top-left bevel and dark lower-right edge on each, an occasional crack, moss patches along the top, and a rim in the
+// room colour only where the block meets open floor.
+export function drawGaiaStone(ctx: CanvasRenderingContext2D, state: Readonly<GameState>, tx: number, ty: number, x: number, y: number, color: string) {
+  const s = TILE_SIZE;
+  ctx.save(); ctx.shadowBlur = 0;
+  block(ctx, x, y, s, s, '#1b211a'); // mortar
+  const split = 16 + Math.floor(hash(tx, ty, 21) * 16), cut = 14 + Math.floor(hash(tx, ty, 22) * 20), horizontal = hash(tx, ty, 23) > .5;
+  const stones = horizontal
+    ? [[1, 1, s - 2, split - 2], [1, split + 1, cut - 2, s - split - 2], [cut + 1, split + 1, s - cut - 2, s - split - 2]]
+    : [[1, 1, split - 2, s - 2], [split + 1, 1, s - split - 2, cut - 2], [split + 1, cut + 1, s - split - 2, s - cut - 2]];
+  stones.forEach(([sx, sy, w, h], i) => {
+    const tone = hash(tx * 3 + i, ty, 24);
+    block(ctx, x + sx, y + sy, w, h, tone > .66 ? '#56604f' : tone > .33 ? '#4b5446' : '#434b3f');
+    block(ctx, x + sx, y + sy, w, 2, '#77816c'); block(ctx, x + sx, y + sy, 2, h, '#6a7461'); // light bevel
+    block(ctx, x + sx, y + sy + h - 2, w, 2, '#2f362c'); block(ctx, x + sx + w - 2, y + sy, 2, h, '#343b31'); // shade
+    if (hash(tx, ty, 25 + i) > .72 && w > 10 && h > 10) { // a short stepped crack
+      const cx = x + sx + 4 + Math.floor(hash(tx, ty, 30 + i) * (w - 10)), cy = y + sy + 3;
+      block(ctx, cx, cy, 2, 4, '#262c24'); block(ctx, cx + 2, cy + 4, 2, 4, '#262c24'); block(ctx, cx + 1, cy + 8, 2, 3, '#262c24');
+    }
+  });
+  if (!isCoverTile(state, tx, ty - 1)) { // moss creeping over the top
+    for (let k = 0; k < 3; k++) if (hash(tx, ty, 40 + k) > .4) {
+      const mx = x + 3 + Math.floor(hash(tx, ty, 43 + k) * (s - 14)), mw = 6 + Math.floor(hash(tx, ty, 46 + k) * 8);
+      block(ctx, mx, y, mw, 3, '#5f9a3c'); block(ctx, mx + 2, y + 3, Math.max(2, mw - 5), 2, '#4a7f2e');
+    }
+  }
+  const open = (dx: number, dy: number) => !isCoverTile(state, tx + dx, ty + dy);
+  ctx.globalAlpha = .55;
+  if (open(0, -1)) block(ctx, x, y, s, 2, color); if (open(-1, 0)) block(ctx, x, y, 2, s, color);
+  if (open(1, 0)) block(ctx, x + s - 2, y, 2, s, color); if (open(0, 1)) block(ctx, x, y + s - 2, s, 2, color);
+  ctx.restore();
+}
+
 export function drawForestAmbience(ctx: CanvasRenderingContext2D, state: Readonly<GameState>, camX: number, camY: number, x0: number, y0: number, x1: number, y1: number, tick: number) {
   const s = TILE_SIZE;
   ctx.save(); ctx.shadowBlur = 0;
+  // Subtle forest floor, kept faint under the vines and fully static: thin right-angle root veins etched into some
+  // tiles, a few fallen leaves, pebbles and the odd grass tuft.
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+    if (state.map[ty]?.[tx] !== T_FLOOR) continue;
+    const x = tx * s - camX, y = ty * s - camY;
+    if (hash(tx, ty, 55) > .78) { // a root vein: one straight run with a right-angle bend
+      const across = hash(tx, ty, 56) > .5, at = 10 + Math.floor(hash(tx, ty, 57) * 28), bend = 8 + Math.floor(hash(tx, ty, 58) * 30);
+      ctx.globalAlpha = .45;
+      if (across) { block(ctx, x, y + at, bend, 2, '#071008'); block(ctx, x + bend, y + at, 2, s - at, '#071008'); }
+      else { block(ctx, x + at, y, 2, bend, '#071008'); block(ctx, x + at, y + bend, s - at, 2, '#071008'); }
+    }
+    if (hash(tx, ty, 60) > .9) { // a fallen leaf
+      const lx = x + 8 + Math.floor(hash(tx, ty, 61) * 30), ly = y + 8 + Math.floor(hash(tx, ty, 62) * 30), tone = hash(tx, ty, 63) > .5 ? '#7a8a2e' : '#5f7a2a';
+      ctx.globalAlpha = .4; block(ctx, lx, ly + 2, 6, 2, tone); block(ctx, lx + 2, ly, 2, 6, tone);
+    }
+    if (hash(tx, ty, 50) > .86) { ctx.globalAlpha = .28; block(ctx, x + 8 + Math.floor(hash(tx, ty, 51) * 28), y + 8 + Math.floor(hash(tx, ty, 52) * 28), 4, 3, '#6b6a52'); }
+    if (hash(tx, ty, 53) > .94) { ctx.globalAlpha = .22; const gx = x + 10 + Math.floor(hash(tx, ty, 54) * 24), gy = y + 30; block(ctx, gx, gy, 2, 6, '#6fae45'); block(ctx, gx + 3, gy + 2, 2, 4, '#6fae45'); }
+  }
+  ctx.globalAlpha = 1;
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     if (state.map[ty]?.[tx] !== 0 || hash(tx, ty, 3) < .55) continue;
     const ch = CHAMBER_BOUNDS.findIndex(([t, l, b, r]) => tx > l && tx < r && ty > t && ty < b); if (ch < 0) continue;

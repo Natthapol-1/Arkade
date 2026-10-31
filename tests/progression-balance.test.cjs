@@ -72,3 +72,23 @@ test('teleport auto-placement feedback pauses, expires and clears on pickup',()=
  e.toggleCarryRuby(s);assert.equal(s.rubyPlacedFlashTicks,0);assert.equal(s.playerCarryingRuby,true);
  const reset=e.createInitialState();assert.equal(reset.rubyPlacedFlashTicks,0);
 });
+
+test('no boss repeats within stages 1-10 or 11-20, even with debug stage skips', () => {
+  const e2 = require('../app/ruby-star/engine.ts');
+  const types = require('../app/ruby-star/constants.ts').BOSS_TYPES;
+  for (let run = 0; run < 30; run++) {
+    const s = e2.createInitialState();
+    const seen = [[], [], []];
+    for (let kills = 0; kills < 30; kills++) {
+      if (run % 3 === 1 && kills === 7) { s.bossesKilled += 2; kills += 2; } // a debug skip mid-block
+      s.bossesKilled = kills;
+      s.noMobs = true; s.bossTimer = 1; s.bossWarningTicks = 0;
+      for (let i = 0; i < 600 && !s.enemies.some(x => types.includes(x.type)); i++) e2.tick(s);
+      const boss = s.enemies.find(x => types.includes(x.type));
+      if (!boss) continue;
+      seen[Math.floor(kills / 10)].push(boss.type);
+      s.enemies = []; s.bossTimer = 1;
+    }
+    for (const block of seen) assert.equal(new Set(block).size, block.length, 'repeat in a block: ' + block.join(','));
+  }
+});

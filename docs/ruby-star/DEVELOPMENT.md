@@ -4,7 +4,7 @@
 
 ## Code map
 
-Ruby Star is a real-time top-down survival/defense game in Arkade, a Next.js 15 / React 19 / TypeScript app. Routes: `/ruby-star` (lobby), `/ruby-star/tutorial`, `/ruby-star/endless`, `/ruby-star/ascension`, `/ruby-star/challenge` (star map) and `/ruby-star/challenge/<body>`; local development normally uses `http://localhost:3000/ruby-star`. God panel: shown only with `?god=1` (`isGodQuery` in `RubyStarGame.tsx`), which the lobby passes through to the chosen mode. Local working copies may keep it always on; see the push rule below. It provides a five-column boss summon grid and a five-column celestial skill grid, with matching BOSSES and CELESTIAL SKILLS headings and bosses directly above skills; skill buttons preview the matching player suit and highlight the held skill. Constellations opens a paused all-upgrade toggle editor. Protection controls pair Immortal (player/Ruby HP minimum 1) with Invincible (ignore damage); refill controls pair Full HP with Full Energy. These modes are mutually exclusive and persist through reset.
+Ruby Star is a real-time top-down survival/defense game in Arkade, a Next.js 15 / React 19 / TypeScript app. Routes: `/ruby-star` (lobby), `/ruby-star/tutorial`, `/ruby-star/endless`, `/ruby-star/ascension`, `/ruby-star/challenge` (star map) and `/ruby-star/challenge/<body>`; local development normally uses `http://localhost:3000/ruby-star`. God panel: shown only with `?god=1` (`RubyStarGame.tsx`), which the lobby passes through. See the push rule below for restoring always-on local testing after a push. It provides a five-column boss summon grid and a five-column celestial skill grid, with matching BOSSES and CELESTIAL SKILLS headings and bosses directly above skills; skill buttons preview the matching player suit and highlight the held skill. Constellations opens a paused all-upgrade toggle editor. Protection controls pair Immortal (player/Ruby HP minimum 1) with Invincible (ignore damage); refill controls pair Full HP with Full Energy. These modes are mutually exclusive and persist through reset.
 
 | File or directory | Responsibility |
 | --- | --- |
@@ -13,15 +13,17 @@ Ruby Star is a real-time top-down survival/defense game in Arkade, a Next.js 15 
 | `app/ruby-star/events.ts` | Minor-event scheduling, gravity, star landing/pickup and Eclipse |
 | `app/ruby-star/encounter-art.ts` | Approved Sentinel/pylon/twin sprites, attack/revival effects and floor/chamber warnings |
 | `app/ruby-star/engine.ts` | Pure mutable game state, 60Hz tick, movement/pathfinding, attacks, damage, rewards, spawning, hazards, audio |
-| `app/ruby-star/neptune.ts`, `app/ruby-star/gaia.ts`, `app/ruby-star/moon.ts` | Challenge logic and state types (`NeptuneState`, `GaiaState`, `MoonState`); the core engine calls in through `updateNeptune`/`updateGaia` and exported helpers, and the modules import engine helpers back |
+| `app/ruby-star/neptune.ts`, `app/ruby-star/gaia.ts`, `app/ruby-star/moon.ts`, `app/ruby-star/sun.ts` | Challenge logic and state types (`NeptuneState`, `GaiaState`, `MoonState`, `SunState`); the core engine calls in through `updateNeptune`/`updateGaia` and exported helpers, and the modules import engine helpers back |
 | `app/ruby-star/neptune-art.ts` | Neptune challenge art: fish, stingers, jellyfish, sharks, water clones, water balls, tides, Trident (sky laser) |
+| `app/ruby-star/sun-art.ts`, `app/ruby-star/SunGuide.tsx` | Sun units, stations, temperature atmosphere, water effects and animated rule sheet; Sun debug controls include Wave Ready, Full Heat, Zero Heat, Phase 1/2/3 and independent No Wisps (preserved on restart; No Mobs leaves wisps alone) |
 | `app/ruby-star/BombStatus.tsx` | Icon-only HUD bomb ready/armed/cooldown indicator |
-| `app/ruby-star/CelestialStatus.tsx`, `app/ruby-star/MoonMarkStatus.tsx` | Icon-only HUD ready/recharging indicators: the celestial skill (Celestial Challenge) and the Moon Mark (Moon challenge) |
+| `app/ruby-star/CelestialStatus.tsx`, `app/ruby-star/MoonMarkStatus.tsx`, `app/ruby-star/CoolingWaveStatus.tsx` | Icon-only HUD ready/recharging indicators: the celestial skill (Celestial Challenge), the Moon Mark (Moon challenge) and Cooling Wave (Sun challenge) |
 | `app/ruby-star/page.tsx` | Mode lobby: title, carousel of mode cards, routing |
 | `app/ruby-star/RubyStarGame.tsx` | The game for a given mode: canvas renderers, input, animation loop, camera, HUD, God panel, touch controls |
 | `app/ruby-star/tutorial/page.tsx`, `endless/page.tsx`, `ascension/page.tsx` | Mode routes; each renders `RubyStarGame` with its mode, started by `createModeState` in `engine.ts` |
 | `app/ruby-star/trials.ts`, `challenge/page.tsx`, `challenge/[body]/page.tsx` | Celestial Challenge data (body, guardian boss, map position), star map page and per-world route (`trial` mode in the engine) |
 | `app/ruby-star/ui-sfx.ts` | Synthesized sci-fi menu cues for the lobby, rule sheet, EXIT and teleport menu |
+| `app/ruby-star/CelestialSkillGuideCard.tsx` | Shared animated F-skill card for all four challenge rule sheets, using the real celestial cast renderer |
 | `app/ruby-star/ConstellationAfterglow.tsx` | Faint non-blocking confirmation art, reusing the choice star positions and link geometry |
 | `app/ruby-star/ConstellationChoice.tsx` | Paused run-upgrade interface, including the final single choice |
 | `app/ruby-star/RubyStarGuide.tsx` | Simple main rules and Aliens & Bosses sheet |
@@ -42,7 +44,7 @@ The simulation uses approximately 60 ticks/second, independent of monitor refres
 ## Implementation rules
 
 - Inspect relevant current source and local changes before editing; preserve unrelated work.
-- Keep gameplay in `engine.ts` and rendering/input in `RubyStarGame.tsx`. Each Celestial Challenge keeps its logic in its own module (`neptune.ts`, `gaia.ts`, `moon.ts`); give new challenges their own module too, leaving only short hooks in `engine.ts`. The modules and engine import each other, so they must not use each other's values at module load time, only inside functions. The shared room picker for full-charge room strikes (`chooseSkyLaser`, `cancelSkyLaser`) stays in `engine.ts`. Tests reach private engine helpers by appending an export to `engine.ts` when transpiling it, so moved code is imported from its own module. Cosmetic edits must not silently change damage, range, timing, collision, targeting or audio.
+- Keep gameplay in `engine.ts` and rendering/input in `RubyStarGame.tsx`. Each Celestial Challenge keeps its logic in its own module (`neptune.ts`, `gaia.ts`, `moon.ts`, `sun.ts`); give new challenges their own module too, leaving only short hooks in `engine.ts`. The modules and engine import each other, so they must not use each other's values at module load time, only inside functions. The shared room picker for full-charge room strikes (`chooseSkyLaser`, `cancelSkyLaser`) stays in `engine.ts`. Tests reach private engine helpers by appending an export to `engine.ts` when transpiling it, so moved code is imported from its own module. Cosmetic edits must not silently change damage, range, timing, collision, targeting or audio.
 - Treat game state other than `playing` as paused for simulation and ability actions. Pause/stop persistent audio appropriately too. Both teleport and Constellation choices pause the game. Constellations are one-time choices; exclude owned entries, offer the final single entry, and stop when exhausted.
 - Keep tile/pixel interpolation synchronized after knockback, pull, teleport or interrupted charge. Share field bounds between collision and drawing.
 - Keep target-specific effects scoped: Lunar AI substitution must restore player state in `finally`. Boss removal must clean up its hazards, audio and global effects.
@@ -95,6 +97,7 @@ Use meaningful regression tests for gameplay changes. For simple art edits, rend
 | `preview-rewards.cjs` | Output directory; Ruby, bomb, reward effects and blast boundary |
 | `preview-battlefield.cjs` | Output directory, optional prefix; overview, details and pads |
 | `preview-space-events.cjs` | Output PNG; actual event warnings, early/active/fading stages and renderer immutability |
+| `preview-sun.cjs` | Output directory; Sun at three temperatures, bridge backdrop at three animation ages, materials/reservoir charge, units, actual Cooling Wave HUD states and Sunburst/meteor battlefield and minimap comparison; checks read-only art |
 | `preview-moon.cjs` | Output directory; Moon world at three ages, crystal cover close-up, and disguised Queen among illusions vs revealed |
 | `preview-charger.cjs` | Inspect script arguments; warning, rush and recovery frames |
 

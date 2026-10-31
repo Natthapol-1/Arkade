@@ -9,7 +9,7 @@ function mob(s,x,y,type='normal',hp=500){e.godSpawnBoss(s,'frost_warden');const 
 test('Supernova is the rarest natural event and uses safe floor placement',()=>{
  const s=fresh();s.ambientEvents.timer=0;events.updateAmbientEvents(s);
  const bag=[...s.ambientEvents.pool,s.ambientEvents.warning.kind],counts={};for(const k of bag)counts[k]=(counts[k]||0)+1;
- assert.deepEqual(counts,{...Object.fromEntries(Object.keys(e.AMBIENT_EVENTS).map(k=>[k,k==='supernova'?1:6]))});
+ assert.deepEqual(counts,{...Object.fromEntries(Object.keys(e.AMBIENT_EVENTS).map(k=>[k,k==='supernova'?2:6]))});
  const t=fresh();e.triggerAmbientEvent(t,'supernova');const p=t.ambientEvents.warning.points[0];assert.equal(t.map[p.y][p.x],c.T_FLOOR);assert.ok(Math.hypot(p.x-t.playerTileX,p.y-t.playerTileY)>=3);
 });
 test('bullets cannot arm or auto-target the star; lasers, wave and bomb can',()=>{

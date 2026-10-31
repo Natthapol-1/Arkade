@@ -99,6 +99,8 @@ function pull(state: GameState) {
 }
 
 // Returns a one-time pickup/detonation signal; the engine owns rewards and damage.
+export const SUPERNOVA_POOL_COPIES = 2; // in a pool with six of each other event: still the rarest (2 in 20)
+
 export function updateAmbientEvents(state: GameState): boolean | 'supernova' {
   if (state.gamePhase !== 'playing') { pauseAmbientEventSounds(); return false; }
   resumeAmbientEventSounds();
@@ -119,7 +121,7 @@ export function updateAmbientEvents(state: GameState): boolean | 'supernova' {
     events.timer--;
     // Let meteor and boss announcements take priority over scheduling minor events.
     if (events.timer <= 0 && state.meteoriteWarning < 0 && state.bossWarningTicks <= 0 && state.bossSpawnTicks <= 0) {
-      if (!events.pool.length) events.pool = (Object.keys(AMBIENT_EVENTS) as AmbientEventKind[]).flatMap(kind => Array<AmbientEventKind>(kind === 'supernova' ? 1 : 6).fill(kind));
+      if (!events.pool.length) events.pool = (Object.keys(AMBIENT_EVENTS) as AmbientEventKind[]).flatMap(kind => Array<AmbientEventKind>(kind === 'supernova' ? SUPERNOVA_POOL_COPIES : 6).fill(kind));
       const index = Math.floor(Math.random() * events.pool.length), kind = events.pool[index];
       if (triggerAmbientEvent(state, kind)) events.pool.splice(index, 1);
     }
